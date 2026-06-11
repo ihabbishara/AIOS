@@ -72,3 +72,25 @@ export function parseAgentAddress(
 export function parseDirectAddress(text: string): { role: string; text: string } | undefined {
   return parseAgentAddress(text, Object.keys(roles));
 }
+
+/**
+ * Finds an @agent mention ANYWHERE in the message (group convention — people
+ * write greetings first, mention on a later line). Returns the full text with
+ * the mention removed so the agent isn't confused by its own name.
+ */
+export function findAgentMention(
+  text: string,
+  names: string[],
+): { role: string; text: string } | undefined {
+  // Prefix form first (also supports bare "finance: ..." without @).
+  const prefixed = parseAgentAddress(text, names);
+  if (prefixed) return prefixed;
+  for (const name of names) {
+    const escaped = name.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const re = new RegExp(`(^|\\s)@${escaped}\\b[:,]?`, "i");
+    if (re.test(text)) {
+      return { role: name.toLowerCase(), text: text.replace(re, "$1").trim() };
+    }
+  }
+  return undefined;
+}

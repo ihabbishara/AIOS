@@ -5,7 +5,7 @@ import { loadPlaybooks } from "./engine/playbook.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { runSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
-import { DirectChats, parseDirectAddress, parseAgentAddress } from "./agents/direct.js";
+import { DirectChats, parseDirectAddress, findAgentMention } from "./agents/direct.js";
 import { FinanceAgent } from "./finance/agent.js";
 import { CliChannel } from "./channels/cli.js";
 import { TelegramChannel } from "./channels/telegram.js";
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
       let reply: string;
       if (binding) {
         // Bound chat: @agent prefixes match against the binding's agent list.
-        const addressed = parseAgentAddress(msg.text, binding.agents);
+        const addressed = findAgentMention(msg.text, binding.agents);
         const hasAttachments = !!msg.attachments?.length;
         if (addressed) {
           reply =

@@ -1,5 +1,32 @@
 import { describe, it, expect } from "vitest";
-import { parseDirectAddress } from "../src/agents/direct.js";
+import { parseDirectAddress, findAgentMention } from "../src/agents/direct.js";
+
+describe("findAgentMention", () => {
+  const agents = ["finance", "halalo"];
+
+  it("matches a prefix mention", () => {
+    expect(findAgentMention("@finance I paid 30 for hosting", agents)).toEqual({
+      role: "finance",
+      text: "I paid 30 for hosting",
+    });
+  });
+
+  it("matches a mention on a later line (greeting first)", () => {
+    const res = findAgentMention("جامد فشخ \n@halalo give me customer name of last order", agents);
+    expect(res?.role).toBe("halalo");
+    expect(res?.text).toContain("give me customer name of last order");
+    expect(res?.text).not.toContain("@halalo");
+  });
+
+  it("matches mid-sentence mentions", () => {
+    expect(findAgentMention("hey @finance what did we spend this month?", agents)?.role).toBe("finance");
+  });
+
+  it("ignores messages without a mention", () => {
+    expect(findAgentMention("let's grab lunch at 1pm", agents)).toBeUndefined();
+    expect(findAgentMention("email finance@idama.com about it", agents)).toBeUndefined();
+  });
+});
 
 describe("parseDirectAddress", () => {
   it("parses @role prefix", () => {
