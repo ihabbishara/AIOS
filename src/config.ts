@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import "dotenv/config";
+import type { TrustPolicy, TrustState } from "./kernel/trust.js";
 
 export interface Config {
   vaultPath: string;
@@ -29,6 +30,11 @@ export interface Config {
   uiPort: number;
   envPath: string;
   uiDist: string;
+  /** How long a queued approval stays valid (ms). */
+  actionExpiryMs: number;
+  trustPolicy: TrustPolicy;
+  /** Initial trust states applied at startup for types with no existing record. */
+  trustSeeds: Map<string, TrustState>;
 }
 
 export interface FinanceMember {
@@ -53,6 +59,16 @@ export interface ChatBinding {
   agents: string[];
   /** When true, agents only respond to @agent-addressed messages (and attachments). */
   mentionOnly: boolean;
+}
+
+/** Parses "vault.write=autonomous,test.echo=supervised" — unknown states are ignored. */
+export function parseTrustSeeds(raw: string | undefined): Map<string, TrustState> {
+  const map = new Map<string, TrustState>();
+  for (const pair of (raw ?? "").split(",")) {
+    const [type, state] = pair.split("=").map((s) => s.trim());
+    if (type && (state === "autonomous" || state === "supervised")) map.set(type, state);
+  }
+  return map;
 }
 
 export function parseBindings(raw: string | undefined): Map<string, ChatBinding> {
@@ -93,6 +109,18 @@ export function loadConfig(root = process.cwd()): Config {
     uiPort: Number(process.env.AIOS_UI_PORT ?? 4280),
     envPath: join(root, ".env"),
     uiDist: join(root, "ui", "dist"),
+    actionExpiryMs: Number(process.env.AIOS_ACTION_EXPIRY_MS ?? 24 * 60 * 60 * 1000),
+    trustPolicy: {
+      graduationStreak: Number(process.env.AIOS_GRADUATION_STREAK ?? 10),
+      graduationAgeDays: Number(process.env.AIOS_GRADUATION_AGE_DAYS ?? 30),
+      // trust.promote is ALWAYS in the ceiling set — promotions must always be human-approved.
+      alwaysSupervised: new Set([
+        "trust.promote",
+        ...(process.env.AIOS_ALWAYS_SUPERVISED ?? "")
+          .split(",").map((s) => s.trim()).filter(Boolean),
+      ]),
+    },
+    trustSeeds: parseTrustSeeds(process.env.AIOS_TRUST_SEED ?? "vault.write=autonomous"),
   };
 }
 
