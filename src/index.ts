@@ -198,7 +198,7 @@ async function main(): Promise<void> {
   }, 60_000);
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, finance, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, jobs, vault, config, router, finance, gate, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 
