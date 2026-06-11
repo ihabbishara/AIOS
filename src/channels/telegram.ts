@@ -105,18 +105,23 @@ export class TelegramChannel implements ChannelAdapter {
     this.bot.on("callback_query:data", async (ctx) => {
       const m = /^act:([\w-]+):(approve|reject)$/.exec(ctx.callbackQuery.data);
       if (!m || !this.verdictHandler) return void (await ctx.answerCallbackQuery());
-      if (this.allowedUserIds.length && !this.allowedUserIds.includes(ctx.from.id)) {
+      // Same guard as the text path: unbound groups blocked, bound-chat members allowed.
+      if (!(await this.authorized(ctx))) {
         return void (await ctx.answerCallbackQuery({ text: "Not authorized" }));
       }
-      const outcome = await this.verdictHandler({
-        actionId: m[1],
-        verdict: m[2] as "approve" | "reject",
-        by: ctx.from.username ?? String(ctx.from.id),
-      });
-      await ctx.answerCallbackQuery({ text: outcome.slice(0, 190) });
-      // Append the outcome to the original message and drop the buttons.
-      const original = ctx.callbackQuery.message?.text ?? "";
-      await ctx.editMessageText(`${original}\n\n→ ${outcome}`).catch(() => {});
+      try {
+        const outcome = await this.verdictHandler({
+          actionId: m[1],
+          verdict: m[2] as "approve" | "reject",
+          by: ctx.from.username ?? String(ctx.from.id),
+        });
+        await ctx.answerCallbackQuery({ text: outcome.slice(0, 190) });
+        // Append the outcome to the original message and drop the buttons.
+        const original = ctx.callbackQuery.message?.text ?? "";
+        await ctx.editMessageText(`${original}\n\n→ ${outcome}`).catch(() => {});
+      } catch (err) {
+        await ctx.answerCallbackQuery({ text: `Error: ${(err as Error).message}`.slice(0, 190) }).catch(() => {});
+      }
     });
 
     // Long-polling: outbound only, works behind NAT. Don't await — runs forever.
