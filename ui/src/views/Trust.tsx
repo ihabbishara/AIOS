@@ -21,7 +21,11 @@ export function Trust({ events }: { events: StoredEvent[] }) {
 
   const demote = async (type: string) => {
     if (!confirm(`Demote ${type} back to supervised?`)) return;
-    await api.demoteTrust(type);
+    try {
+      await api.demoteTrust(type);
+    } catch (e) {
+      alert((e as Error).message);
+    }
     reload();
   };
 
