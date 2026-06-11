@@ -10,6 +10,10 @@ describe("parseMembers", () => {
     ]);
   });
 
+  it("strips @ prefix from handles", () => {
+    expect(parseMembers("Akram:@iAZak")).toEqual([{ name: "Akram", handle: "iAZak" }]);
+  });
+
   it("returns empty for unset", () => {
     expect(parseMembers(undefined)).toEqual([]);
     expect(parseMembers("")).toEqual([]);

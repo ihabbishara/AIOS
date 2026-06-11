@@ -35,7 +35,7 @@ export function parseMembers(raw: string | undefined): FinanceMember[] {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [name, handle] = entry.split(":").map((s) => s.trim());
+      const [name, handle] = entry.split(":").map((s) => s.trim().replace(/^@/, ""));
       return { name, ...(handle ? { handle } : {}) };
     });
 }

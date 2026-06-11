@@ -34,6 +34,9 @@ export class TelegramChannel implements ChannelAdapter {
     this.bot.on("message:text", async (ctx) => {
       console.log(`[telegram] message from user id ${ctx.from.id} (@${ctx.from.username ?? "?"}) in chat ${ctx.chat.id}`);
       const isBoundChat = this.boundChatIds.includes(String(ctx.chat.id));
+      const isGroup = ctx.chat.type !== "private";
+      // Unbound groups: stay silent — don't process, don't reveal the bot reacts.
+      if (isGroup && !isBoundChat) return;
       if (!isBoundChat && this.allowedUserIds.length && !this.allowedUserIds.includes(ctx.from.id)) {
         await ctx.reply("Not authorized.");
         return;
