@@ -26,6 +26,7 @@ export class TelegramChannel implements ChannelAdapter {
 
   async start(onMessage: MessageHandler): Promise<void> {
     this.bot.on("message:text", async (ctx) => {
+      console.log(`[telegram] message from user id ${ctx.from.id} (@${ctx.from.username ?? "?"})`);
       if (this.allowedUserIds.length && !this.allowedUserIds.includes(ctx.from.id)) {
         await ctx.reply("Not authorized.");
         return;

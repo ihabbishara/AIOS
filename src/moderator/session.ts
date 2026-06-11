@@ -49,11 +49,31 @@ export class Moderator {
   }
 
   private async turn(chatKey: string, channel: string, chatId: string, userText: string): Promise<string> {
+    const sessionKey = `moderator-session:${chatKey}`;
+    try {
+      return await this.runQuery(sessionKey, channel, chatId, userText, this.deps.store.kvGet(sessionKey));
+    } catch (err) {
+      // Stored session id no longer exists on disk (e.g. the turn that created it
+      // errored before persisting). Heal: forget it and retry fresh once.
+      if ((err as Error).message.includes("No conversation found")) {
+        this.deps.log?.(`stale session for ${chatKey}, starting fresh`);
+        this.deps.store.kvSet(sessionKey, "");
+        return await this.runQuery(sessionKey, channel, chatId, userText, undefined);
+      }
+      throw err;
+    }
+  }
+
+  private async runQuery(
+    sessionKey: string,
+    channel: string,
+    chatId: string,
+    userText: string,
+    existing: string | undefined,
+  ): Promise<string> {
     const { store, jobs, vault, projectsRoot, log = () => {} } = this.deps;
     this.origin = { channel, chatId };
     const server = buildModeratorServer({ jobs, store, vault, projectsRoot, origin: this.origin });
-    const sessionKey = `moderator-session:${chatKey}`;
-    const existing = store.kvGet(sessionKey);
 
     const q = query({
       prompt: userText,
@@ -73,12 +93,15 @@ export class Moderator {
     let reply = "";
     for await (const msg of q) {
       if (msg.type === "result") {
-        store.kvSet(sessionKey, msg.session_id);
         if (msg.subtype === "success") {
+          // Only persist session ids from successful turns — errored turns may
+          // never be written to disk and would poison future resumes.
+          store.kvSet(sessionKey, msg.session_id);
           reply = msg.result;
         } else {
-          log(`moderator turn error: ${msg.subtype}`);
-          reply = `Something went wrong handling that (${msg.subtype}). Try again.`;
+          const detail = "errors" in msg ? msg.errors.join("; ") : "";
+          log(`moderator turn error: ${msg.subtype}${detail ? ` — ${detail}` : ""}`);
+          reply = `Something went wrong handling that (${msg.subtype}${detail ? `: ${detail}` : ""}). Try again.`;
         }
       }
     }
