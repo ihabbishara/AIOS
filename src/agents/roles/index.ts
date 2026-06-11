@@ -8,6 +8,8 @@ export interface RoleDef {
   permissionMode: "dontAsk" | "bypassPermissions";
   /** JSON schema forced on the final answer (engine branches on structured_output). */
   outputSchema?: Record<string, unknown>;
+  /** Skill names from skills-plugin/skills/ this role may load (progressive disclosure). */
+  skills?: string[];
   maxTurns: number;
 }
 
@@ -116,6 +118,7 @@ export const roles: Record<string, RoleDef> = {
       "Recommendation, Sources. Your final message is saved verbatim as the report.",
     allowedTools: [...READ_TOOLS, ...WEB_TOOLS],
     permissionMode: "dontAsk",
+    skills: ["market-sizing"],
     maxTurns: 40,
   },
   "ui-ux-designer": {
@@ -133,6 +136,7 @@ export const roles: Record<string, RoleDef> = {
       "Your final message is saved verbatim as the design brief — make it complete and self-contained.",
     allowedTools: [...READ_TOOLS, ...WEB_TOOLS],
     permissionMode: "dontAsk",
+    skills: ["design-tokens"],
     maxTurns: 30,
   },
   "code-reviewer": {

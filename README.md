@@ -124,7 +124,18 @@ stages:
 ```
 
 Roles live in `src/agents/roles/index.ts` (system prompt + tool allowlist + permission
-mode per role). Write-capable roles (developer, tester) run with bypassed permissions but
+mode per role).
+
+## Skills
+
+Give agents deep, on-demand expertise without bloating their prompts. A skill is a folder
+in `skills-plugin/skills/<name>/` with a `SKILL.md` (frontmatter `name` + `description`,
+body = the playbook). The description sits in the agent's context; the full file loads
+only when relevant.
+
+To add one: create the folder + `SKILL.md`, then list its name in the role's `skills`
+array in `src/agents/roles/index.ts`. Shipped examples: `market-sizing`
+(market-researcher), `design-tokens` (ui-ux-designer). Write-capable roles (developer, tester) run with bypassed permissions but
 are confined to the job's project directory under `~/projects`.
 
 ## Safety notes

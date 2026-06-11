@@ -1,5 +1,6 @@
 import { roles } from "./roles/index.js";
 import { resumableTurn } from "./resumable.js";
+import { skillOptions } from "./runner.js";
 import type { Store } from "../store/db.js";
 
 const DIRECT_ADDENDUM =
@@ -50,6 +51,7 @@ export class DirectChats {
           cwd: this.deps.projectsRoot,
           settingSources: [],
           maxTurns: def.maxTurns,
+          ...skillOptions(def),
           ...(this.deps.model ? { model: this.deps.model } : {}),
         },
       });

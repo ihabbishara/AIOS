@@ -1,5 +1,19 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import { roles } from "./roles/index.js";
+import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { roles, type RoleDef } from "./roles/index.js";
+
+const SKILLS_PLUGIN_PATH =
+  process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
+
+/** SDK options that load this role's skills from the aios-skills plugin. */
+export function skillOptions(role: RoleDef): Partial<Options> {
+  if (!role.skills?.length || !existsSync(SKILLS_PLUGIN_PATH)) return {};
+  return {
+    plugins: [{ type: "local", path: SKILLS_PLUGIN_PATH }],
+    skills: role.skills.map((s) => `aios-skills:${s}`),
+  };
+}
 
 export interface SpecialistResult {
   text: string;
@@ -45,6 +59,7 @@ export const runSpecialist: SpecialistRunFn = async (roleName, brief, opts) => {
         maxTurns: role.maxTurns,
         persistSession: false,
         settingSources: [],
+        ...skillOptions(role),
         abortController: abort,
         ...(opts.model ? { model: opts.model } : {}),
         ...(role.outputSchema
