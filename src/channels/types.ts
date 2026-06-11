@@ -16,4 +16,10 @@ export interface ChannelAdapter {
   send(chatId: string, text: string): Promise<void>;
   sendFile(chatId: string, filePath: string, caption?: string): Promise<void>;
   stop(): Promise<void>;
+  /** Rich approval request (e.g. inline buttons). Channels without it get a plain-text fallback. */
+  sendApprovalRequest?(chatId: string, approval: { id: string; type: string; preview: string }): Promise<void>;
+  /** Wire the verdict callback (button taps). Returns the user-facing outcome line. */
+  setVerdictHandler?(
+    handler: (v: { actionId: string; verdict: "approve" | "reject"; by: string }) => Promise<string>,
+  ): void;
 }
