@@ -6,6 +6,7 @@ import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { FinanceMember } from "../config.js";
 import type { InboundMessage } from "../channels/types.js";
+import { guardOptions } from "../agents/guards/index.js";
 
 const FINANCE_TOOLS = [
   "mcp__finance__add_expense",
@@ -264,15 +265,20 @@ export class FinanceAgent {
           mcpServers: { finance: this.buildServer(chatKey, { channel, chatId }) },
           allowedTools: FINANCE_TOOLS,
           permissionMode: "dontAsk",
-          // Read is for invoice analysis only — confine it to the finance evidence folder.
-          canUseTool: async (toolName, input) => {
-            if (toolName !== "Read") return { behavior: "allow" };
-            const filePath = String(input.file_path ?? "");
-            const allowedRoot = `${this.deps.vault.root}/finance/`;
-            return filePath.startsWith(allowedRoot)
-              ? { behavior: "allow" }
-              : { behavior: "deny", message: `Reading outside ${allowedRoot} is not permitted.` };
-          },
+          // Read is for invoice analysis only — confined to the finance evidence folder.
+          // Enforced via PreToolUse hook: the only layer that fires even for
+          // auto-allowed "safe" tools (canUseTool alone is bypassed for those).
+          ...guardOptions(
+            {
+              Read: (input) => {
+                const allowedRoot = `${this.deps.vault.root}/finance/`;
+                return String(input.file_path ?? "").startsWith(allowedRoot)
+                  ? { ok: true }
+                  : { ok: false, reason: `Reading outside ${allowedRoot} is not permitted.` };
+              },
+            },
+            "allow",
+          ),
           settingSources: [],
           strictMcpConfig: true,
           maxTurns: 20,

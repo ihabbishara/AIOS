@@ -177,6 +177,7 @@ flows through the brief (task + prior artifacts) the engine builds.
 | 🔬 **code-reviewer** | Audit. Reviews the diff; reports every issue with file:line + severity, coverage over confidence. Read-only by design. | Read, Grep, Glob, Bash | read-only | findings list + overall assessment |
 | 📊 **market-researcher** | Market analyst. Competitors, audience, pricing, TAM/SAM (assumptions stated), trends, gaps. Facts vs inference, every claim sourced. | Read, Grep, Glob, WebSearch, WebFetch | read-only | market report: Market, Competitors, Audience, Pricing, Trends, Opportunities, Sources |
 | 🎨 **ui-ux-designer** | Product designer. Personas, mermaid user flows, IA, ASCII wireframes, design tokens, component inventory, a11y notes. Anti-generic-AI aesthetics. | Read, Grep, Glob, WebSearch, WebFetch | read-only | implementable design brief |
+| 🕌 **halalo** | Halalo marketplace (CS-Cart) backend specialist. Repo expertise + live staging/production AWS inspection. Project CLAUDE.md injected at runtime. | Read/Grep/Glob (repo-confined), Bash (gated), Web | **deterministic read-only gate**: aws describe/get/list + SSM with read-only inner commands (mysql SELECT only); file reads confined to the repo; everything else denied in code | root-cause analyses with live evidence |
 | 🧠 **Moderator** | Your chief of staff. Discusses, refines, routes, reports. Phone-readable replies, outcome first. Never pretends a job finished. | vault + job tools, Read, Grep, Glob, WebSearch, WebFetch | read-only + job control | chat |
 
 Personas live in `src/agents/roles/index.ts`; the Moderator's in `src/moderator/prompt.ts`.
@@ -216,6 +217,24 @@ frontmatter), **SQLite = what the machine needs** (resume state, queue, session 
 Secrets live only in `.env`.
 
 ---
+
+## Guarded roles (deterministic tool gates)
+
+Roles can carry per-tool checks (`RoleDef.toolChecks`) enforced in code, not prompts.
+Two layers, because the SDK's permission paths differ (verified empirically, SDK 0.3.173):
+
+- **PreToolUse hook** — fires for *every* tool call, including tools auto-classified
+  "safe" (Read/Grep) and tools pre-approved via `allowedTools`. The only always-on layer.
+- **canUseTool** — the programmatic permission prompt; decides for tools that reach the
+  permission flow (e.g. Bash under `permissionMode: "default"`). Allow responses must
+  include `updatedInput`.
+
+The halalo gate (`src/agents/guards/halalo-readonly.ts`) parses each Bash command:
+rejects shell composition/redirection, requires `--profile halalo|halalo-staging-new`,
+allows only read-only AWS actions, and for `ssm send-command` validates the *inner*
+commands against their own allowlist (log tails, status, `mysql -e "SELECT…"` with
+write-keyword rejection). The finance agent uses the same mechanism to confine invoice
+reading to the vault's finance folder.
 
 ## Security model
 

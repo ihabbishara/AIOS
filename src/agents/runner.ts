@@ -1,7 +1,8 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { roles, type RoleDef } from "./roles/index.js";
+import { guardOptions } from "./guards/index.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -12,6 +13,37 @@ export function skillOptions(role: RoleDef): Partial<Options> {
   return {
     plugins: [{ type: "local", path: SKILLS_PLUGIN_PATH }],
     skills: role.skills.map((s) => `aios-skills:${s}`),
+  };
+}
+
+/** System prompt = persona + injected context files (e.g. a project CLAUDE.md, read fresh each session). */
+export function roleSystemPrompt(role: RoleDef): string {
+  let prompt = role.systemPrompt;
+  for (const file of role.contextFiles ?? []) {
+    if (!existsSync(file)) continue;
+    prompt += `\n\n# Project knowledge (${file})\n\n${readFileSync(file, "utf8")}`;
+  }
+  return prompt;
+}
+
+/**
+ * Single source of truth for a role's SDK options — used by both the pipeline
+ * runner and direct chats so security settings can never diverge.
+ */
+export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: string }): Options {
+  return {
+    systemPrompt: roleSystemPrompt(role),
+    allowedTools: role.allowedTools,
+    permissionMode: role.permissionMode,
+    ...(role.permissionMode === "bypassPermissions"
+      ? { allowDangerouslySkipPermissions: true }
+      : {}),
+    cwd: role.cwd ?? opts.cwd,
+    maxTurns: role.maxTurns,
+    settingSources: [],
+    ...(opts.model ? { model: opts.model } : {}),
+    ...skillOptions(role),
+    ...(role.toolChecks ? guardOptions(role.toolChecks, role.toolCheckFallback ?? "allow") : {}),
   };
 }
 
@@ -48,20 +80,10 @@ export const runSpecialist: SpecialistRunFn = async (roleName, brief, opts) => {
     const q = query({
       prompt: brief,
       options: {
-        systemPrompt: role.systemPrompt,
-        allowedTools: role.allowedTools,
-        permissionMode: role.permissionMode,
-        ...(role.permissionMode === "bypassPermissions"
-          ? { allowDangerouslySkipPermissions: true }
-          : {}),
-        cwd: opts.cwd,
+        ...roleQueryOptions(role, { cwd: opts.cwd, model: opts.model }),
         additionalDirectories: opts.additionalDirectories,
-        maxTurns: role.maxTurns,
         persistSession: false,
-        settingSources: [],
-        ...skillOptions(role),
         abortController: abort,
-        ...(opts.model ? { model: opts.model } : {}),
         ...(role.outputSchema
           ? { outputFormat: { type: "json_schema" as const, schema: role.outputSchema } }
           : {}),

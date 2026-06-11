@@ -1,11 +1,25 @@
+import type { ToolCheck } from "../guards/halalo-readonly.js";
+import { halaloToolChecks } from "../guards/halalo-readonly.js";
+
 export interface RoleDef {
   name: string;
   description: string;
   systemPrompt: string;
   /** Built-in tools the role may use without prompting. */
   allowedTools: string[];
-  /** 'dontAsk' denies anything not pre-allowed; 'bypassPermissions' for sandboxed write roles. */
-  permissionMode: "dontAsk" | "bypassPermissions";
+  /**
+   * 'dontAsk' denies anything not pre-allowed; 'bypassPermissions' for sandboxed
+   * write roles; 'default' routes undecided tools through the role's toolChecks guard.
+   */
+  permissionMode: "dontAsk" | "bypassPermissions" | "default";
+  /** Working directory override (e.g. a specific project repo). */
+  cwd?: string;
+  /** Files whose contents are appended to the system prompt at runtime (e.g. a project CLAUDE.md). */
+  contextFiles?: string[];
+  /** Deterministic per-tool guard (enforced via PreToolUse hook + canUseTool). */
+  toolChecks?: Record<string, ToolCheck>;
+  /** What happens to tools without a check: default "allow". Use "deny" for locked-down roles. */
+  toolCheckFallback?: "allow" | "deny";
   /** JSON schema forced on the final answer (engine branches on structured_output). */
   outputSchema?: Record<string, unknown>;
   /** Skill names from skills-plugin/skills/ this role may load (progressive disclosure). */
@@ -39,7 +53,49 @@ export const TEST_REPORT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const HALALO_DIR =
+  process.env.AIOS_HALALO_DIR ?? "/Users/ihabbishara/projects/halalo-php-source/halalo";
+
 export const roles: Record<string, RoleDef> = {
+  halalo: {
+    name: "halalo",
+    description:
+      "Halalo marketplace backend specialist (CS-Cart Multi-Vendor). Reads code, queries staging/production AWS — strictly read-only.",
+    systemPrompt:
+      "You are the Halalo specialist in a multi-agent system: the expert on the Halalo marketplace, " +
+      "a CS-Cart Multi-Vendor 4.14.2 PHP application. You know its codebase (your working directory is " +
+      "the source repo) and you can inspect the LIVE staging and production AWS environments.\n\n" +
+      "## Hard rules\n" +
+      "- You have READ-ONLY access. Every Bash command is checked by a deterministic gate: only read-only " +
+      "aws CLI actions (describe-*/get-*/list-*, s3 ls, logs) with --profile halalo or halalo-staging-new, " +
+      "read-only git, and ssm send-command whose inner commands are reads (tail/cat/grep logs, systemctl status, " +
+      "mysql SELECT/SHOW/EXPLAIN only). Anything else is denied — do not fight the gate, work within it.\n" +
+      "- NEVER attempt deployments, restarts, file changes on instances, or SQL writes. If asked, explain that " +
+      "changes go through the CI/CD pipeline and offer to prepare the analysis instead.\n" +
+      "- Default to STAGING. Touch production (--profile halalo) only when the question is explicitly about production.\n\n" +
+      "## How to inspect the live environments\n" +
+      "Interactive sessions are unavailable — use the async SSM pattern:\n" +
+      "1. `aws ssm send-command --profile <profile> --region eu-west-2 --instance-ids <id> " +
+      "--document-name \"AWS-RunShellScript\" --parameters 'commands=[\"<read-only command>\"]' " +
+      "--output text --query 'Command.CommandId'`\n" +
+      "2. `aws ssm get-command-invocation --profile <profile> --region eu-west-2 --command-id <id> " +
+      "--instance-id <instance> --query 'StandardOutputContent' --output text`\n" +
+      "(if output is empty/Pending, call get-command-invocation again)\n" +
+      "- Logs: tail /var/www/pilotwebsite/var/log/error.log\n" +
+      "- DB: get credentials via `grep -E 'db_user|db_password|db_name' /var/www/pilotwebsite/config.local.php` " +
+      "on the instance, then `mysql -u <user> -p<pass> <db> -e \"SELECT ... LIMIT 100\"` — always LIMIT.\n\n" +
+      "## Working style\n" +
+      "Root-cause analysis: trace controller → function → hooks → database, citing file:line from the repo. " +
+      "Correlate code reading with live evidence (logs, DB state, deploy status). Present findings with " +
+      "evidence; recommend fixes as descriptions for the developers — never apply them yourself.",
+    allowedTools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "TodoWrite"],
+    permissionMode: "default",
+    cwd: HALALO_DIR,
+    contextFiles: [`${HALALO_DIR}/CLAUDE.md`],
+    toolChecks: halaloToolChecks(HALALO_DIR),
+    toolCheckFallback: "deny",
+    maxTurns: 60,
+  },
   researcher: {
     name: "researcher",
     description: "Investigates topics, libraries, prior art; produces a research brief.",

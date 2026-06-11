@@ -1,6 +1,6 @@
 import { roles } from "./roles/index.js";
 import { resumableTurn } from "./resumable.js";
-import { skillOptions } from "./runner.js";
+import { roleQueryOptions, roleSystemPrompt } from "./runner.js";
 import type { Store } from "../store/db.js";
 
 const DIRECT_ADDENDUM =
@@ -43,17 +43,8 @@ export class DirectChats {
         prompt: userText,
         log: this.deps.log,
         options: {
-          systemPrompt: def.systemPrompt + DIRECT_ADDENDUM,
-          allowedTools: def.allowedTools,
-          permissionMode: def.permissionMode,
-          ...(def.permissionMode === "bypassPermissions"
-            ? { allowDangerouslySkipPermissions: true }
-            : {}),
-          cwd: this.deps.projectsRoot,
-          settingSources: [],
-          maxTurns: def.maxTurns,
-          ...skillOptions(def),
-          ...(this.deps.model ? { model: this.deps.model } : {}),
+          ...roleQueryOptions(def, { cwd: this.deps.projectsRoot, model: this.deps.model }),
+          systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
         },
       });
     } finally {
