@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { TrustRecord } from "../kernel/trust.js";
-import type { ActionRow } from "../kernel/actions.js";
+import type { ActionRow, ActionStatus } from "../kernel/actions.js";
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
 export type StageStatus = "running" | "done" | "failed";
@@ -314,7 +314,7 @@ export class Store {
 
   resolveAction(
     id: string,
-    f: { status: string; verdict_by: string | null; reject_reason: string | null; result: string | null; resolved_at: string },
+    f: { status: ActionStatus; verdict_by: string | null; reject_reason: string | null; result: string | null; resolved_at: string },
   ): void {
     this.db
       .prepare("UPDATE actions SET status = ?, verdict_by = ?, reject_reason = ?, result = ?, resolved_at = ? WHERE id = ?")
@@ -325,9 +325,10 @@ export class Store {
     const rows = this.db
       .prepare("SELECT id FROM actions WHERE status = 'proposed' AND expires_at < ? ORDER BY created_at")
       .all(nowIso) as unknown as Array<{ id: string }>;
-    for (const r of rows) {
-      this.db.prepare("UPDATE actions SET status = 'expired', resolved_at = ? WHERE id = ?").run(nowIso, r.id);
-    }
+    const expire = this.db.prepare(
+      "UPDATE actions SET status = 'expired', resolved_at = ? WHERE id = ? AND status = 'proposed'",
+    );
+    for (const r of rows) expire.run(nowIso, r.id);
     return rows.map((r) => r.id);
   }
 
