@@ -1,7 +1,7 @@
 // src/kernel/actions.ts
 import type { z } from "zod";
 
-export type ActionStatus = "proposed" | "executed" | "failed" | "rejected" | "expired";
+export type ActionStatus = "proposed" | "executing" | "executed" | "failed" | "rejected" | "expired";
 
 export interface ActionInput {
   /** Namespaced action type, e.g. "vault.write", "email.send". */

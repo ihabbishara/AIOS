@@ -37,7 +37,7 @@ function setup(opts: { expiryMs?: number; streak?: number; ageDays?: number } = 
     alwaysSupervised: new Set(["trust.promote"]),
   };
   const gate = new ActionGate({ store, registry, policy, bus, expiryMs: opts.expiryMs ?? 60_000 });
-  return { store, bus, events, calls, gate };
+  return { store, bus, events, calls, gate, registry };
 }
 
 describe("ActionGate.propose", () => {
@@ -70,6 +70,18 @@ describe("ActionGate.propose", () => {
     const { gate } = setup();
     await expect(gate.propose({ type: "fake.op", payload: { wrong: 1 }, preview: "?" }, ORIGIN))
       .rejects.toThrow();
+  });
+
+  it("gate authors trust.promote previews, ignoring caller-supplied text", async () => {
+    const { gate, store } = setup();
+    const row = await gate.propose(
+      { type: "trust.promote", payload: { action_type: "fake.op" }, preview: "Echo hello" },
+      ORIGIN,
+    );
+    expect(row.preview.startsWith("Promote ")).toBe(true);
+    expect(row.preview).toContain("fake.op");
+    expect(row.preview).not.toContain("Echo hello");
+    expect(store.getAction(row.id)?.preview).toBe(row.preview);
   });
 });
 
@@ -116,6 +128,30 @@ describe("ActionGate.resolve", () => {
     const row = await gate.propose({ type: "fake.op", payload: { v: "x" }, preview: "do x" }, ORIGIN);
     await expect(gate.resolve(row.id, "approve", { by: "ihab" })).rejects.toThrow("expired");
     expect(store.getAction(row.id)?.status).toBe("expired");
+  });
+
+  it("concurrent approvals execute exactly once", async () => {
+    const { gate, store, calls, registry } = setup();
+    const slow: Executor = {
+      type: "slow.op",
+      schema: z.object({}),
+      async execute() {
+        await new Promise((r) => setTimeout(r, 50));
+        calls.push("slow");
+        return "slow done";
+      },
+    };
+    registry.register(slow);
+    const row = await gate.propose({ type: "slow.op", payload: {}, preview: "slow run" }, ORIGIN);
+    const results = await Promise.allSettled([
+      gate.resolve(row.id, "approve", { by: "a" }),
+      gate.resolve(row.id, "approve", { by: "b" }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+    expect(calls.filter((c) => c === "slow")).toHaveLength(1);
+    expect(store.getAction(row.id)?.status).toBe("executed");
+    expect(store.getTrust("slow.op")?.approvals).toBe(1);
   });
 });
 

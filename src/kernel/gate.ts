@@ -37,6 +37,17 @@ export class ActionGate {
     if (!executor) throw new Error(`no executor registered for action type "${input.type}"`);
     executor.schema.parse(input.payload);
 
+    // Privileged meta-type: the gate authors the preview so a caller can never
+    // disguise a promotion behind innocuous-looking text.
+    if (input.type === "trust.promote") {
+      const target = String((input.payload as { action_type?: unknown }).action_type ?? "");
+      const targetTrust = store.getTrust(target);
+      input = {
+        ...input,
+        preview: `Promote ${target} to autonomous (${targetTrust?.streak ?? 0} consecutive approvals, currently ${targetTrust?.state ?? "unknown"})`,
+      };
+    }
+
     const now = new Date().toISOString();
     let trust = store.getTrust(input.type);
     if (!trust) {
@@ -44,8 +55,13 @@ export class ActionGate {
       store.upsertTrust(trust);
     }
 
+    // Short ids for chat usability; regenerate on the (rare) 32-bit collision.
+    // Synchronous block — race-free.
+    let id = randomUUID().slice(0, 8);
+    while (store.getAction(id)) id = randomUUID().slice(0, 8);
+
     const row: ActionRow = {
-      id: randomUUID().slice(0, 8),
+      id,
       type: input.type,
       payload: JSON.stringify(input.payload),
       preview: input.preview,
@@ -63,6 +79,7 @@ export class ActionGate {
     store.insertAction(row);
 
     if (decide(trust, policy) === "execute") {
+      store.claimAction(row.id);
       return this.runExecutor(row, true, null);
     }
 
@@ -93,6 +110,9 @@ export class ActionGate {
       return store.getAction(id)!;
     }
 
+    // Claim-before-execute: atomically flip proposed → executing so a concurrent
+    // resolve() can never run the executor twice for the same action.
+    if (!store.claimAction(id)) throw new Error(`action ${id} already in-flight`);
     const executed = await this.runExecutor(row, false, opts.by);
     await this.trainOnApprove(row, now);
     bus.emit({ type: "action.resolved", actionId: id, actionType: row.type, verdict: "approved" });

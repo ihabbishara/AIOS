@@ -321,6 +321,26 @@ export class Store {
       .run(f.status, f.verdict_by, f.reject_reason, f.result, f.resolved_at, id);
   }
 
+  /** Atomically claim a proposed action for execution. Returns true iff this call won the claim. */
+  claimAction(id: string): boolean {
+    const res = this.db
+      .prepare("UPDATE actions SET status = 'executing' WHERE id = ? AND status = 'proposed'")
+      .run(id);
+    return res.changes === 1;
+  }
+
+  /** Mark actions stuck in 'executing' (daemon died mid-execution) as failed. Returns affected ids. */
+  failStaleExecuting(nowIso: string): string[] {
+    const rows = this.db
+      .prepare("SELECT id FROM actions WHERE status = 'executing'")
+      .all() as unknown as Array<{ id: string }>;
+    const fail = this.db.prepare(
+      "UPDATE actions SET status = 'failed', result = 'daemon restarted mid-execution — effect unknown', resolved_at = ? WHERE id = ? AND status = 'executing'",
+    );
+    for (const r of rows) fail.run(nowIso, r.id);
+    return rows.map((r) => r.id);
+  }
+
   expireActions(nowIso: string): string[] {
     const rows = this.db
       .prepare("SELECT id FROM actions WHERE status = 'proposed' AND expires_at < ? ORDER BY created_at")

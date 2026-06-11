@@ -53,6 +53,37 @@ describe("Store actions", () => {
     expect(a.reject_reason).toBe("too pricey");
   });
 
+  it("claimAction wins exactly once, second claim returns false", () => {
+    const store = new Store(":memory:");
+    store.insertAction(row("ggg77777"));
+    expect(store.claimAction("ggg77777")).toBe(true);
+    expect(store.getAction("ggg77777")?.status).toBe("executing");
+    expect(store.claimAction("ggg77777")).toBe(false);
+  });
+
+  it("claimAction returns false for non-proposed and missing rows", () => {
+    const store = new Store(":memory:");
+    store.insertAction(row("hhh88888", { status: "executed", result: "done", resolved_at: NOW }));
+    expect(store.claimAction("hhh88888")).toBe(false);
+    expect(store.getAction("hhh88888")?.status).toBe("executed");
+    expect(store.claimAction("nosuchid")).toBe(false);
+  });
+
+  it("failStaleExecuting flips executing rows to failed and leaves others", () => {
+    const store = new Store(":memory:");
+    store.insertAction(row("iii99999", { status: "executing" }));
+    store.insertAction(row("jjj00000")); // proposed
+    store.insertAction(row("kkk11111", { status: "executed", result: "done", resolved_at: NOW }));
+    const failed = store.failStaleExecuting(NOW);
+    expect(failed).toEqual(["iii99999"]);
+    const a = store.getAction("iii99999")!;
+    expect(a.status).toBe("failed");
+    expect(a.result).toContain("daemon restarted");
+    expect(a.resolved_at).toBe(NOW);
+    expect(store.getAction("jjj00000")?.status).toBe("proposed");
+    expect(store.getAction("kkk11111")?.status).toBe("executed");
+  });
+
   it("expireActions marks only overdue proposed rows", () => {
     const store = new Store(":memory:");
     store.insertAction(row("ddd44444", { expires_at: "2026-06-12T09:00:00.000Z" })); // overdue
