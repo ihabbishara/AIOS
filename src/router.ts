@@ -5,6 +5,7 @@ import { parseDirectAddress, findAgentMention } from "./agents/direct.js";
 import type { FinanceAgent } from "./finance/agent.js";
 import type { ChatBinding } from "./config.js";
 import type { EventBus } from "./events.js";
+import type { ActionGate } from "./kernel/gate.js";
 
 export interface RouterDeps {
   moderator: Moderator;
@@ -12,6 +13,7 @@ export interface RouterDeps {
   finance: FinanceAgent;
   chatBindings: Map<string, ChatBinding>;
   bus?: EventBus;
+  gate?: ActionGate;
 }
 
 /**
@@ -31,6 +33,27 @@ export class MessageRouter {
       text: msg.text.slice(0, 300),
       sender: msg.sender?.username ?? msg.sender?.name,
     });
+
+    // Gate verdicts short-circuit all routing: /approve <id>, /reject <id> [reason]
+    const gateCmd = /^\/(approve|reject)\s+([\w-]+)(?:\s+([\s\S]+))?$/i.exec(msg.text.trim());
+    if (gateCmd && this.deps.gate) {
+      const [, verb, id, reason] = gateCmd;
+      let reply: string;
+      try {
+        const row = await this.deps.gate.resolve(id, verb.toLowerCase() as "approve" | "reject", {
+          by: msg.sender?.username ?? msg.sender?.name ?? msg.channel,
+          reason: reason?.trim(),
+        });
+        reply =
+          row.status === "executed" ? `✓ Executed [${row.type}] — ${row.result}`
+          : row.status === "failed" ? `⚠ Approved, but execution failed [${row.type}] — ${row.result}`
+          : `✗ Rejected [${row.type}]${row.reject_reason ? ` — ${row.reject_reason}` : ""}`;
+      } catch (err) {
+        reply = `Gate: ${(err as Error).message}`;
+      }
+      bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: reply.slice(0, 300) });
+      return reply;
+    }
 
     const agentTurn = async (agent: string, run: () => Promise<string>): Promise<string> => {
       const context = `chat:${msg.channel}:${msg.chatId}`;

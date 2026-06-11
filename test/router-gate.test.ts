@@ -1,0 +1,68 @@
+// test/router-gate.test.ts
+import { describe, it, expect } from "vitest";
+import { z } from "zod";
+import { Store } from "../src/store/db.js";
+import { EventBus } from "../src/events.js";
+import { ExecutorRegistry, type Executor } from "../src/kernel/actions.js";
+import { ActionGate } from "../src/kernel/gate.js";
+import { DEFAULT_POLICY } from "../src/kernel/trust.js";
+import { MessageRouter } from "../src/router.js";
+
+function setup() {
+  const store = new Store(":memory:");
+  const bus = new EventBus(store);
+  const registry = new ExecutorRegistry();
+  const echo: Executor = {
+    type: "test.echo",
+    schema: z.object({ text: z.string() }),
+    async execute(p) { return `echo: ${(p as { text: string }).text}`; },
+  };
+  registry.register(echo);
+  const gate = new ActionGate({ store, registry, policy: DEFAULT_POLICY, bus, expiryMs: 60_000 });
+  // Stubs: gate commands must short-circuit before any agent is consulted.
+  const router = new MessageRouter({
+    moderator: { handle: async () => "moderator-reply" } as never,
+    directChats: { handle: async () => "direct-reply" } as never,
+    finance: { handle: async () => "finance-reply" } as never,
+    chatBindings: new Map(),
+    gate,
+  });
+  return { store, gate, router };
+}
+
+describe("router gate commands", () => {
+  it("/approve executes the queued action", async () => {
+    const { gate, router, store } = setup();
+    const row = await gate.propose(
+      { type: "test.echo", payload: { text: "hi" }, preview: "Echo hi" },
+      { channel: "cli", chatId: "local" },
+    );
+    const reply = await router.handle({ channel: "cli", chatId: "local", text: `/approve ${row.id}` });
+    expect(reply).toContain("Executed");
+    expect(reply).toContain("echo: hi");
+    expect(store.getAction(row.id)?.status).toBe("executed");
+  });
+
+  it("/reject records the reason", async () => {
+    const { gate, router, store } = setup();
+    const row = await gate.propose(
+      { type: "test.echo", payload: { text: "hi" }, preview: "Echo hi" },
+      { channel: "cli", chatId: "local" },
+    );
+    const reply = await router.handle({ channel: "cli", chatId: "local", text: `/reject ${row.id} too noisy` });
+    expect(reply).toContain("Rejected");
+    expect(store.getAction(row.id)?.reject_reason).toBe("too noisy");
+  });
+
+  it("unknown id returns a gate error, not a crash", async () => {
+    const { router } = setup();
+    const reply = await router.handle({ channel: "cli", chatId: "local", text: "/approve zzzzzzzz" });
+    expect(reply).toContain("no action");
+  });
+
+  it("normal messages still reach the moderator", async () => {
+    const { router } = setup();
+    const reply = await router.handle({ channel: "cli", chatId: "local", text: "hello there" });
+    expect(reply).toBe("moderator-reply");
+  });
+});
