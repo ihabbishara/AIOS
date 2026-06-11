@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { TrustRecord } from "../kernel/trust.js";
+import type { ActionRow } from "../kernel/actions.js";
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
 export type StageStatus = "running" | "done" | "failed";
@@ -84,6 +86,36 @@ export class Store {
         ts TEXT NOT NULL,
         payload TEXT NOT NULL
       );
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS trust (
+        action_type TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        approvals INTEGER NOT NULL DEFAULT 0,
+        rejections INTEGER NOT NULL DEFAULT 0,
+        streak INTEGER NOT NULL DEFAULT 0,
+        first_seen TEXT NOT NULL,
+        last_rejection TEXT,
+        graduated_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS actions (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        preview TEXT NOT NULL,
+        status TEXT NOT NULL,
+        origin_channel TEXT NOT NULL,
+        origin_chat_id TEXT NOT NULL,
+        trust_state TEXT NOT NULL,
+        verdict_by TEXT,
+        reject_reason TEXT,
+        result TEXT,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
     `);
   }
 
@@ -224,7 +256,95 @@ export class Store {
       .run(key, value);
   }
 
+  // ---- trust ledger ----
+
+  getTrust(actionType: string): TrustRecord | undefined {
+    const r = this.db.prepare("SELECT * FROM trust WHERE action_type = ?").get(actionType) as
+      | Record<string, unknown>
+      | undefined;
+    return r ? toTrustRecord(r) : undefined;
+  }
+
+  listTrust(): TrustRecord[] {
+    return (this.db.prepare("SELECT * FROM trust ORDER BY action_type").all() as unknown as
+      Array<Record<string, unknown>>).map(toTrustRecord);
+  }
+
+  upsertTrust(t: TrustRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO trust (action_type, state, approvals, rejections, streak, first_seen, last_rejection, graduated_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(action_type) DO UPDATE SET
+           state=excluded.state, approvals=excluded.approvals, rejections=excluded.rejections,
+           streak=excluded.streak, last_rejection=excluded.last_rejection,
+           graduated_at=excluded.graduated_at, updated_at=excluded.updated_at`,
+      )
+      .run(
+        t.actionType, t.state, t.approvals, t.rejections, t.streak,
+        t.firstSeen, t.lastRejection, t.graduatedAt, new Date().toISOString(),
+      );
+  }
+
+  // ---- actions (approval queue + audit log) ----
+
+  insertAction(a: ActionRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO actions (id, type, payload, preview, status, origin_channel, origin_chat_id,
+                              trust_state, verdict_by, reject_reason, result, created_at, resolved_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        a.id, a.type, a.payload, a.preview, a.status, a.origin_channel, a.origin_chat_id,
+        a.trust_state, a.verdict_by, a.reject_reason, a.result, a.created_at, a.resolved_at, a.expires_at,
+      );
+  }
+
+  getAction(id: string): ActionRow | undefined {
+    return this.db.prepare("SELECT * FROM actions WHERE id = ?").get(id) as ActionRow | undefined;
+  }
+
+  listActions(status?: string, limit = 100): ActionRow[] {
+    const rows = status
+      ? this.db.prepare("SELECT * FROM actions WHERE status = ? ORDER BY created_at DESC LIMIT ?").all(status, limit)
+      : this.db.prepare("SELECT * FROM actions ORDER BY created_at DESC LIMIT ?").all(limit);
+    return rows as unknown as ActionRow[];
+  }
+
+  resolveAction(
+    id: string,
+    f: { status: string; verdict_by: string | null; reject_reason: string | null; result: string | null; resolved_at: string },
+  ): void {
+    this.db
+      .prepare("UPDATE actions SET status = ?, verdict_by = ?, reject_reason = ?, result = ?, resolved_at = ? WHERE id = ?")
+      .run(f.status, f.verdict_by, f.reject_reason, f.result, f.resolved_at, id);
+  }
+
+  expireActions(nowIso: string): string[] {
+    const rows = this.db
+      .prepare("SELECT id FROM actions WHERE status = 'proposed' AND expires_at < ? ORDER BY created_at")
+      .all(nowIso) as unknown as Array<{ id: string }>;
+    for (const r of rows) {
+      this.db.prepare("UPDATE actions SET status = 'expired', resolved_at = ? WHERE id = ?").run(nowIso, r.id);
+    }
+    return rows.map((r) => r.id);
+  }
+
   close(): void {
     this.db.close();
   }
+}
+
+function toTrustRecord(r: Record<string, unknown>): TrustRecord {
+  return {
+    actionType: r.action_type as string,
+    state: r.state as TrustRecord["state"],
+    approvals: r.approvals as number,
+    rejections: r.rejections as number,
+    streak: r.streak as number,
+    firstSeen: r.first_seen as string,
+    lastRejection: (r.last_rejection as string) ?? null,
+    graduatedAt: (r.graduated_at as string) ?? null,
+  };
 }
