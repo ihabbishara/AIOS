@@ -90,6 +90,15 @@ Talk to the bot like a colleague:
 - *"Research the best local vector databases."* → `research-report` job.
 - Every artifact lands in Obsidian: `AI-Vault/AIOS/jobs/<date>-<slug>/`.
 
+### Talking to specialists directly
+
+- **Via the moderator:** *"Ask the architect what it thinks about event sourcing here"* —
+  the moderator consults the specialist inline (`ask_specialist` tool) and relays the answer.
+- **Direct chat:** start a message with `@role` (or `role:`) to bypass the moderator and
+  talk one-on-one — `@architect how would you structure the cache?`. Each specialist keeps
+  its own conversation memory per chat. Roles: `researcher`, `architect`, `reviewer`,
+  `developer`, `tester`, `code-reviewer`.
+
 ## Playbooks
 
 Workflows are YAML in `playbooks/` — add new ones without touching code:

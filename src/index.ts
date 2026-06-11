@@ -5,6 +5,7 @@ import { loadPlaybooks } from "./engine/playbook.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { runSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
+import { DirectChats, parseDirectAddress } from "./agents/direct.js";
 import { CliChannel } from "./channels/cli.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
@@ -50,15 +51,27 @@ async function main(): Promise<void> {
     store,
     jobs,
     vault,
+    run: runSpecialist,
     projectsRoot: config.projectsRoot,
     model: config.moderatorModel,
+    specialistModel: config.specialistModel,
+    log,
+  });
+
+  const directChats = new DirectChats({
+    store,
+    projectsRoot: config.projectsRoot,
+    model: config.specialistModel,
     log,
   });
 
   const onMessage = async (msg: { channel: string; chatId: string; text: string }): Promise<void> => {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
-      const reply = await moderator.handle(msg.channel, msg.chatId, msg.text);
+      const direct = parseDirectAddress(msg.text);
+      const reply = direct
+        ? `[${direct.role}]\n${await directChats.handle(direct.role, msg.channel, msg.chatId, direct.text)}`
+        : await moderator.handle(msg.channel, msg.chatId, msg.text);
       await channels.get(msg.channel)?.send(msg.chatId, reply);
     } catch (err) {
       log(`handler error: ${(err as Error).stack}`);

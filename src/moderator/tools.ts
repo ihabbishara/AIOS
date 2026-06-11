@@ -16,6 +16,8 @@ export interface ModeratorToolsDeps {
   projectsRoot: string;
   /** Origin of the message currently being handled — set before each query. */
   origin: { channel: string; chatId: string };
+  /** One-shot specialist consultation (synchronous — used by ask_specialist). */
+  consult: (role: string, question: string) => Promise<{ text: string }>;
 }
 
 export function buildModeratorServer(deps: ModeratorToolsDeps) {
@@ -61,6 +63,21 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     },
   );
 
+  const askSpecialist = tool(
+    "ask_specialist",
+    "Consult one specialist directly with a single question and get their answer inline. " +
+      "Use for quick opinions/analysis — NOT for executing work (use run_playbook for that). " +
+      "Can take a few minutes.",
+    {
+      role: z.enum(["researcher", "architect", "reviewer", "developer", "tester", "code-reviewer"]),
+      question: z.string().describe("The question, with all context the specialist needs"),
+    },
+    async (args) => {
+      const res = await deps.consult(args.role, args.question);
+      return text(`[${args.role}]\n${res.text}`);
+    },
+  );
+
   const listPlaybooks = tool(
     "list_playbooks",
     "List available playbooks.",
@@ -98,6 +115,6 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
   return createSdkMcpServer({
     name: "aios",
     version: "0.1.0",
-    tools: [runPlaybook, jobStatus, listPlaybooks, vaultWrite, vaultRead, vaultList],
+    tools: [runPlaybook, jobStatus, listPlaybooks, askSpecialist, vaultWrite, vaultRead, vaultList],
   });
 }

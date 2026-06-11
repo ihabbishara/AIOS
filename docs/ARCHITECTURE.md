@@ -178,6 +178,17 @@ flows through the brief (task + prior artifacts) the engine builds.
 
 Personas live in `src/agents/roles/index.ts`; the Moderator's in `src/moderator/prompt.ts`.
 
+### Talking to specialists
+
+Specialists are reachable three ways:
+
+1. **Pipeline stages** — the engine briefs them inside playbook jobs (fresh session per task).
+2. **Moderator consult** — the Moderator's `ask_specialist` tool runs a one-shot specialist
+   call inline and uses the answer in its reply.
+3. **Direct chat** — messages starting `@role ...` (or `role: ...`) bypass the Moderator;
+   each specialist keeps a persistent per-chat session (own memory, resumable across daemon
+   restarts), with its pipeline persona softened by a direct-chat addendum.
+
 ---
 
 ## Persistence layout

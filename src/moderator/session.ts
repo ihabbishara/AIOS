@@ -1,25 +1,32 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { moderatorPrompt } from "./prompt.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
+import { resumableTurn } from "../agents/resumable.js";
 import type { Store } from "../store/db.js";
 import type { JobManager } from "../engine/jobs.js";
 import type { VaultWriter } from "../vault/writer.js";
+import type { SpecialistRunFn } from "../agents/runner.js";
 
 const MCP_TOOLS = [
   "mcp__aios__run_playbook",
   "mcp__aios__job_status",
   "mcp__aios__list_playbooks",
+  "mcp__aios__ask_specialist",
   "mcp__aios__vault_write",
   "mcp__aios__vault_read",
   "mcp__aios__vault_list",
 ];
 
+/** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
+const STREAM_CLOSE_TIMEOUT_MS = 10 * 60 * 1000;
+
 export interface ModeratorDeps {
   store: Store;
   jobs: JobManager;
   vault: VaultWriter;
+  run: SpecialistRunFn;
   projectsRoot: string;
   model?: string;
+  specialistModel?: string;
   log?: (line: string) => void;
 }
 
@@ -49,34 +56,23 @@ export class Moderator {
   }
 
   private async turn(chatKey: string, channel: string, chatId: string, userText: string): Promise<string> {
-    const sessionKey = `moderator-session:${chatKey}`;
-    try {
-      return await this.runQuery(sessionKey, channel, chatId, userText, this.deps.store.kvGet(sessionKey));
-    } catch (err) {
-      // Stored session id no longer exists on disk (e.g. the turn that created it
-      // errored before persisting). Heal: forget it and retry fresh once.
-      if ((err as Error).message.includes("No conversation found")) {
-        this.deps.log?.(`stale session for ${chatKey}, starting fresh`);
-        this.deps.store.kvSet(sessionKey, "");
-        return await this.runQuery(sessionKey, channel, chatId, userText, undefined);
-      }
-      throw err;
-    }
-  }
-
-  private async runQuery(
-    sessionKey: string,
-    channel: string,
-    chatId: string,
-    userText: string,
-    existing: string | undefined,
-  ): Promise<string> {
-    const { store, jobs, vault, projectsRoot, log = () => {} } = this.deps;
+    const { store, jobs, vault, projectsRoot } = this.deps;
     this.origin = { channel, chatId };
-    const server = buildModeratorServer({ jobs, store, vault, projectsRoot, origin: this.origin });
+    const server = buildModeratorServer({
+      jobs,
+      store,
+      vault,
+      projectsRoot,
+      origin: this.origin,
+      consult: (role, question) =>
+        this.deps.run(role, question, { cwd: projectsRoot, model: this.deps.specialistModel }),
+    });
 
-    const q = query({
+    return resumableTurn({
+      store,
+      sessionKey: `moderator-session:${chatKey}`,
       prompt: userText,
+      log: this.deps.log,
       options: {
         systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot),
         mcpServers: { aios: server },
@@ -85,26 +81,9 @@ export class Moderator {
         settingSources: [],
         strictMcpConfig: true,
         maxTurns: 40,
+        env: { ...process.env, CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: String(STREAM_CLOSE_TIMEOUT_MS) },
         ...(this.deps.model ? { model: this.deps.model } : {}),
-        ...(existing ? { resume: existing } : {}),
       },
     });
-
-    let reply = "";
-    for await (const msg of q) {
-      if (msg.type === "result") {
-        if (msg.subtype === "success") {
-          // Only persist session ids from successful turns — errored turns may
-          // never be written to disk and would poison future resumes.
-          store.kvSet(sessionKey, msg.session_id);
-          reply = msg.result;
-        } else {
-          const detail = "errors" in msg ? msg.errors.join("; ") : "";
-          log(`moderator turn error: ${msg.subtype}${detail ? ` — ${detail}` : ""}`);
-          reply = `Something went wrong handling that (${msg.subtype}${detail ? `: ${detail}` : ""}). Try again.`;
-        }
-      }
-    }
-    return reply || "(no reply)";
   }
 }

@@ -47,8 +47,10 @@ const moderator = new Moderator({
   store,
   jobs,
   vault,
+  run: runSpecialist,
   projectsRoot: config.projectsRoot,
   model: config.moderatorModel,
+  specialistModel: config.specialistModel,
   log: (l) => console.log(`  ${l}`),
 });
 

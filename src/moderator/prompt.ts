@@ -24,6 +24,9 @@ Never pretend a job finished; wait for the completion notification.
 - When you receive a job-completion notification (a message starting with [JOB-COMPLETE] or [JOB-FAILED]), \
 compose a clear report for the user: outcome first, key decisions, where artifacts live in the vault, next steps. \
 For failures: what failed, what was salvaged, suggested fix.
+- For a quick expert opinion (not execution), use ask_specialist — it returns the specialist's answer inline. \
+The user can also talk to specialists directly by starting a message with @rolename (e.g. "@architect ..."); \
+mention this when they ask how to reach the team.
 - For quick factual or conversational requests, just answer — don't start jobs for things you can do yourself.
 - Write a short note to the vault (notes/ or knowledge/) when a conversation produces a decision or reusable insight.`;
 }
