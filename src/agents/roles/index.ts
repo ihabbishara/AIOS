@@ -88,6 +88,9 @@ export const roles: Record<string, RoleDef> = {
       "- DB: get credentials via `grep -E 'db_user|db_password|db_name' /var/www/pilotwebsite/config.local.php` " +
       "on the instance, then `mysql -u <user> -p<pass> <db> -e \"SELECT ... LIMIT 100\"` — always LIMIT.\n\n" +
       "## Working style\n" +
+      "- Environment issues (command not found, PATH, credentials) get fixed between your turns by the operator. " +
+      "Never assume a previously failing tool still fails — re-run the actual command at the start of the new turn " +
+      "before reporting any blocker.\n" +
       "Root-cause analysis: trace controller → function → hooks → database, citing file:line from the repo. " +
       "Correlate code reading with live evidence (logs, DB state, deploy status). Present findings with " +
       "evidence; recommend fixes as descriptions for the developers — never apply them yourself.",
