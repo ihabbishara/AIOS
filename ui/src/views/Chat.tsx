@@ -1,12 +1,27 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type StateInfo } from "../api.js";
 
 interface Msg { who: "you" | string; text: string; pending?: boolean }
 
+const LOG_KEY = "aios_chat_log";
+
+function loadLog(): Msg[] {
+  try {
+    return JSON.parse(localStorage.getItem(LOG_KEY) ?? "[]") as Msg[];
+  } catch {
+    return [];
+  }
+}
+
 export function Chat({ state }: { state: StateInfo | undefined }) {
   const [target, setTarget] = useState("moderator");
   const [input, setInput] = useState("");
-  const [log, setLog] = useState<Msg[]>([]);
+  const [log, setLog] = useState<Msg[]>(loadLog);
+
+  // Persist across reloads (drop in-flight placeholders, cap at 200 entries).
+  useEffect(() => {
+    localStorage.setItem(LOG_KEY, JSON.stringify(log.filter((m) => !m.pending).slice(-200)));
+  }, [log]);
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 

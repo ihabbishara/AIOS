@@ -70,12 +70,13 @@ export function App() {
         </nav>
 
         {/* Main view */}
+        {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
-          {tab === "board" && <Board events={events} />}
-          {tab === "agents" && <Agents state={state} events={events} />}
-          {tab === "chat" && <Chat state={state} />}
-          {tab === "config" && <Config />}
-          {tab === "costs" && <Costs events={events} />}
+          <div className={tab === "board" ? "h-full" : "hidden"}><Board events={events} /></div>
+          <div className={tab === "agents" ? "" : "hidden"}><Agents state={state} events={events} /></div>
+          <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} /></div>
+          <div className={tab === "config" ? "h-full" : "hidden"}><Config /></div>
+          <div className={tab === "costs" ? "" : "hidden"}><Costs events={events} /></div>
         </main>
 
         {/* Event feed rail */}
