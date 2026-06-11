@@ -51,6 +51,34 @@ export interface StoredEvent {
   event: Record<string, unknown> & { type: string };
 }
 
+export interface ActionInfo {
+  id: string;
+  type: string;
+  payload: string;
+  preview: string;
+  status: string;
+  origin_channel: string;
+  origin_chat_id: string;
+  trust_state: string;
+  verdict_by: string | null;
+  reject_reason: string | null;
+  result: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  expires_at: string;
+}
+
+export interface TrustInfo {
+  actionType: string;
+  state: "supervised" | "graduating" | "autonomous";
+  approvals: number;
+  rejections: number;
+  streak: number;
+  firstSeen: string;
+  lastRejection: string | null;
+  graduatedAt: string | null;
+}
+
 export function getToken(): string {
   return localStorage.getItem("aios_token") ?? "";
 }
@@ -87,4 +115,11 @@ export const api = {
   saveConfig: (key: string, value: string) =>
     request<{ ok: boolean; note: string }>("/api/config", { method: "PUT", body: JSON.stringify({ key, value }) }),
   restart: () => request<{ ok: boolean }>("/api/restart", { method: "POST" }),
+  actions: (status?: string) =>
+    request<ActionInfo[]>(`/api/actions${status ? `?status=${status}` : ""}`),
+  resolveAction: (id: string, verdict: "approve" | "reject", reason?: string) =>
+    request<ActionInfo>(`/api/actions/${id}/resolve`, { method: "POST", body: JSON.stringify({ verdict, reason }) }),
+  trust: () => request<TrustInfo[]>("/api/trust"),
+  demoteTrust: (type: string) =>
+    request<{ ok: boolean }>(`/api/trust/${type}/demote`, { method: "POST" }),
 };

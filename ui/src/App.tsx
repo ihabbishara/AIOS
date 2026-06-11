@@ -7,8 +7,10 @@ import { Chat } from "./views/Chat.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
 import { EventFeed } from "./views/EventFeed.js";
+import { Approvals } from "./views/Approvals.js";
+import { Trust } from "./views/Trust.js";
 
-const TABS = ["board", "agents", "chat", "config", "costs"] as const;
+const TABS = ["board", "approvals", "trust", "agents", "chat", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
@@ -73,6 +75,8 @@ export function App() {
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
           <div className={tab === "board" ? "h-full" : "hidden"}><Board events={events} /></div>
+          <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
+          <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
           <div className={tab === "agents" ? "" : "hidden"}><Agents state={state} events={events} /></div>
           <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} /></div>
           <div className={tab === "config" ? "h-full" : "hidden"}><Config /></div>
