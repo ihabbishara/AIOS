@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mdToTelegramHtml, mdToSlackMrkdwn } from "../src/channels/format.js";
+import { mdToTelegramHtml, mdToSlackMrkdwn, convertTables } from "../src/channels/format.js";
 
 const SAMPLE = `## Update
 
@@ -37,6 +37,36 @@ describe("mdToTelegramHtml", () => {
 
   it("leaves snake_case alone", () => {
     expect(mdToTelegramHtml("use snake_case_names here")).toBe("use snake_case_names here");
+  });
+});
+
+describe("convertTables", () => {
+  const TABLE = `before
+| # | Payer | Amount |
+|---|-------|--------|
+| 5 | Mo | €5.00 |
+| 6 | Mo | €10.00 |
+after`;
+
+  it("converts tables to caption + bullets", () => {
+    const out = convertTables(TABLE);
+    expect(out).toContain("**# · Payer · Amount**");
+    expect(out).toContain("- 5 · Mo · €5.00");
+    expect(out).toContain("- 6 · Mo · €10.00");
+    expect(out).not.toContain("|---");
+    expect(out).toContain("before");
+    expect(out).toContain("after");
+  });
+
+  it("renders bullets through the telegram converter", () => {
+    const out = mdToTelegramHtml(TABLE);
+    expect(out).toContain("• 5 · Mo · €5.00");
+    expect(out).toContain("<b># · Payer · Amount</b>");
+    expect(out).not.toContain("|");
+  });
+
+  it("leaves non-table pipes alone", () => {
+    expect(convertTables("a | b without table syntax")).toBe("a | b without table syntax");
   });
 });
 

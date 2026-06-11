@@ -35,6 +35,16 @@ export class SlackChannel implements ChannelAdapter {
     await this.app.client.chat.postMessage({ channel: chatId, text: mdToSlackMrkdwn(text) });
   }
 
+  /** Upload a file to the chat. Requires the files:write bot scope. */
+  async sendFile(chatId: string, filePath: string, caption?: string): Promise<void> {
+    await this.app.client.filesUploadV2({
+      channel_id: chatId,
+      file: filePath,
+      filename: filePath.split("/").pop(),
+      initial_comment: caption,
+    });
+  }
+
   /** Resolve a Slack user id to a display name (needs users:read scope; falls back to the id). */
   private async displayName(userId: string): Promise<string> {
     const cached = this.nameCache.get(userId);

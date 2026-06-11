@@ -23,6 +23,11 @@ export class CliChannel implements ChannelAdapter {
     this.rl?.prompt();
   }
 
+  async sendFile(_chatId: string, filePath: string, caption?: string): Promise<void> {
+    process.stdout.write(`\naios> [file] ${filePath}${caption ? ` — ${caption}` : ""}\n\n`);
+    this.rl?.prompt();
+  }
+
   async stop(): Promise<void> {
     this.rl?.close();
   }

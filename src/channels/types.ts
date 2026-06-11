@@ -12,5 +12,6 @@ export interface ChannelAdapter {
   readonly name: string;
   start(onMessage: MessageHandler): Promise<void>;
   send(chatId: string, text: string): Promise<void>;
+  sendFile(chatId: string, filePath: string, caption?: string): Promise<void>;
   stop(): Promise<void>;
 }

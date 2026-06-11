@@ -72,6 +72,9 @@ async function main(): Promise<void> {
     company: config.financeCompany,
     members: config.financeMembers,
     model: config.specialistModel,
+    sendFile: async (channel, chatId, filePath, caption) => {
+      await channels.get(channel)?.sendFile(chatId, filePath, caption);
+    },
     log,
   });
 

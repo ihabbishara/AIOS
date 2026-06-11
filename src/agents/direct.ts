@@ -7,7 +7,8 @@ const DIRECT_ADDENDUM =
   "\n\nYou are currently in a DIRECT CHAT with the user (via Telegram/Slack/terminal), " +
   "outside any pipeline job. Reply conversationally and phone-readable: outcome first, " +
   "short paragraphs. You keep memory of this conversation across messages. " +
-  "Structured-output rules from pipeline runs do not apply here — just talk.";
+  "Structured-output rules from pipeline runs do not apply here — just talk. " +
+  "Never use markdown tables — unreadable on phones; use short lines or bullets.";
 
 export interface DirectChatsDeps {
   store: Store;

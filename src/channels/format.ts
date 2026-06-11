@@ -3,8 +3,36 @@
  * formatting so messages render rich instead of showing raw ** and ##.
  */
 
+/**
+ * Markdown tables don't exist on Telegram and render as walls of pipes on phones.
+ * Convert each table to compact lines: header becomes a bold caption, every row a bullet.
+ */
+export function convertTables(md: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const isRow = (l: string | undefined) => !!l && /^\s*\|.*\|\s*$/.test(l);
+    if (isRow(lines[i]) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] ?? "")) {
+      const cells = (l: string) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const header = cells(lines[i]);
+      i += 2; // skip header + separator
+      out.push(`**${header.join(" · ")}**`);
+      while (isRow(lines[i])) {
+        out.push(`- ${cells(lines[i]).filter(Boolean).join(" · ")}`);
+        i++;
+      }
+      continue;
+    }
+    out.push(lines[i]);
+    i++;
+  }
+  return out.join("\n");
+}
+
 /** Telegram HTML parse mode: <b>, <i>, <code>, <pre>, <a>. */
 export function mdToTelegramHtml(md: string): string {
+  md = convertTables(md);
   // Escape HTML first — everything below inserts tags deliberately.
   let s = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -30,6 +58,7 @@ export function mdToTelegramHtml(md: string): string {
 
 /** Slack mrkdwn: *bold*, _italic_, `code`, ```pre```, <url|text>. */
 export function mdToSlackMrkdwn(md: string): string {
+  md = convertTables(md);
   const blocks: string[] = [];
   // Protect fenced code blocks (Slack renders ``` natively; inline rules must not touch them)
   let s = md.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_m, code: string) => {

@@ -63,6 +63,14 @@ export class VaultWriter {
     return path;
   }
 
+  /** Write any file (no .md coercion) — e.g. CSV exports. Returns the absolute path. */
+  writeFile(relPath: string, content: string): string {
+    const path = join(this.root, relPath);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, content);
+    return path;
+  }
+
   readNote(relPath: string): string | undefined {
     const path = join(this.root, relPath.endsWith(".md") ? relPath : `${relPath}.md`);
     return existsSync(path) ? readFileSync(path, "utf8") : undefined;

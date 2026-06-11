@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import type { ChannelAdapter, MessageHandler } from "./types.js";
 import { mdToTelegramHtml } from "./format.js";
 
@@ -64,6 +64,10 @@ export class TelegramChannel implements ChannelAdapter {
         await this.bot.api.sendMessage(Number(chatId), part.replace(/<[^>]+>/g, ""));
       }
     }
+  }
+
+  async sendFile(chatId: string, filePath: string, caption?: string): Promise<void> {
+    await this.bot.api.sendDocument(Number(chatId), new InputFile(filePath), { caption });
   }
 
   async stop(): Promise<void> {

@@ -12,7 +12,12 @@ const FINANCE_TOOLS = [
   "mcp__finance__remove_expense",
   "mcp__finance__list_expenses",
   "mcp__finance__settle",
+  "mcp__finance__export_csv",
 ];
+
+function csvEscape(v: string): string {
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -45,7 +50,11 @@ the ledger is the source of truth.
 - For month-end (or whenever asked), use settle — it computes totals, the equal ${members.length}-way \
 split, balances, and who pays whom. The math is done by the tool; report its output faithfully.
 - To correct mistakes: remove_expense with the id, then re-add.
+- When someone asks for a report, export, overview, or spreadsheet, use export_csv — it sends a CSV \
+file directly into the chat.
 - Keep replies short and group-chat friendly. Confirmations one line; settlements as the tool renders them.
+- NEVER use markdown tables — they are unreadable on phones. Use the compact one-line-per-entry \
+format the tools return, or bullets.
 
 ## Boundaries
 - Never invent or estimate amounts. No entry in the ledger = it doesn't exist.
@@ -58,6 +67,8 @@ export interface FinanceAgentDeps {
   company: string;
   members: FinanceMember[];
   model?: string;
+  /** Sends a file into the originating chat (wired to the channel layer). */
+  sendFile?: (channel: string, chatId: string, filePath: string, caption?: string) => Promise<void>;
   log?: (line: string) => void;
 }
 
@@ -67,7 +78,7 @@ export class FinanceAgent {
 
   constructor(private deps: FinanceAgentDeps) {}
 
-  private buildServer(ledger: string) {
+  private buildServer(ledger: string, origin: { channel: string; chatId: string }) {
     const { store, vault, company } = this.deps;
     const members = this.deps.members.map((m) => m.name);
 
@@ -149,10 +160,38 @@ export class FinanceAgent {
       },
     );
 
+    const exportCsv = tool(
+      "export_csv",
+      "Generate a CSV report of the expenses (optionally one month) and send it into this chat as a file.",
+      { month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("YYYY-MM; omit for all time") },
+      async (a) => {
+        const rows = store.listExpenses(ledger, a.month);
+        if (!rows.length) return text(a.month ? `No expenses for ${a.month}.` : "Ledger is empty.");
+        const csv = [
+          "id,date,payer,amount,currency,description",
+          ...rows.map((r) =>
+            [r.id, r.date, csvEscape(r.payer), (r.amount_cents / 100).toFixed(2), r.currency, csvEscape(r.description)].join(","),
+          ),
+        ].join("\n");
+        const label = a.month ?? "all-time";
+        const path = vault.writeFile(
+          `finance/${company.toLowerCase()}/expenses-${label}.csv`,
+          `${csv}\n`,
+        );
+        if (!this.deps.sendFile) return text(`CSV written to ${path} (no file channel available).`);
+        const total = rows.reduce((s, r) => s + r.amount_cents, 0);
+        await this.deps.sendFile(
+          origin.channel, origin.chatId, path,
+          `${company} expenses ${label}: ${rows.length} entries, total ${formatCents(total, rows[0].currency)}`,
+        );
+        return text(`CSV report (${rows.length} entries) sent into the chat and archived at ${path}.`);
+      },
+    );
+
     return createSdkMcpServer({
       name: "finance",
       version: "0.1.0",
-      tools: [addExpense, removeExpense, listExpenses, settle],
+      tools: [addExpense, removeExpense, listExpenses, settle, exportCsv],
     });
   }
 
@@ -178,7 +217,7 @@ export class FinanceAgent {
         log: this.deps.log,
         options: {
           systemPrompt: financePrompt(this.deps.company, this.deps.members),
-          mcpServers: { finance: this.buildServer(chatKey) },
+          mcpServers: { finance: this.buildServer(chatKey, { channel, chatId }) },
           allowedTools: FINANCE_TOOLS,
           permissionMode: "dontAsk",
           settingSources: [],
