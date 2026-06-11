@@ -13,6 +13,7 @@ const FINANCE_TOOLS = [
   "mcp__finance__list_expenses",
   "mcp__finance__settle",
   "mcp__finance__export_csv",
+  "mcp__finance__send_receipt",
   "Read",
 ];
 
@@ -57,6 +58,9 @@ split, balances, and who pays whom. The math is done by the tool; report its out
 - To correct mistakes: remove_expense with the id, then re-add.
 - When someone asks for a report, export, overview, or spreadsheet, use export_csv — it sends a CSV \
 file directly into the chat.
+- A 📎 in listings means a receipt is archived in the vault — it is NOT attached to your reply. \
+To actually share it in the chat, call send_receipt with the expense id. Never say "attached" \
+unless you called send_receipt or export_csv in this turn.
 - Keep replies short and group-chat friendly. Confirmations one line; settlements as the tool renders them.
 - NEVER use markdown tables — they are unreadable on phones. Use the compact one-line-per-entry \
 format the tools return, or bullets.
@@ -197,10 +201,27 @@ export class FinanceAgent {
       },
     );
 
+    const sendReceipt = tool(
+      "send_receipt",
+      "Send the archived receipt/invoice file of an expense into this chat.",
+      { id: z.number().int().describe("Expense id") },
+      async (a) => {
+        const row = store.listExpenses(ledger).find((r) => r.id === a.id);
+        if (!row) return text(`No expense #${a.id} in this ledger.`);
+        if (!row.receipt_path) return text(`Expense #${a.id} has no receipt on file.`);
+        if (!this.deps.sendFile) return text(`Receipt is at ${row.receipt_path} (no file channel available).`);
+        await this.deps.sendFile(
+          origin.channel, origin.chatId, row.receipt_path,
+          `Receipt for #${row.id}: ${row.payer} — ${formatCents(row.amount_cents, row.currency)} (${row.description})`,
+        );
+        return text(`Receipt for #${a.id} sent into the chat.`);
+      },
+    );
+
     return createSdkMcpServer({
       name: "finance",
       version: "0.1.0",
-      tools: [addExpense, removeExpense, listExpenses, settle, exportCsv],
+      tools: [addExpense, removeExpense, listExpenses, settle, exportCsv, sendReceipt],
     });
   }
 
