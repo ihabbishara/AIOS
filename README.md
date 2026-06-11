@@ -138,6 +138,28 @@ array in `src/agents/roles/index.ts`. Shipped examples: `market-sizing`
 (market-researcher), `design-tokens` (ui-ux-designer). Write-capable roles (developer, tester) run with bypassed permissions but
 are confined to the job's project directory under `~/projects`.
 
+## Finance agent (bound group chats)
+
+A dedicated ledger-backed agent for team finances. Bind your team's group chat to it and
+every message there goes to the finance agent (financial topics only) instead of the
+moderator:
+
+```bash
+AIOS_FINANCE_COMPANY=IDAMA
+AIOS_FINANCE_MEMBERS=Name1,Name2,Name3,Name4,Name5
+AIOS_CHAT_BINDINGS=telegram:-1001234567890=finance
+```
+
+Team members report expenses in plain language ("paid 40 for the domain"); the agent
+records them in SQLite (exact integer-cent math), answers who-paid-what from the ledger,
+and on request computes the monthly settlement: total, equal split across the members,
+balances, and a minimal who-pays-whom transfer plan. Settlement reports are saved to the
+vault under `finance/<company>/`.
+
+Telegram group setup: add the bot to the group, then in @BotFather run `/setprivacy` →
+**Disable** so the bot can read all group messages (not just /commands). Send any message
+in the group, read its chat id from the daemon log, put it in `AIOS_CHAT_BINDINGS`.
+
 ## Safety notes
 
 - The moderator refuses `project_dir` outside `AIOS_PROJECTS_ROOT` (default `~/projects`).

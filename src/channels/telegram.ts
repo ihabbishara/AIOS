@@ -21,14 +21,20 @@ export class TelegramChannel implements ChannelAdapter {
   readonly name = "telegram";
   private bot: Bot;
 
-  constructor(token: string, private allowedUserIds: number[] = []) {
+  constructor(
+    token: string,
+    private allowedUserIds: number[] = [],
+    /** Chat ids bound to dedicated agents (e.g. a team's finance group) — members allowed. */
+    private boundChatIds: string[] = [],
+  ) {
     this.bot = new Bot(token);
   }
 
   async start(onMessage: MessageHandler): Promise<void> {
     this.bot.on("message:text", async (ctx) => {
-      console.log(`[telegram] message from user id ${ctx.from.id} (@${ctx.from.username ?? "?"})`);
-      if (this.allowedUserIds.length && !this.allowedUserIds.includes(ctx.from.id)) {
+      console.log(`[telegram] message from user id ${ctx.from.id} (@${ctx.from.username ?? "?"}) in chat ${ctx.chat.id}`);
+      const isBoundChat = this.boundChatIds.includes(String(ctx.chat.id));
+      if (!isBoundChat && this.allowedUserIds.length && !this.allowedUserIds.includes(ctx.from.id)) {
         await ctx.reply("Not authorized.");
         return;
       }

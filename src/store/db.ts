@@ -61,6 +61,16 @@ export class Store {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ledger TEXT NOT NULL,
+        payer TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'EUR',
+        description TEXT NOT NULL,
+        date TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -121,6 +131,44 @@ export class Store {
       .prepare("SELECT stage_id FROM stages WHERE job_id = ? AND status = 'done'")
       .all(jobId) as unknown as Array<{ stage_id: string }>;
     return new Set(rows.map((r) => r.stage_id));
+  }
+
+  addExpense(e: {
+    ledger: string;
+    payer: string;
+    amountCents: number;
+    currency: string;
+    description: string;
+    date: string;
+  }): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO expenses (ledger, payer, amount_cents, currency, description, date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(e.ledger, e.payer, e.amountCents, e.currency, e.description, e.date, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  deleteExpense(ledger: string, id: number): boolean {
+    const res = this.db.prepare("DELETE FROM expenses WHERE ledger = ? AND id = ?").run(ledger, id);
+    return res.changes > 0;
+  }
+
+  listExpenses(ledger: string, monthPrefix?: string): Array<{
+    id: number;
+    payer: string;
+    amount_cents: number;
+    currency: string;
+    description: string;
+    date: string;
+  }> {
+    const rows = monthPrefix
+      ? this.db
+          .prepare("SELECT * FROM expenses WHERE ledger = ? AND date LIKE ? ORDER BY date, id")
+          .all(ledger, `${monthPrefix}%`)
+      : this.db.prepare("SELECT * FROM expenses WHERE ledger = ? ORDER BY date, id").all(ledger);
+    return rows as never;
   }
 
   kvGet(key: string): string | undefined {

@@ -16,6 +16,19 @@ export interface Config {
   jobWallTimeMs: number;
   moderatorModel?: string;
   specialistModel?: string;
+  /** chatKey ("channel:chatId") -> agent name. Bound chats bypass the moderator. */
+  chatBindings: Map<string, string>;
+  financeCompany: string;
+  financeMembers: string[];
+}
+
+function parseBindings(raw: string | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const pair of (raw ?? "").split(",")) {
+    const [chatKey, agent] = pair.split("=").map((s) => s.trim());
+    if (chatKey && agent) map.set(chatKey, agent);
+  }
+  return map;
 }
 
 export function loadConfig(root = process.cwd()): Config {
@@ -35,6 +48,10 @@ export function loadConfig(root = process.cwd()): Config {
     jobWallTimeMs: Number(process.env.AIOS_JOB_WALL_TIME_MS ?? 2 * 60 * 60 * 1000),
     moderatorModel: process.env.AIOS_MODERATOR_MODEL,
     specialistModel: process.env.AIOS_SPECIALIST_MODEL,
+    chatBindings: parseBindings(process.env.AIOS_CHAT_BINDINGS),
+    financeCompany: process.env.AIOS_FINANCE_COMPANY ?? "IDAMA",
+    financeMembers: (process.env.AIOS_FINANCE_MEMBERS ?? "")
+      .split(",").map((s) => s.trim()).filter(Boolean),
   };
 }
 

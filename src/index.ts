@@ -6,6 +6,7 @@ import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { runSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
 import { DirectChats, parseDirectAddress } from "./agents/direct.js";
+import { FinanceAgent } from "./finance/agent.js";
 import { CliChannel } from "./channels/cli.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
@@ -65,13 +66,28 @@ async function main(): Promise<void> {
     log,
   });
 
+  const finance = new FinanceAgent({
+    store,
+    vault,
+    company: config.financeCompany,
+    members: config.financeMembers,
+    model: config.specialistModel,
+    log,
+  });
+
   const onMessage = async (msg: { channel: string; chatId: string; text: string }): Promise<void> => {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
-      const direct = parseDirectAddress(msg.text);
-      const reply = direct
-        ? `[${direct.role}]\n${await directChats.handle(direct.role, msg.channel, msg.chatId, direct.text)}`
-        : await moderator.handle(msg.channel, msg.chatId, msg.text);
+      const binding = config.chatBindings.get(`${msg.channel}:${msg.chatId}`);
+      let reply: string;
+      if (binding === "finance") {
+        reply = await finance.handle(msg.channel, msg.chatId, msg.text);
+      } else {
+        const direct = parseDirectAddress(msg.text);
+        reply = direct
+          ? `[${direct.role}]\n${await directChats.handle(direct.role, msg.channel, msg.chatId, direct.text)}`
+          : await moderator.handle(msg.channel, msg.chatId, msg.text);
+      }
       await channels.get(msg.channel)?.send(msg.chatId, reply);
     } catch (err) {
       log(`handler error: ${(err as Error).stack}`);
@@ -86,7 +102,10 @@ async function main(): Promise<void> {
   if (config.telegramToken) {
     const allowed = (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "")
       .split(",").map((s) => Number(s.trim())).filter(Boolean);
-    channels.set("telegram", new TelegramChannel(config.telegramToken, allowed));
+    const boundTelegramChats = [...config.chatBindings.keys()]
+      .filter((k) => k.startsWith("telegram:"))
+      .map((k) => k.slice("telegram:".length));
+    channels.set("telegram", new TelegramChannel(config.telegramToken, allowed, boundTelegramChats));
   }
   if (config.slackBotToken && config.slackAppToken) {
     channels.set("slack", new SlackChannel(config.slackBotToken, config.slackAppToken));
