@@ -9,7 +9,11 @@ export type AiosEvent =
   | { type: "agent.start"; agent: string; context: string }
   | { type: "agent.end"; agent: string; context: string; costUsd?: number; turns?: number; ok: boolean }
   | { type: "chat.in"; channel: string; chatId: string; text: string; sender?: string }
-  | { type: "chat.out"; channel: string; chatId: string; text: string };
+  | { type: "chat.out"; channel: string; chatId: string; text: string }
+  | { type: "action.proposed"; actionId: string; actionType: string; preview: string }
+  | { type: "action.executed"; actionId: string; actionType: string; auto: boolean; ok: boolean }
+  | { type: "action.resolved"; actionId: string; actionType: string; verdict: "approved" | "rejected" | "expired" }
+  | { type: "trust.changed"; actionType: string; state: string };
 
 export interface StoredEvent {
   id: number;
