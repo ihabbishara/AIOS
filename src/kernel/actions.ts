@@ -6,6 +6,7 @@ export type ActionStatus = "proposed" | "executed" | "failed" | "rejected" | "ex
 export interface ActionInput {
   /** Namespaced action type, e.g. "vault.write", "email.send". */
   type: string;
+  /** In-memory payload object. Serialized to JSON when persisted as ActionRow.payload. */
   payload: Record<string, unknown>;
   /** Human-readable one-liner shown in approval requests and the audit log. */
   preview: string;
@@ -43,6 +44,9 @@ export class ExecutorRegistry {
   private executors = new Map<string, Executor>();
 
   register(e: Executor): void {
+    if (this.executors.has(e.type)) {
+      throw new Error(`executor already registered for type "${e.type}"`);
+    }
     this.executors.set(e.type, e);
   }
 
