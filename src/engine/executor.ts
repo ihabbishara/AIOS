@@ -25,6 +25,7 @@ export interface ExecutorDeps {
   model?: string;
   wallTimeMs: number;
   log?: (line: string) => void;
+  onEvent?: (event: import("../events.js").AiosEvent) => void;
 }
 
 export interface Verdict {
@@ -83,12 +84,15 @@ export class PlaybookExecutor {
 
       store.stageStart(job.id, stage.id);
       log(`stage ${stage.id}: starting (${stage.type})`);
+      this.deps.onEvent?.({ type: "stage.start", jobId: job.id, stageId: stage.id, kind: stage.type });
       try {
         await this.runStageWithRetry(stage, ctx);
         store.stageFinish(job.id, stage.id, "done");
+        this.deps.onEvent?.({ type: "stage.finish", jobId: job.id, stageId: stage.id, status: "done" });
         vault.appendDaily(`[[jobs/${jobDirName}/${stage.id}|${job.slug}/${stage.id}]] done`);
       } catch (err) {
         store.stageFinish(job.id, stage.id, "failed");
+        this.deps.onEvent?.({ type: "stage.finish", jobId: job.id, stageId: stage.id, status: "failed" });
         throw err;
       }
     }
@@ -111,6 +115,23 @@ export class PlaybookExecutor {
     };
   }
 
+  /** Runs a specialist with agent start/end telemetry. */
+  private async runAgent(role: string, brief: string, ctx: JobContext, stageId: string) {
+    const context = `job:${ctx.job.slug}/${stageId}`;
+    this.deps.onEvent?.({ type: "agent.start", agent: role, context });
+    try {
+      const res = await this.deps.run(role, brief, this.runOpts(ctx));
+      this.deps.onEvent?.({
+        type: "agent.end", agent: role, context, ok: true,
+        costUsd: res.costUsd, turns: res.numTurns,
+      });
+      return res;
+    } catch (err) {
+      this.deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
+      throw err;
+    }
+  }
+
   private saveArtifact(ctx: JobContext, stageId: string, role: string, file: string, content: string): void {
     this.deps.vault.writeJobArtifact(ctx.jobDirName, file, content, {
       job: ctx.job.id,
@@ -128,7 +149,7 @@ export class PlaybookExecutor {
     switch (stage.type) {
       case "single": {
         const brief = [stage.brief, contextBlock(ctx)].filter(Boolean).join("\n\n");
-        const res = await this.deps.run(stage.role, brief, this.runOpts(ctx));
+        const res = await this.runAgent(stage.role, brief, ctx, stage.id);
         this.pushArtifact(ctx, stage.id, stage.role, `${stage.id}.md`, res.text);
         return;
       }
@@ -145,7 +166,7 @@ export class PlaybookExecutor {
             lastOutput ? `# Your previous version\n${truncate(lastOutput)}` : "",
           ].filter(Boolean).join("\n\n");
 
-          const produced = await this.deps.run(stage.producer, producerBrief, this.runOpts(ctx));
+          const produced = await this.runAgent(stage.producer, producerBrief, ctx, stage.id);
           lastOutput = produced.text;
           this.saveArtifact(ctx, stage.id, stage.producer, `${stage.id}-v${round}.md`, produced.text);
 
@@ -154,7 +175,7 @@ export class PlaybookExecutor {
             contextBlock(ctx),
             `# Output under review (round ${round})\n${truncate(produced.text)}`,
           ].join("\n\n");
-          const review = await this.deps.run(stage.critic, criticBrief, this.runOpts(ctx));
+          const review = await this.runAgent(stage.critic, criticBrief, ctx, stage.id);
           const verdict = review.structured as Verdict | undefined;
           this.saveArtifact(
             ctx, stage.id, stage.critic, `${stage.id}-review-${round}.md`,
@@ -178,7 +199,7 @@ export class PlaybookExecutor {
         let report: TestReport | undefined;
         for (let round = 1; round <= stage.maxRounds; round++) {
           const runnerBrief = [stage.brief, contextBlock(ctx), "Run the verification now."].filter(Boolean).join("\n\n");
-          const res = await this.deps.run(stage.runner, runnerBrief, this.runOpts(ctx));
+          const res = await this.runAgent(stage.runner, runnerBrief, ctx, stage.id);
           report = res.structured as TestReport | undefined;
           this.saveArtifact(
             ctx, stage.id, stage.runner, `${stage.id}-run-${round}.md`,
@@ -192,7 +213,7 @@ export class PlaybookExecutor {
             contextBlock(ctx),
             `# Failing verification (round ${round}) — fix these\n${report.summary}\n${report.failures.map((f) => `- ${f}`).join("\n")}`,
           ].join("\n\n");
-          const fix = await this.deps.run(stage.fixer, fixBrief, this.runOpts(ctx));
+          const fix = await this.runAgent(stage.fixer, fixBrief, ctx, stage.id);
           this.saveArtifact(ctx, stage.id, stage.fixer, `${stage.id}-fix-${round}.md`, fix.text);
         }
         const summary = report

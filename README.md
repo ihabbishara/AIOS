@@ -160,6 +160,32 @@ Telegram group setup: add the bot to the group, then in @BotFather run `/setpriv
 **Disable** so the bot can read all group messages (not just /commands). Send any message
 in the group, read its chat id from the daemon log, put it in `AIOS_CHAT_BINDINGS`.
 
+## Mission Control UI
+
+A live web dashboard served by the daemon at `http://localhost:4280`:
+
+- **Board** — kanban of jobs (queued/in-progress/completed/failed) with per-stage progress; click into a job for the live pipeline flow + every artifact.
+- **Agents** — roster with live activity, tools, skills, and guard status.
+- **Chat** — talk to the moderator or any specialist from the browser (same sessions as Telegram).
+- **Config** — edit env settings (secrets masked) and playbook YAML (validated + hot-reloaded); restart the daemon with one click.
+- **Costs** — usage-equivalents per agent and per day (covered by subscription).
+- **Telemetry rail** — every event streaming live (SSE).
+
+Rebuild after UI changes: `cd ui && npm run build` (daemon serves `ui/dist`).
+
+### Remote access via Tailscale
+
+The UI binds to localhost only. To reach it from your phone/laptop anywhere:
+
+```bash
+# one-time: install Tailscale on the Mac + your phone, log into the same tailnet
+tailscale serve --bg 4280
+```
+
+Then open `https://<your-mac-name>.<tailnet>.ts.net` from any of your devices.
+Optional extra lock: set `AIOS_UI_TOKEN=<random string>` in `.env` — the UI will
+ask for it once per browser.
+
 ## Safety notes
 
 - The moderator refuses `project_dir` outside `AIOS_PROJECTS_ROOT` (default `~/projects`).

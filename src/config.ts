@@ -26,6 +26,9 @@ export interface Config {
   chatBindings: Map<string, ChatBinding>;
   financeCompany: string;
   financeMembers: FinanceMember[];
+  uiPort: number;
+  envPath: string;
+  uiDist: string;
 }
 
 export interface FinanceMember {
@@ -87,6 +90,9 @@ export function loadConfig(root = process.cwd()): Config {
     chatBindings: parseBindings(process.env.AIOS_CHAT_BINDINGS),
     financeCompany: process.env.AIOS_FINANCE_COMPANY ?? "IDAMA",
     financeMembers: parseMembers(process.env.AIOS_FINANCE_MEMBERS),
+    uiPort: Number(process.env.AIOS_UI_PORT ?? 4280),
+    envPath: join(root, ".env"),
+    uiDist: join(root, "ui", "dist"),
   };
 }
 

@@ -1,0 +1,46 @@
+import { EventEmitter } from "node:events";
+import type { Store } from "./store/db.js";
+
+export type AiosEvent =
+  | { type: "job.created"; jobId: string; title: string; playbook: string }
+  | { type: "job.status"; jobId: string; status: string; error?: string }
+  | { type: "stage.start"; jobId: string; stageId: string; kind: string }
+  | { type: "stage.finish"; jobId: string; stageId: string; status: string }
+  | { type: "agent.start"; agent: string; context: string }
+  | { type: "agent.end"; agent: string; context: string; costUsd?: number; turns?: number; ok: boolean }
+  | { type: "chat.in"; channel: string; chatId: string; text: string; sender?: string }
+  | { type: "chat.out"; channel: string; chatId: string; text: string };
+
+export interface StoredEvent {
+  id: number;
+  ts: string;
+  event: AiosEvent;
+}
+
+/** In-process event bus; every event is also persisted for history/replay/dashboards. */
+export class EventBus {
+  private emitter = new EventEmitter();
+
+  constructor(private store: Store) {
+    this.emitter.setMaxListeners(50);
+  }
+
+  emit(event: AiosEvent): void {
+    const id = this.store.addEvent(JSON.stringify(event));
+    const stored: StoredEvent = { id, ts: new Date().toISOString(), event };
+    this.emitter.emit("event", stored);
+  }
+
+  on(listener: (e: StoredEvent) => void): () => void {
+    this.emitter.on("event", listener);
+    return () => this.emitter.off("event", listener);
+  }
+
+  history(sinceId = 0, limit = 500): StoredEvent[] {
+    return this.store.listEvents(sinceId, limit).map((row) => ({
+      id: row.id,
+      ts: row.ts,
+      event: JSON.parse(row.payload) as AiosEvent,
+    }));
+  }
+}

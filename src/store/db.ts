@@ -78,6 +78,13 @@ export class Store {
     } catch {
       /* column already exists */
     }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+    `);
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
@@ -180,6 +187,26 @@ export class Store {
           .all(ledger, `${monthPrefix}%`)
       : this.db.prepare("SELECT * FROM expenses WHERE ledger = ? ORDER BY date, id").all(ledger);
     return rows as never;
+  }
+
+  addEvent(payload: string): number {
+    const res = this.db
+      .prepare("INSERT INTO events (ts, payload) VALUES (?, ?)")
+      .run(new Date().toISOString(), payload);
+    return Number(res.lastInsertRowid);
+  }
+
+  listEvents(sinceId = 0, limit = 500): Array<{ id: number; ts: string; payload: string }> {
+    return this.db
+      .prepare("SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?")
+      .all(sinceId, limit)
+      .reverse() as unknown as Array<{ id: number; ts: string; payload: string }>;
+  }
+
+  listStages(jobId: string): Array<{ stage_id: string; status: string; started_at: string; finished_at: string | null }> {
+    return this.db
+      .prepare("SELECT stage_id, status, started_at, finished_at FROM stages WHERE job_id = ? ORDER BY started_at")
+      .all(jobId) as never;
   }
 
   kvGet(key: string): string | undefined {

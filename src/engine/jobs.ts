@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Playbook } from "./playbook.js";
+import { loadPlaybooks, type Playbook } from "./playbook.js";
 import { PlaybookExecutor, type JobContext } from "./executor.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
@@ -23,6 +23,7 @@ export interface JobManagerDeps {
   model?: string;
   onComplete: (outcome: JobOutcome) => Promise<void>;
   log?: (line: string) => void;
+  onEvent?: (event: import("../events.js").AiosEvent) => void;
 }
 
 export class JobManager {
@@ -33,6 +34,13 @@ export class JobManager {
 
   listPlaybooks(): Array<{ name: string; description: string }> {
     return [...this.deps.playbooks.values()].map((p) => ({ name: p.name, description: p.description }));
+  }
+
+  /** Re-reads playbook YAMLs (after a UI edit) into the live map. */
+  reloadPlaybooks(dir: string): void {
+    const fresh = loadPlaybooks(dir);
+    this.deps.playbooks.clear();
+    for (const [k, v] of fresh) this.deps.playbooks.set(k, v);
   }
 
   createJob(params: {
@@ -63,6 +71,7 @@ export class JobManager {
     };
     this.deps.store.insertJob(job);
     const row = this.deps.store.getJob(id)!;
+    this.deps.onEvent?.({ type: "job.created", jobId: id, title: row.title, playbook: row.playbook });
     this.enqueue(row);
     return row;
   }
@@ -97,6 +106,7 @@ export class JobManager {
     const pb = this.deps.playbooks.get(job.playbook)!;
     const jobDirName = vault.jobDirName(job.slug);
     store.updateJobStatus(job.id, "running");
+    this.deps.onEvent?.({ type: "job.status", jobId: job.id, status: "running" });
     vault.writeJobArtifact(jobDirName, "job.md",
       `# ${job.title}\n\n- playbook: ${job.playbook}\n- status: running\n- channel: ${job.channel}\n\n## Request\n\n${job.request}`,
       { job: job.id, playbook: job.playbook });
@@ -109,17 +119,20 @@ export class JobManager {
       model: this.deps.model,
       wallTimeMs: this.deps.wallTimeMs,
       log: (l) => log(`[${job.slug}] ${l}`),
+      onEvent: this.deps.onEvent,
     });
 
     let outcome: JobOutcome;
     try {
       const ctx: JobContext = await executor.execute(job, pb, jobDirName);
       store.updateJobStatus(job.id, "done");
+      this.deps.onEvent?.({ type: "job.status", jobId: job.id, status: "done" });
       vault.appendDaily(`job done: [[jobs/${jobDirName}/job|${job.title}]]`);
       outcome = { job, ok: true, jobDirName, artifactFiles: ctx.artifacts.map((a) => a.file) };
     } catch (err) {
       const msg = (err as Error).message;
       store.updateJobStatus(job.id, "failed", msg);
+      this.deps.onEvent?.({ type: "job.status", jobId: job.id, status: "failed", error: msg });
       vault.appendDaily(`job FAILED: [[jobs/${jobDirName}/job|${job.title}]] — ${msg}`);
       outcome = { job, ok: false, error: msg, jobDirName, artifactFiles: [] };
     }

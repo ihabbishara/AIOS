@@ -5,8 +5,11 @@ import { loadPlaybooks } from "./engine/playbook.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { runSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
-import { DirectChats, parseDirectAddress, findAgentMention } from "./agents/direct.js";
+import { DirectChats } from "./agents/direct.js";
 import { FinanceAgent } from "./finance/agent.js";
+import { EventBus } from "./events.js";
+import { MessageRouter } from "./router.js";
+import { startWebServer } from "./web/server.js";
 import { CliChannel } from "./channels/cli.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
@@ -19,6 +22,7 @@ async function main(): Promise<void> {
   assertAuth();
 
   const store = new Store(config.dbPath);
+  const bus = new EventBus(store);
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
   const playbooks = loadPlaybooks(config.playbooksDir);
@@ -34,6 +38,7 @@ async function main(): Promise<void> {
       : `[JOB-FAILED] Job "${job.title}" (${job.id}) failed: ${outcome.error}. Partial artifacts under jobs/${outcome.jobDirName}/. Tell the user what happened and suggest next steps.`;
     const report = await moderator.handle(job.channel, job.chat_id, notice);
     await channel?.send(job.chat_id, report);
+    bus.emit({ type: "chat.out", channel: job.channel, chatId: job.chat_id, text: report.slice(0, 300) });
   };
 
   const jobs = new JobManager({
@@ -45,6 +50,7 @@ async function main(): Promise<void> {
     maxConcurrent: config.maxConcurrentJobs,
     model: config.specialistModel,
     onComplete: onJobComplete,
+    onEvent: (e) => bus.emit(e),
     log,
   });
 
@@ -78,34 +84,19 @@ async function main(): Promise<void> {
     log,
   });
 
+  const router = new MessageRouter({
+    moderator,
+    directChats,
+    finance,
+    chatBindings: config.chatBindings,
+    bus,
+  });
+
   const onMessage = async (msg: import("./channels/types.js").InboundMessage): Promise<void> => {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
-      const binding = config.chatBindings.get(`${msg.channel}:${msg.chatId}`);
-      let reply: string;
-      if (binding) {
-        // Bound chat: @agent prefixes match against the binding's agent list.
-        const addressed = findAgentMention(msg.text, binding.agents);
-        const hasAttachments = !!msg.attachments?.length;
-        if (addressed) {
-          reply =
-            addressed.role === "finance"
-              ? await finance.handle(msg.channel, msg.chatId, addressed.text, msg.sender, msg.attachments)
-              : `[${addressed.role}]\n${await directChats.handle(addressed.role, msg.channel, msg.chatId, addressed.text)}`;
-        } else if (binding.mentionOnly && !hasAttachments) {
-          return; // mention-only chat: stay silent for unaddressed chatter
-        } else if (binding.agents[0] === "finance") {
-          reply = await finance.handle(msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments);
-        } else {
-          reply = `[${binding.agents[0]}]\n${await directChats.handle(binding.agents[0], msg.channel, msg.chatId, msg.text)}`;
-        }
-      } else {
-        const direct = parseDirectAddress(msg.text);
-        reply = direct
-          ? `[${direct.role}]\n${await directChats.handle(direct.role, msg.channel, msg.chatId, direct.text)}`
-          : await moderator.handle(msg.channel, msg.chatId, msg.text);
-      }
-      await channels.get(msg.channel)?.send(msg.chatId, reply);
+      const reply = await router.handle(msg);
+      if (reply !== null) await channels.get(msg.channel)?.send(msg.chatId, reply);
     } catch (err) {
       log(`handler error: ${(err as Error).stack}`);
       await channels.get(msg.channel)?.send(msg.chatId, `Error: ${(err as Error).message}`);
@@ -135,6 +126,11 @@ async function main(): Promise<void> {
     await ch.start(onMessage);
     log(`channel up: ${name}`);
   }
+
+  startWebServer(
+    { store, bus, jobs, vault, config, router, finance, envPath: config.envPath, uiDist: config.uiDist, log },
+    config.uiPort,
+  );
 
   const resumed = jobs.resumeUnfinished();
   if (resumed) log(`resumed ${resumed} unfinished job(s)`);
