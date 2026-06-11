@@ -83,8 +83,16 @@ async function main(): Promise<void> {
     try {
       const binding = config.chatBindings.get(`${msg.channel}:${msg.chatId}`);
       let reply: string;
-      if (binding === "finance") {
-        reply = await finance.handle(msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments);
+      if (binding) {
+        // Bound chat: @role reaches the extra agents; everything else goes to the default.
+        const direct = parseDirectAddress(msg.text);
+        if (direct && binding.includes(direct.role) && direct.role !== "finance") {
+          reply = `[${direct.role}]\n${await directChats.handle(direct.role, msg.channel, msg.chatId, direct.text)}`;
+        } else if (binding[0] === "finance") {
+          reply = await finance.handle(msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments);
+        } else {
+          reply = `[${binding[0]}]\n${await directChats.handle(binding[0], msg.channel, msg.chatId, msg.text)}`;
+        }
       } else {
         const direct = parseDirectAddress(msg.text);
         reply = direct

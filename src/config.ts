@@ -16,8 +16,12 @@ export interface Config {
   jobWallTimeMs: number;
   moderatorModel?: string;
   specialistModel?: string;
-  /** chatKey ("channel:chatId") -> agent name. Bound chats bypass the moderator. */
-  chatBindings: Map<string, string>;
+  /**
+   * chatKey ("channel:chatId") -> agents. Bound chats bypass the moderator.
+   * First entry is the default agent for every message; the rest are reachable
+   * via @role addressing. Syntax: "telegram:-100123=finance|halalo".
+   */
+  chatBindings: Map<string, string[]>;
   financeCompany: string;
   financeMembers: FinanceMember[];
 }
@@ -40,11 +44,13 @@ export function parseMembers(raw: string | undefined): FinanceMember[] {
     });
 }
 
-function parseBindings(raw: string | undefined): Map<string, string> {
-  const map = new Map<string, string>();
+export function parseBindings(raw: string | undefined): Map<string, string[]> {
+  const map = new Map<string, string[]>();
   for (const pair of (raw ?? "").split(",")) {
-    const [chatKey, agent] = pair.split("=").map((s) => s.trim());
-    if (chatKey && agent) map.set(chatKey, agent);
+    const [chatKey, agents] = pair.split("=").map((s) => s.trim());
+    if (!chatKey || !agents) continue;
+    const list = agents.split("|").map((s) => s.trim()).filter(Boolean);
+    if (list.length) map.set(chatKey, list);
   }
   return map;
 }

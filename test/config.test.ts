@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { parseMembers } from "../src/config.js";
+import { parseMembers, parseBindings } from "../src/config.js";
+
+describe("parseBindings", () => {
+  it("parses default agent plus @-addressable extras", () => {
+    const map = parseBindings("telegram:-5137644671=finance|halalo, slack:C123=finance");
+    expect(map.get("telegram:-5137644671")).toEqual(["finance", "halalo"]);
+    expect(map.get("slack:C123")).toEqual(["finance"]);
+  });
+
+  it("returns empty for unset", () => {
+    expect(parseBindings(undefined).size).toBe(0);
+  });
+});
 
 describe("parseMembers", () => {
   it("parses name:handle pairs and bare names", () => {
