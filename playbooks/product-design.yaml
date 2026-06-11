@@ -1,0 +1,22 @@
+name: product-design
+description: >-
+  Product discovery + design: market research, then a UI/UX design brief with a
+  review loop. Use before building a user-facing product. No project directory needed.
+needsProjectDir: false
+stages:
+  - type: single
+    id: market
+    role: market-researcher
+    brief: >-
+      Research the market for this product idea: competitors, audience, pricing,
+      positioning gaps. The design will build on your findings.
+
+  - type: loop
+    id: design-brief
+    producer: ui-ux-designer
+    critic: reviewer
+    maxRounds: 3
+    brief: >-
+      Create the complete UI/UX design brief for the product, grounded in the
+      market research. The reviewer will check completeness, implementability,
+      and that the visual direction fits the audience.

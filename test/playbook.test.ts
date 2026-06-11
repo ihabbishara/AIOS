@@ -5,7 +5,13 @@ import { join } from "node:path";
 describe("playbook loading", () => {
   it("loads all shipped playbooks", () => {
     const playbooks = loadPlaybooks(join(process.cwd(), "playbooks"));
-    expect([...playbooks.keys()].sort()).toEqual(["echo", "research-report", "software-feature"]);
+    expect([...playbooks.keys()].sort()).toEqual([
+      "echo",
+      "market-research",
+      "product-design",
+      "research-report",
+      "software-feature",
+    ]);
   });
 
   it("software-feature has the full pipeline and needs a project dir", () => {

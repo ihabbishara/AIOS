@@ -1,0 +1,14 @@
+name: market-research
+description: >-
+  Market analysis for a product or idea: competitors, audience, pricing,
+  trends, opportunities — with a quality review loop. No project directory needed.
+needsProjectDir: false
+stages:
+  - type: loop
+    id: market-report
+    producer: market-researcher
+    critic: reviewer
+    maxRounds: 2
+    brief: >-
+      Produce a thorough market research report for the product/idea. The reviewer
+      will check completeness, sourcing, and that claims are distinguished from inference.

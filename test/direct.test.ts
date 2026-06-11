@@ -23,6 +23,11 @@ describe("parseDirectAddress", () => {
     });
   });
 
+  it("parses the new specialist roles", () => {
+    expect(parseDirectAddress("@market-researcher size the meal-kit market in NL")?.role).toBe("market-researcher");
+    expect(parseDirectAddress("@ui-ux-designer sketch the onboarding flow")?.role).toBe("ui-ux-designer");
+  });
+
   it("returns undefined for normal moderator messages", () => {
     expect(parseDirectAddress("let's build a new feature")).toBeUndefined();
     expect(parseDirectAddress("@someoneelse hello")).toBeUndefined();

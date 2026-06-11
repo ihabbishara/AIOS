@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import type { JobManager } from "../engine/jobs.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
+import { roles } from "../agents/roles/index.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -69,7 +70,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       "Use for quick opinions/analysis — NOT for executing work (use run_playbook for that). " +
       "Can take a few minutes.",
     {
-      role: z.enum(["researcher", "architect", "reviewer", "developer", "tester", "code-reviewer"]),
+      role: z.enum(Object.keys(roles) as [string, ...string[]]),
       question: z.string().describe("The question, with all context the specialist needs"),
     },
     async (args) => {
