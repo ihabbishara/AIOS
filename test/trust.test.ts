@@ -68,6 +68,11 @@ describe("recordApproval", () => {
     expect(rec.state).toBe("supervised");
   });
 
+  it("throws on corrupted firstSeen timestamps", () => {
+    const rec = { ...newRecord("email.send", NOW), firstSeen: "not-a-date" };
+    expect(() => recordApproval(rec, policy, NOW)).toThrow("invalid ISO timestamp");
+  });
+
   it("only flags graduation once (graduating state does not re-flag)", () => {
     let rec = newRecord("email.send", NOW);
     for (let i = 0; i < 3; i++) ({ record: rec } = recordApproval(rec, policy, LATER));
@@ -94,6 +99,7 @@ describe("promote / demote", () => {
     const rec = promote(newRecord("email.send", NOW), LATER);
     expect(rec.state).toBe("autonomous");
     expect(rec.graduatedAt).toBe(LATER);
+    expect(rec.streak).toBe(0);
   });
 
   it("demote returns to supervised and clears graduatedAt", () => {

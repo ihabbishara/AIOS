@@ -37,7 +37,9 @@ export function newRecord(actionType: string, now: string): TrustRecord {
 }
 
 function ageDays(fromIso: string, nowIso: string): number {
-  return (Date.parse(nowIso) - Date.parse(fromIso)) / 86_400_000;
+  const ms = Date.parse(nowIso) - Date.parse(fromIso);
+  if (Number.isNaN(ms)) throw new Error(`ageDays: invalid ISO timestamp — from="${fromIso}" now="${nowIso}"`);
+  return ms / 86_400_000;
 }
 
 /** What the gate does with a proposed action of this type. Fail-closed: no record → queue. */
@@ -51,13 +53,18 @@ export function recordApproval(
   record: TrustRecord, policy: TrustPolicy, now: string,
 ): { record: TrustRecord; graduationReady: boolean } {
   const next: TrustRecord = { ...record, approvals: record.approvals + 1, streak: record.streak + 1 };
+  // Evaluated eagerly (not inside the && chain) so corrupted timestamps always throw
+  // instead of silently blocking graduation forever.
+  const age = ageDays(next.firstSeen, now);
   const graduationReady =
     next.state === "supervised" &&
     !policy.alwaysSupervised.has(next.actionType) &&
     next.streak >= policy.graduationStreak &&
-    ageDays(next.firstSeen, now) >= policy.graduationAgeDays;
-  if (graduationReady) next.state = "graduating";
-  return { record: next, graduationReady };
+    age >= policy.graduationAgeDays;
+  return {
+    record: graduationReady ? { ...next, state: "graduating" } : next,
+    graduationReady,
+  };
 }
 
 export function recordRejection(record: TrustRecord, now: string): TrustRecord {
