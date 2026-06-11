@@ -5,6 +5,7 @@ import type { JobManager } from "../engine/jobs.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import { roles } from "../agents/roles/index.js";
+import type { ActionGate } from "../kernel/gate.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -19,6 +20,9 @@ export interface ModeratorToolsDeps {
   origin: { channel: string; chatId: string };
   /** One-shot specialist consultation (synchronous — used by ask_specialist). */
   consult: (role: string, question: string) => Promise<{ text: string }>;
+  gate: ActionGate;
+  /** Registered executor types, for the tool description. */
+  actionTypes: string[];
 }
 
 export function buildModeratorServer(deps: ModeratorToolsDeps) {
@@ -88,12 +92,21 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
 
   const vaultWrite = tool(
     "vault_write",
-    "Write a markdown note to the Obsidian vault. Path is relative to the AIOS folder, e.g. notes/idea-x.md or knowledge/topic.md",
+    "Write a markdown note to the Obsidian vault (audited through the action gate). " +
+      "Path is relative to the AIOS folder, e.g. notes/idea-x.md or knowledge/topic.md",
     {
       path: z.string(),
       content: z.string(),
     },
-    async (args) => text(`Saved: ${deps.vault.writeNote(args.path, args.content)}`),
+    async (args) => {
+      const row = await deps.gate.propose(
+        { type: "vault.write", payload: { path: args.path, content: args.content }, preview: `Write vault note ${args.path}` },
+        deps.origin,
+      );
+      if (row.status === "executed") return text(row.result!);
+      if (row.status === "failed") return text(`Write failed: ${row.result}`);
+      return text(`Queued for user approval (action ${row.id}). The note is NOT written until the user approves.`);
+    },
   );
 
   const vaultRead = tool(
@@ -113,9 +126,34 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     async (args) => text(deps.vault.listNotes(args.dir ?? "").join("\n") || "(empty)"),
   );
 
+  const proposeAction = tool(
+    "propose_action",
+    "Propose an outward action through the trust gate. Trusted action types execute " +
+      "immediately; everything else is queued for the user to approve. " +
+      `Registered types: ${deps.actionTypes.join(", ")}`,
+    {
+      type: z.string().describe("Registered action type, e.g. test.echo"),
+      payload: z.record(z.string(), z.unknown()).describe("Payload matching the action type's schema"),
+      preview: z.string().describe("One-line human summary shown in the approval request"),
+    },
+    async (args) => {
+      try {
+        const row = await deps.gate.propose(
+          { type: args.type, payload: args.payload as Record<string, unknown>, preview: args.preview },
+          deps.origin,
+        );
+        if (row.status === "executed") return text(`Executed: ${row.result}`);
+        if (row.status === "failed") return text(`Execution failed: ${row.result}`);
+        return text(`Queued for user approval: action ${row.id} [${row.type}] ${row.preview}`);
+      } catch (err) {
+        return text(`Gate refused: ${(err as Error).message}`);
+      }
+    },
+  );
+
   return createSdkMcpServer({
     name: "aios",
     version: "0.1.0",
-    tools: [runPlaybook, jobStatus, listPlaybooks, askSpecialist, vaultWrite, vaultRead, vaultList],
+    tools: [runPlaybook, jobStatus, listPlaybooks, askSpecialist, vaultWrite, vaultRead, vaultList, proposeAction],
   });
 }
