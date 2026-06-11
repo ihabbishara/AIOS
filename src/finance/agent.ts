@@ -4,6 +4,8 @@ import { resumableTurn } from "../agents/resumable.js";
 import { computeSettlement, renderSettlement, toCents, formatCents } from "./ledger.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
+import type { FinanceMember } from "../config.js";
+import type { InboundMessage } from "../channels/types.js";
 
 const FINANCE_TOOLS = [
   "mcp__finance__add_expense",
@@ -20,18 +22,23 @@ function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
-function financePrompt(company: string, members: string[]): string {
+function financePrompt(company: string, members: FinanceMember[]): string {
+  const roster = members
+    .map((m) => (m.handle ? `${m.name} (@${m.handle})` : m.name))
+    .join(", ");
   return `You are the Finance assistant for ${company}, living inside the team's group chat. \
 You handle FINANCIAL MATTERS ONLY: recording invoices and expenses, answering who-paid-what, \
 and running the monthly settlement. For anything non-financial, politely decline in one short \
 sentence and steer back to finances.
 
-Team members sharing costs equally (${members.length}): ${members.join(", ")}.
+Team members sharing costs equally (${members.length}): ${roster}.
 
 ## How you work
-- When someone reports an expense ("paid 40 for the domain", an invoice, a receipt), record it with \
-add_expense. Infer the payer from how they introduce themselves or who they say paid — ask if unclear. \
-Confirm each recorded entry back with its id, amount, and description.
+- Every user message is prefixed with "[from: Name (@username)]" — the actual sender. \
+When someone reports their own expense ("paid 40 for the domain"), match the sender to a team member \
+by @username or name and record THEM as the payer. If they name someone else as payer, use that person. \
+If the sender matches no member and no payer is named, ask who paid.
+- Record expenses with add_expense. Confirm each recorded entry back with its id, amount, payer, and description.
 - Amounts default to EUR unless stated otherwise.
 - Use list_expenses to answer questions about what was spent; never recall amounts from memory — \
 the ledger is the source of truth.
@@ -49,7 +56,7 @@ export interface FinanceAgentDeps {
   store: Store;
   vault: VaultWriter;
   company: string;
-  members: string[];
+  members: FinanceMember[];
   model?: string;
   log?: (line: string) => void;
 }
@@ -61,7 +68,8 @@ export class FinanceAgent {
   constructor(private deps: FinanceAgentDeps) {}
 
   private buildServer(ledger: string) {
-    const { store, vault, members, company } = this.deps;
+    const { store, vault, company } = this.deps;
+    const members = this.deps.members.map((m) => m.name);
 
     const addExpense = tool(
       "add_expense",
@@ -148,8 +156,16 @@ export class FinanceAgent {
     });
   }
 
-  async handle(channel: string, chatId: string, userText: string): Promise<string> {
+  async handle(
+    channel: string,
+    chatId: string,
+    userText: string,
+    sender?: InboundMessage["sender"],
+  ): Promise<string> {
     const chatKey = `${channel}:${chatId}`;
+    const from = sender?.name || sender?.username
+      ? `[from: ${sender.name ?? "?"}${sender.username ? ` (@${sender.username})` : ""}]\n`
+      : "";
     const prev = this.locks.get(chatKey) ?? Promise.resolve();
     let release!: () => void;
     this.locks.set(chatKey, new Promise((r) => (release = r)));
@@ -158,7 +174,7 @@ export class FinanceAgent {
       return await resumableTurn({
         store: this.deps.store,
         sessionKey: `finance-session:${chatKey}`,
-        prompt: userText,
+        prompt: from + userText,
         log: this.deps.log,
         options: {
           systemPrompt: financePrompt(this.deps.company, this.deps.members),

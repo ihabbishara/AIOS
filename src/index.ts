@@ -75,13 +75,13 @@ async function main(): Promise<void> {
     log,
   });
 
-  const onMessage = async (msg: { channel: string; chatId: string; text: string }): Promise<void> => {
+  const onMessage = async (msg: import("./channels/types.js").InboundMessage): Promise<void> => {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
       const binding = config.chatBindings.get(`${msg.channel}:${msg.chatId}`);
       let reply: string;
       if (binding === "finance") {
-        reply = await finance.handle(msg.channel, msg.chatId, msg.text);
+        reply = await finance.handle(msg.channel, msg.chatId, msg.text, msg.sender);
       } else {
         const direct = parseDirectAddress(msg.text);
         reply = direct

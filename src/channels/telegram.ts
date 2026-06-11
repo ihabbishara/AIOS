@@ -42,6 +42,10 @@ export class TelegramChannel implements ChannelAdapter {
         channel: this.name,
         chatId: String(ctx.chat.id),
         text: ctx.message.text,
+        sender: {
+          name: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || undefined,
+          username: ctx.from.username,
+        },
       });
     });
     // Long-polling: outbound only, works behind NAT. Don't await — runs forever.

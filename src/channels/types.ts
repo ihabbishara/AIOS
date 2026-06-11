@@ -2,6 +2,8 @@ export interface InboundMessage {
   channel: string;
   chatId: string;
   text: string;
+  /** Who sent it (display name / platform username) — used by group-bound agents. */
+  sender?: { name?: string; username?: string };
 }
 
 export type MessageHandler = (msg: InboundMessage) => Promise<void>;

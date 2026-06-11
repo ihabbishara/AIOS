@@ -19,7 +19,25 @@ export interface Config {
   /** chatKey ("channel:chatId") -> agent name. Bound chats bypass the moderator. */
   chatBindings: Map<string, string>;
   financeCompany: string;
-  financeMembers: string[];
+  financeMembers: FinanceMember[];
+}
+
+export interface FinanceMember {
+  name: string;
+  /** Platform username/handle for auto-attribution (Telegram username, Slack display name). */
+  handle?: string;
+}
+
+/** Parses "Ihab:theAmsterdamer,Amr:amr_tg,Sara" — handle part optional per member. */
+export function parseMembers(raw: string | undefined): FinanceMember[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [name, handle] = entry.split(":").map((s) => s.trim());
+      return { name, ...(handle ? { handle } : {}) };
+    });
 }
 
 function parseBindings(raw: string | undefined): Map<string, string> {
@@ -50,8 +68,7 @@ export function loadConfig(root = process.cwd()): Config {
     specialistModel: process.env.AIOS_SPECIALIST_MODEL,
     chatBindings: parseBindings(process.env.AIOS_CHAT_BINDINGS),
     financeCompany: process.env.AIOS_FINANCE_COMPANY ?? "IDAMA",
-    financeMembers: (process.env.AIOS_FINANCE_MEMBERS ?? "")
-      .split(",").map((s) => s.trim()).filter(Boolean),
+    financeMembers: parseMembers(process.env.AIOS_FINANCE_MEMBERS),
   };
 }
 
