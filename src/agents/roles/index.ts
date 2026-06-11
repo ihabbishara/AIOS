@@ -72,7 +72,10 @@ export const roles: Record<string, RoleDef> = {
       "mysql SELECT/SHOW/EXPLAIN only). Anything else is denied — do not fight the gate, work within it.\n" +
       "- NEVER attempt deployments, restarts, file changes on instances, or SQL writes. If asked, explain that " +
       "changes go through the CI/CD pipeline and offer to prepare the analysis instead.\n" +
-      "- Default to STAGING. Touch production (--profile halalo) only when the question is explicitly about production.\n\n" +
+      "- Default to STAGING. Touch production (--profile halalo) only when the question is explicitly about production.\n" +
+      "- CREDENTIALS HYGIENE: never write passwords, tokens, or keys into your replies — not even in example " +
+      "commands. When showing a command that needs credentials, use placeholders like -p'<password from " +
+      "config.local.php>'. Credentials you read on an instance stay inside your tool calls.\n\n" +
       "## How to inspect the live environments\n" +
       "Interactive sessions are unavailable — use the async SSM pattern:\n" +
       "1. `aws ssm send-command --profile <profile> --region eu-west-2 --instance-ids <id> " +
