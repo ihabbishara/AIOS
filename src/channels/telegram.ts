@@ -58,12 +58,21 @@ export class TelegramChannel implements ChannelAdapter {
     this.bot.on("message:text", async (ctx) => {
       console.log(`[telegram] message from user id ${ctx.from.id} (@${ctx.from.username ?? "?"}) in chat ${ctx.chat.id}`);
       if (!(await this.authorized(ctx))) return;
-      await onMessage({
-        channel: this.name,
-        chatId: String(ctx.chat.id),
-        text: ctx.message.text,
-        sender: this.sender(ctx),
-      });
+      // "typing..." indicator while the agent works (auto-expires after ~5s, so repeat).
+      const typing = setInterval(() => {
+        this.bot.api.sendChatAction(ctx.chat.id, "typing").catch(() => {});
+      }, 4500);
+      this.bot.api.sendChatAction(ctx.chat.id, "typing").catch(() => {});
+      try {
+        await onMessage({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: ctx.message.text,
+          sender: this.sender(ctx),
+        });
+      } finally {
+        clearInterval(typing);
+      }
     });
 
     // Documents and photos (invoices, receipts) — download, hand over as attachments.
@@ -93,7 +102,8 @@ export class TelegramChannel implements ChannelAdapter {
       }
     });
     // Long-polling: outbound only, works behind NAT. Don't await — runs forever.
-    void this.bot.start({ drop_pending_updates: true });
+    // Pending updates are kept so messages sent during a daemon restart are processed.
+    void this.bot.start();
   }
 
   async send(chatId: string, text: string): Promise<void> {
