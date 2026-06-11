@@ -12,7 +12,8 @@ export function vaultWriteExecutor(vault: VaultWriter): Executor {
     schema: z.object({ path: z.string(), content: z.string() }),
     async execute(payload) {
       const p = payload as { path: string; content: string };
-      return `Saved: ${vault.writeNote(p.path, p.content)}`;
+      vault.writeNote(p.path, p.content);
+      return `Saved: ${p.path}`;
     },
   };
 }
@@ -37,6 +38,9 @@ export function trustPromoteExecutor(store: Store, bus: EventBus): Executor {
       const type = (payload as { action_type: string }).action_type;
       const record = store.getTrust(type);
       if (!record) throw new Error(`no trust record for ${type}`);
+      if (record.state !== "graduating") {
+        throw new Error(`${type} is not graduating (current: ${record.state}) — promotion aborted`);
+      }
       store.upsertTrust(promote(record, new Date().toISOString()));
       bus.emit({ type: "trust.changed", actionType: type, state: "autonomous" });
       return `${type} promoted to autonomous`;
