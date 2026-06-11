@@ -1,5 +1,6 @@
 import { Bot } from "grammy";
 import type { ChannelAdapter, MessageHandler } from "./types.js";
+import { mdToTelegramHtml } from "./format.js";
 
 const TELEGRAM_MAX = 4096;
 
@@ -42,8 +43,13 @@ export class TelegramChannel implements ChannelAdapter {
   }
 
   async send(chatId: string, text: string): Promise<void> {
-    for (const part of chunk(text)) {
-      await this.bot.api.sendMessage(Number(chatId), part);
+    for (const part of chunk(mdToTelegramHtml(text))) {
+      try {
+        await this.bot.api.sendMessage(Number(chatId), part, { parse_mode: "HTML" });
+      } catch {
+        // HTML parse error (e.g. tag split across chunks) — fall back to plain text.
+        await this.bot.api.sendMessage(Number(chatId), part.replace(/<[^>]+>/g, ""));
+      }
     }
   }
 

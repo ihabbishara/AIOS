@@ -1,5 +1,6 @@
 import bolt from "@slack/bolt";
 import type { ChannelAdapter, MessageHandler } from "./types.js";
+import { mdToSlackMrkdwn } from "./format.js";
 
 export class SlackChannel implements ChannelAdapter {
   readonly name = "slack";
@@ -25,7 +26,7 @@ export class SlackChannel implements ChannelAdapter {
   }
 
   async send(chatId: string, text: string): Promise<void> {
-    await this.app.client.chat.postMessage({ channel: chatId, text });
+    await this.app.client.chat.postMessage({ channel: chatId, text: mdToSlackMrkdwn(text) });
   }
 
   async stop(): Promise<void> {
