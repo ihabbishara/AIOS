@@ -1,0 +1,40 @@
+name: software-feature
+description: >-
+  Full software pipeline for building a feature or project: research, design with
+  review loop, implementation, test-and-fix loop, final code review. Requires project_dir.
+needsProjectDir: true
+stages:
+  - type: single
+    id: research
+    role: researcher
+    brief: >-
+      Research everything needed to design and build this task well: relevant
+      libraries, patterns, prior art in the working directory, pitfalls.
+
+  - type: loop
+    id: design
+    producer: architect
+    critic: reviewer
+    maxRounds: 3
+    brief: >-
+      Design the solution for the task using the research brief.
+
+  - type: single
+    id: implement
+    role: developer
+    brief: >-
+      Implement the approved design in the working directory.
+
+  - type: verify
+    id: test
+    runner: tester
+    fixer: developer
+    maxRounds: 2
+    brief: >-
+      Verify the implementation: build and run tests.
+
+  - type: single
+    id: code-review
+    role: code-reviewer
+    brief: >-
+      Review the new implementation (git diff against the state before this job if possible).

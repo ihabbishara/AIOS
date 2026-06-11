@@ -1,0 +1,14 @@
+name: research-report
+description: >-
+  Deep research on a topic with a quality review loop. Produces a reviewed
+  research report in the vault. No project directory needed.
+needsProjectDir: false
+stages:
+  - type: loop
+    id: report
+    producer: researcher
+    critic: reviewer
+    maxRounds: 2
+    brief: >-
+      Produce a thorough research report on the topic. The reviewer will check
+      completeness, accuracy and sourcing.
