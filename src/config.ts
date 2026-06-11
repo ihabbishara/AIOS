@@ -17,11 +17,13 @@ export interface Config {
   moderatorModel?: string;
   specialistModel?: string;
   /**
-   * chatKey ("channel:chatId") -> agents. Bound chats bypass the moderator.
-   * First entry is the default agent for every message; the rest are reachable
-   * via @role addressing. Syntax: "telegram:-100123=finance|halalo".
+   * chatKey ("channel:chatId") -> binding. Bound chats bypass the moderator.
+   * "telegram:-100123=finance|halalo": first agent handles every message, rest via @role.
+   * "telegram:-100123=@finance|@halalo": mention-only — agents respond ONLY when
+   * addressed (@finance ...); other messages are ignored silently. Attachments
+   * still route to the first agent (receipt drops shouldn't need a caption).
    */
-  chatBindings: Map<string, string[]>;
+  chatBindings: Map<string, ChatBinding>;
   financeCompany: string;
   financeMembers: FinanceMember[];
 }
@@ -44,13 +46,23 @@ export function parseMembers(raw: string | undefined): FinanceMember[] {
     });
 }
 
-export function parseBindings(raw: string | undefined): Map<string, string[]> {
-  const map = new Map<string, string[]>();
+export interface ChatBinding {
+  agents: string[];
+  /** When true, agents only respond to @agent-addressed messages (and attachments). */
+  mentionOnly: boolean;
+}
+
+export function parseBindings(raw: string | undefined): Map<string, ChatBinding> {
+  const map = new Map<string, ChatBinding>();
   for (const pair of (raw ?? "").split(",")) {
     const [chatKey, agents] = pair.split("=").map((s) => s.trim());
     if (!chatKey || !agents) continue;
-    const list = agents.split("|").map((s) => s.trim()).filter(Boolean);
-    if (list.length) map.set(chatKey, list);
+    const entries = agents.split("|").map((s) => s.trim()).filter(Boolean);
+    if (!entries.length) continue;
+    map.set(chatKey, {
+      agents: entries.map((e) => e.replace(/^@/, "")),
+      mentionOnly: entries.every((e) => e.startsWith("@")),
+    });
   }
   return map;
 }

@@ -53,13 +53,22 @@ export class DirectChats {
   }
 }
 
+/** Parses "@name rest" / "name: rest" against an explicit agent-name list. */
+export function parseAgentAddress(
+  text: string,
+  names: string[],
+): { role: string; text: string } | undefined {
+  if (!names.length) return undefined;
+  const pattern = names.map((n) => n.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")).join("|");
+  const m = text.match(new RegExp(`^@?(${pattern})[:,]?\\s+(.+)$`, "is"));
+  if (!m) return undefined;
+  return { role: m[1].toLowerCase(), text: m[2].trim() };
+}
+
 /**
- * Parses direct-address prefixes: "@architect how should we..." or "architect: how...".
+ * Parses direct-address prefixes for specialist roles: "@architect how should we...".
  * Returns the role + remaining text, or undefined when the message is for the moderator.
  */
 export function parseDirectAddress(text: string): { role: string; text: string } | undefined {
-  const names = Object.keys(roles).join("|");
-  const m = text.match(new RegExp(`^@?(${names})[:,]?\\s+(.+)$`, "is"));
-  if (!m) return undefined;
-  return { role: m[1].toLowerCase(), text: m[2].trim() };
+  return parseAgentAddress(text, Object.keys(roles));
 }
