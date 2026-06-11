@@ -133,7 +133,8 @@ Workflows are YAML in `playbooks/` — no code changes to add one. Three stage t
 | `verify` | `runner` checks, `fixer` fixes, re-check up to `maxRounds` | test + fix |
 
 Shipped playbooks: `software-feature` (full pipeline, needs project dir),
-`research-report` (researcher ⇄ reviewer), `echo` (smoke test).
+`research-report` (researcher ⇄ reviewer), `market-research` (market-researcher ⇄ reviewer),
+`product-design` (market research → design brief ⇄ reviewer), `echo` (smoke test).
 
 ---
 
@@ -174,6 +175,8 @@ flows through the brief (task + prior artifacts) the engine builds.
 | 👷 **developer** | Builder. Implements the approved design, matches existing code style, verifies builds. Fixes test failures when handed them. | Read, Grep, Glob, Edit, Write, Bash, TodoWrite | write — confined to the job's project dir under `~/projects` | code + implementation summary |
 | 🧪 **tester** | Honest verifier. Discovers and runs the project's tests/build; writes smoke tests if none exist. "Never claim passing without output proving it." | Read, Grep, Glob, Edit, Write, Bash | write — same confinement | structured report JSON: `passed` + failures |
 | 🔬 **code-reviewer** | Audit. Reviews the diff; reports every issue with file:line + severity, coverage over confidence. Read-only by design. | Read, Grep, Glob, Bash | read-only | findings list + overall assessment |
+| 📊 **market-researcher** | Market analyst. Competitors, audience, pricing, TAM/SAM (assumptions stated), trends, gaps. Facts vs inference, every claim sourced. | Read, Grep, Glob, WebSearch, WebFetch | read-only | market report: Market, Competitors, Audience, Pricing, Trends, Opportunities, Sources |
+| 🎨 **ui-ux-designer** | Product designer. Personas, mermaid user flows, IA, ASCII wireframes, design tokens, component inventory, a11y notes. Anti-generic-AI aesthetics. | Read, Grep, Glob, WebSearch, WebFetch | read-only | implementable design brief |
 | 🧠 **Moderator** | Your chief of staff. Discusses, refines, routes, reports. Phone-readable replies, outcome first. Never pretends a job finished. | vault + job tools, Read, Grep, Glob, WebSearch, WebFetch | read-only + job control | chat |
 
 Personas live in `src/agents/roles/index.ts`; the Moderator's in `src/moderator/prompt.ts`.
