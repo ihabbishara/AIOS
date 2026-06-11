@@ -1,4 +1,4 @@
-import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 
 function today(): string {
@@ -61,6 +61,15 @@ export class VaultWriter {
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, content);
     return path;
+  }
+
+  /** Copy an external file into the vault (e.g. invoice evidence). Returns the absolute path. */
+  storeFile(relDir: string, fileName: string, srcPath: string): string {
+    const dir = join(this.root, relDir);
+    mkdirSync(dir, { recursive: true });
+    const dest = join(dir, fileName);
+    copyFileSync(srcPath, dest);
+    return dest;
   }
 
   /** Write any file (no .md coercion) — e.g. CSV exports. Returns the absolute path. */

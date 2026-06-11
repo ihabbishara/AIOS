@@ -13,6 +13,7 @@ const FINANCE_TOOLS = [
   "mcp__finance__list_expenses",
   "mcp__finance__settle",
   "mcp__finance__export_csv",
+  "Read",
 ];
 
 function csvEscape(v: string): string {
@@ -44,6 +45,10 @@ When someone reports their own expense ("paid 40 for the domain"), match the sen
 by @username or name and record THEM as the payer. If they name someone else as payer, use that person. \
 If the sender matches no member and no payer is named, ask who paid.
 - Record expenses with add_expense. Confirm each recorded entry back with its id, amount, payer, and description.
+- INVOICES/RECEIPTS AS FILES: when a message carries "[attached file stored at: <path>]", Read that file \
+(PDFs and images both work), extract vendor, amount, currency, and date, then record the expense with \
+receipt_path set to that stored path. State what you extracted so the team can correct you. If the file \
+is unreadable or amounts are ambiguous, ask instead of guessing.
 - Amounts default to EUR unless stated otherwise.
 - Use list_expenses to answer questions about what was spent; never recall amounts from memory — \
 the ledger is the source of truth.
@@ -92,6 +97,8 @@ export class FinanceAgent {
         description: z.string().describe("What it was for"),
         date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
           .describe("YYYY-MM-DD; omit for today"),
+        receipt_path: z.string().optional()
+          .describe("Absolute path of the stored invoice/receipt file, when the expense came from an attachment"),
       },
       async (a) => {
         const date = a.date ?? new Date().toISOString().slice(0, 10);
@@ -103,6 +110,7 @@ export class FinanceAgent {
           currency: a.currency.toUpperCase(),
           description: a.description,
           date,
+          receiptPath: a.receipt_path,
         });
         vault.appendDaily(
           `${company} expense #${id}: ${a.payer} paid ${formatCents(cents, a.currency.toUpperCase())} — ${a.description}`,
@@ -127,7 +135,8 @@ export class FinanceAgent {
         const rows = store.listExpenses(ledger, a.month);
         if (!rows.length) return text(a.month ? `No expenses recorded for ${a.month}.` : "Ledger is empty.");
         const lines = rows.map(
-          (r) => `#${r.id} ${r.date} ${r.payer}: ${formatCents(r.amount_cents, r.currency)} — ${r.description}`,
+          (r) =>
+            `#${r.id} ${r.date} ${r.payer}: ${formatCents(r.amount_cents, r.currency)} — ${r.description}${r.receipt_path ? " 📎" : ""}`,
         );
         const total = rows.reduce((s, r) => s + r.amount_cents, 0);
         return text(`${lines.join("\n")}\n\nTotal: ${formatCents(total, rows[0].currency)} (${rows.length} entries)`);
@@ -200,11 +209,25 @@ export class FinanceAgent {
     chatId: string,
     userText: string,
     sender?: InboundMessage["sender"],
+    attachments?: InboundMessage["attachments"],
   ): Promise<string> {
     const chatKey = `${channel}:${chatId}`;
     const from = sender?.name || sender?.username
       ? `[from: ${sender.name ?? "?"}${sender.username ? ` (@${sender.username})` : ""}]\n`
       : "";
+
+    // Evidence first: copy attachments into the vault before the agent sees them,
+    // so the audit trail exists even if the turn fails.
+    const month = new Date().toISOString().slice(0, 7);
+    const invoicesDir = `finance/${this.deps.company.toLowerCase()}/invoices/${month}`;
+    const storedLines = (attachments ?? []).map((att) => {
+      const stored = this.deps.vault.storeFile(invoicesDir, `${Date.now()}-${att.fileName}`, att.path);
+      this.deps.log?.(`invoice stored: ${stored}`);
+      return `[attached file stored at: ${stored}]`;
+    });
+    const prompt =
+      from + (storedLines.length ? `${storedLines.join("\n")}\n` : "") +
+      (userText || (storedLines.length ? "(no caption — analyze the attached file)" : ""));
     const prev = this.locks.get(chatKey) ?? Promise.resolve();
     let release!: () => void;
     this.locks.set(chatKey, new Promise((r) => (release = r)));
@@ -213,13 +236,22 @@ export class FinanceAgent {
       return await resumableTurn({
         store: this.deps.store,
         sessionKey: `finance-session:${chatKey}`,
-        prompt: from + userText,
+        prompt,
         log: this.deps.log,
         options: {
           systemPrompt: financePrompt(this.deps.company, this.deps.members),
           mcpServers: { finance: this.buildServer(chatKey, { channel, chatId }) },
           allowedTools: FINANCE_TOOLS,
           permissionMode: "dontAsk",
+          // Read is for invoice analysis only — confine it to the finance evidence folder.
+          canUseTool: async (toolName, input) => {
+            if (toolName !== "Read") return { behavior: "allow" };
+            const filePath = String(input.file_path ?? "");
+            const allowedRoot = `${this.deps.vault.root}/finance/`;
+            return filePath.startsWith(allowedRoot)
+              ? { behavior: "allow" }
+              : { behavior: "deny", message: `Reading outside ${allowedRoot} is not permitted.` };
+          },
           settingSources: [],
           strictMcpConfig: true,
           maxTurns: 20,

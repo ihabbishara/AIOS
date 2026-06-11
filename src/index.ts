@@ -84,7 +84,7 @@ async function main(): Promise<void> {
       const binding = config.chatBindings.get(`${msg.channel}:${msg.chatId}`);
       let reply: string;
       if (binding === "finance") {
-        reply = await finance.handle(msg.channel, msg.chatId, msg.text, msg.sender);
+        reply = await finance.handle(msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments);
       } else {
         const direct = parseDirectAddress(msg.text);
         reply = direct
@@ -108,7 +108,10 @@ async function main(): Promise<void> {
     const boundTelegramChats = [...config.chatBindings.keys()]
       .filter((k) => k.startsWith("telegram:"))
       .map((k) => k.slice("telegram:".length));
-    channels.set("telegram", new TelegramChannel(config.telegramToken, allowed, boundTelegramChats));
+    channels.set(
+      "telegram",
+      new TelegramChannel(config.telegramToken, allowed, boundTelegramChats, `${config.dataDir}/downloads`),
+    );
   }
   if (config.slackBotToken && config.slackAppToken) {
     channels.set("slack", new SlackChannel(config.slackBotToken, config.slackAppToken));

@@ -72,6 +72,12 @@ export class Store {
         created_at TEXT NOT NULL
       );
     `);
+    // Migration: receipt evidence path (added after initial release).
+    try {
+      this.db.exec("ALTER TABLE expenses ADD COLUMN receipt_path TEXT");
+    } catch {
+      /* column already exists */
+    }
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
@@ -140,13 +146,17 @@ export class Store {
     currency: string;
     description: string;
     date: string;
+    receiptPath?: string;
   }): number {
     const res = this.db
       .prepare(
-        `INSERT INTO expenses (ledger, payer, amount_cents, currency, description, date, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO expenses (ledger, payer, amount_cents, currency, description, date, created_at, receipt_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(e.ledger, e.payer, e.amountCents, e.currency, e.description, e.date, new Date().toISOString());
+      .run(
+        e.ledger, e.payer, e.amountCents, e.currency, e.description, e.date,
+        new Date().toISOString(), e.receiptPath ?? null,
+      );
     return Number(res.lastInsertRowid);
   }
 
@@ -162,6 +172,7 @@ export class Store {
     currency: string;
     description: string;
     date: string;
+    receipt_path: string | null;
   }> {
     const rows = monthPrefix
       ? this.db

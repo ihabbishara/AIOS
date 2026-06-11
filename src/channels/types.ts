@@ -4,6 +4,8 @@ export interface InboundMessage {
   text: string;
   /** Who sent it (display name / platform username) — used by group-bound agents. */
   sender?: { name?: string; username?: string };
+  /** Files attached to the message, already downloaded to local paths. */
+  attachments?: Array<{ path: string; fileName: string }>;
 }
 
 export type MessageHandler = (msg: InboundMessage) => Promise<void>;
