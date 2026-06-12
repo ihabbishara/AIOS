@@ -56,6 +56,14 @@ describe("cleanForSpeech", () => {
   it("omits code blocks", () => {
     expect(cleanForSpeech("Run this:\n```bash\nnpm i\n```\ndone")).toContain("code block omitted");
   });
+  it("leaves snake_case, intraword emphasis, and math intact", () => {
+    expect(cleanForSpeech("set some_var_name and x*y*z then 2*3")).toBe("set some_var_name and x*y*z then 2*3");
+    // A space-flanked __word__ is valid markdown strong emphasis — syntactically
+    // indistinguishable from __the__ (asserted above) — so a bare dunder loses its
+    // underscores for speech. Backtick-quoted dunders are out of reach here because
+    // inline code is unwrapped earlier in the chain.
+    expect(cleanForSpeech("call __init__ now")).toBe("call init now");
+  });
 });
 
 describe("TtsEngine say-fallback path (stub ffmpeg, fake say)", () => {
