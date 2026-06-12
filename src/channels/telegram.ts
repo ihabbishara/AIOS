@@ -23,6 +23,7 @@ export class TelegramChannel implements ChannelAdapter {
   readonly name = "telegram";
   private bot: Bot;
   private verdictHandler?: (v: { actionId: string; verdict: "approve" | "reject"; by: string }) => Promise<string>;
+  private onMessageHandler?: MessageHandler;
 
   constructor(
     private token: string,
@@ -30,6 +31,8 @@ export class TelegramChannel implements ChannelAdapter {
     /** Chat ids bound to dedicated agents (e.g. a team's finance group) — members allowed. */
     private boundChatIds: string[] = [],
     private downloadsDir: string = "data/downloads",
+    /** Voice facade — when absent or unavailable, voice notes get a polite refusal. */
+    private voice?: { available(): boolean; transcribe(path: string): Promise<string> },
   ) {
     this.bot = new Bot(token);
   }
@@ -54,6 +57,7 @@ export class TelegramChannel implements ChannelAdapter {
   }
 
   async start(onMessage: MessageHandler): Promise<void> {
+    this.onMessageHandler = onMessage;
     mkdirSync(this.downloadsDir, { recursive: true });
 
     this.bot.on("message:text", async (ctx) => {
@@ -102,6 +106,40 @@ export class TelegramChannel implements ChannelAdapter {
         await ctx.reply("Couldn't download that file — try again?");
       }
     });
+    // Voice notes: download OGG → transcribe → echo transcript → route as text.
+    this.bot.on("message:voice", async (ctx) => {
+      console.log(`[telegram] voice note from user id ${ctx.from.id} in chat ${ctx.chat.id}`);
+      if (!(await this.authorized(ctx))) return;
+      if (!this.voice?.available()) {
+        await ctx.reply("Voice processing is unavailable right now — type it instead?");
+        return;
+      }
+      try {
+        const file = await ctx.getFile();
+        if (!file.file_path) throw new Error("no file_path from Telegram");
+        const res = await fetch(`https://api.telegram.org/file/bot${this.token}/${file.file_path}`);
+        if (!res.ok) throw new Error(`download failed: ${res.status}`);
+        const local = join(this.downloadsDir, `${Date.now()}-voice.ogg`);
+        writeFileSync(local, Buffer.from(await res.arrayBuffer()));
+        const transcript = await this.voice.transcribe(local);
+        if (!transcript.trim()) {
+          await ctx.reply("I couldn't hear anything in that — try again?");
+          return;
+        }
+        await ctx.reply(`🎙 "${transcript}"`);
+        await this.onMessageHandler?.({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: transcript,
+          sender: this.sender(ctx),
+          voiceIn: true,
+        });
+      } catch (err) {
+        console.log(`[telegram] voice handling failed: ${(err as Error).message}`);
+        await ctx.reply("Couldn't transcribe that — try again?");
+      }
+    });
+
     this.bot.on("callback_query:data", async (ctx) => {
       const m = /^act:([\w-]+):(approve|reject)$/.exec(ctx.callbackQuery.data);
       if (!m || !this.verdictHandler) return void (await ctx.answerCallbackQuery());
@@ -142,6 +180,10 @@ export class TelegramChannel implements ChannelAdapter {
 
   async sendFile(chatId: string, filePath: string, caption?: string): Promise<void> {
     await this.bot.api.sendDocument(Number(chatId), new InputFile(filePath), { caption });
+  }
+
+  async sendVoice(chatId: string, audioPath: string, caption?: string): Promise<void> {
+    await this.bot.api.sendVoice(Number(chatId), new InputFile(audioPath), caption ? { caption } : {});
   }
 
   setVerdictHandler(
