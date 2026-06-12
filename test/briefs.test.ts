@@ -1,7 +1,12 @@
 // test/briefs.test.ts
 import { describe, it, expect } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Store } from "../src/store/db.js";
-import { assembleBrief, isEmptyBrief, renderBriefNote, type BriefData } from "../src/heartbeat/briefs.js";
+import { EventBus } from "../src/events.js";
+import { VaultWriter } from "../src/vault/writer.js";
+import { assembleBrief, isEmptyBrief, renderBriefNote, runBrief, type BriefData, type BriefRunnerDeps } from "../src/heartbeat/briefs.js";
 import type { ActionRow } from "../src/kernel/actions.js";
 
 const NOW = "2026-06-12T10:00:00.000Z";
@@ -92,5 +97,84 @@ describe("renderBriefNote", () => {
     expect(md).toContain("test.echo");
     expect(md).toContain("vault.write × 3");
     expect(md.indexOf("Morning. One approval")).toBeLessThan(md.indexOf("## Pending approvals"));
+  });
+});
+
+describe("runBrief", () => {
+  function setup(over: Partial<BriefRunnerDeps> = {}) {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "aios-brief-")), "AIOS");
+    vault.init();
+    const sent: Array<{ channel: string; chatId: string; text: string }> = [];
+    const deps: BriefRunnerDeps = {
+      store, bus, vault,
+      narrate: async (_anchor, _dataJson) => "Narrated brief.",
+      send: async (channel, chatId, text) => { sent.push({ channel, chatId, text }); },
+      primary: { channel: "cli", chatId: "local" },
+      nowFn: () => new Date(2026, 5, 12, 7, 30),
+      ...over,
+    };
+    return { store, bus, vault, sent, deps };
+  }
+
+  it("non-empty morning: narrates, sends, archives, stamps window, emits brief.sent", async () => {
+    const { store, bus, vault, sent, deps } = setup();
+    store.insertAction(action("eeee5555"));
+    const emitted: string[] = [];
+    bus.on((e) => emitted.push(e.event.type));
+    await runBrief(deps, "morning");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toBe("Narrated brief.");
+    expect(vault.readNote("briefs/2026-06-12-morning.md")).toContain("Narrated brief.");
+    expect(store.kvGet("brief:last-ts")).toBeTruthy();
+    expect(emitted).toContain("brief.sent");
+  });
+
+  it("empty morning sends the canned one-liner without narrating", async () => {
+    let narrated = 0;
+    const { sent, deps, vault } = setup({ narrate: async () => { narrated++; return "x"; } });
+    await runBrief(deps, "morning");
+    expect(narrated).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Quiet");
+    expect(vault.readNote("briefs/2026-06-12-morning.md")).toContain("Quiet");
+  });
+
+  it("empty evening is skipped entirely (no send, no vault note)", async () => {
+    const { sent, deps, vault, store } = setup();
+    await runBrief(deps, "evening");
+    expect(sent).toHaveLength(0);
+    expect(vault.readNote("briefs/2026-06-12-evening.md")).toBeUndefined();
+    expect(store.kvGet("brief:last-ts")).toBeTruthy(); // window still advances
+  });
+
+  it("narration failure: archives raw + sends fallback line", async () => {
+    const { store, sent, deps, vault } = setup({ narrate: async () => { throw new Error("SDK down"); } });
+    store.insertAction(action("ffff6666"));
+    await runBrief(deps, "morning");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("narration failed");
+    expect(vault.readNote("briefs/2026-06-12-morning.md")).toContain("Pending approvals");
+  });
+
+  it("no primary chat: vault-only, no narration call, no send", async () => {
+    let narrated = 0;
+    const { store, sent, deps, vault } = setup({
+      primary: undefined,
+      narrate: async () => { narrated++; return "x"; },
+    });
+    store.insertAction(action("gggg7777"));
+    await runBrief(deps, "morning");
+    expect(narrated).toBe(0);
+    expect(sent).toHaveLength(0);
+    expect(vault.readNote("briefs/2026-06-12-morning.md")).toContain("Pending approvals");
+  });
+
+  it("send failure does not throw and the archive still exists", async () => {
+    const { store, deps, vault } = setup({ send: async () => { throw new Error("channel down"); } });
+    store.insertAction(action("hhhh8888"));
+    await expect(runBrief(deps, "morning")).resolves.toBeUndefined();
+    expect(vault.readNote("briefs/2026-06-12-morning.md")).toBeTruthy();
   });
 });
