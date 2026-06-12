@@ -17,6 +17,8 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
   const [target, setTarget] = useState("moderator");
   const [input, setInput] = useState("");
   const [log, setLog] = useState<Msg[]>(loadLog);
+  const [recording, setRecording] = useState<MediaRecorder | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
 
   // Persist across reloads (drop in-flight placeholders, cap at 200 entries).
   useEffect(() => {
@@ -43,6 +45,38 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
       setBusy(false);
       setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }
+  };
+
+  const appendMessage = (who: "you" | string, text: string) => {
+    setLog((l) => [...l, { who, text }]);
+    setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  };
+
+  const toggleMic = async () => {
+    if (recording) {
+      recording.stop();
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const rec = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      setRecording(null);
+      setVoiceBusy(true);
+      try {
+        const { transcript, reply, audio } = await api.voiceChat(target, new Blob(chunks, { type: "audio/webm" }));
+        appendMessage("you", `🎙 ${transcript}`);
+        appendMessage(target, reply);
+        if (audio) new Audio(`data:audio/ogg;base64,${audio}`).play().catch(() => {});
+      } catch (e) {
+        appendMessage("system", `voice error: ${(e as Error).message}`);
+      }
+      setVoiceBusy(false);
+    };
+    rec.start();
+    setRecording(rec);
   };
 
   return (
@@ -98,6 +132,20 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
         >
           {busy ? "…" : "Send"}
         </button>
+        {state?.voice && (
+          <button
+            onClick={toggleMic}
+            disabled={voiceBusy}
+            title={recording ? "Stop and send" : "Record voice message"}
+            className={`border px-3 py-2 text-[11px] font-display uppercase tracking-widest transition-colors ${
+              recording
+                ? "border-alert text-alert animate-pulse"
+                : "border-line text-dim hover:text-phosphor hover:border-phosphor"
+            }`}
+          >
+            {voiceBusy ? "…" : recording ? "● rec" : "🎙"}
+          </button>
+        )}
       </div>
     </div>
   );

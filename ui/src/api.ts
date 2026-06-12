@@ -12,6 +12,7 @@ export interface AgentInfo {
 
 export interface StateInfo {
   uptimeMs: number;
+  voice: boolean;
   agents: AgentInfo[];
   playbooks: Array<{ name: string; description: string }>;
   bindings: Array<{ chatKey: string; agents: string[]; mentionOnly: boolean }>;
@@ -122,4 +123,17 @@ export const api = {
   trust: () => request<TrustInfo[]>("/api/trust"),
   demoteTrust: (type: string) =>
     request<{ ok: boolean }>(`/api/trust/${type}/demote`, { method: "POST" }),
+  voiceChat: async (target: string, blob: Blob) => {
+    const res = await fetch(`/api/voice?target=${encodeURIComponent(target)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      },
+      body: blob,
+    });
+    if (res.status === 401) throw new Error("unauthorized");
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+    return res.json() as Promise<{ transcript: string; reply: string; audio: string | null }>;
+  },
 };

@@ -48,6 +48,17 @@ reminders in chat ("remind me Friday 15:00 to call the accountant") — they pin
 chat where you set them. Say "stop pinging me about X" to add a triage rule.
 Anchor times: `AIOS_ANCHOR_MORNING` / `AIOS_ANCHOR_EVENING`.
 
+### Voice
+
+Send a Telegram voice note — it's transcribed locally (whisper.cpp), answered, and
+the reply comes back as a voice note with the text attached. In Mission Control's
+chat, the 🎙 button records from your mic and plays the spoken reply. Everything
+runs on-device (kokoro TTS, `say` fallback) — no audio leaves the Mac.
+
+Setup: `brew install whisper-cpp ffmpeg` (models auto-download on first use).
+Config: `AIOS_VOICE_ENABLED`, `AIOS_WHISPER_MODEL` (base|small|medium),
+`AIOS_TTS_VOICE` (kokoro voice id, or `say`).
+
 ## Setup
 
 ```bash
