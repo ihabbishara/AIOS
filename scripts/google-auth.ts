@@ -4,7 +4,7 @@
 // data/google-tokens.json, shared across accounts), opens the consent URL,
 // catches the redirect on a localhost loopback port, stores the refresh token.
 import { createServer } from "node:http";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { execFile } from "node:child_process";
@@ -81,7 +81,8 @@ async function main(): Promise<void> {
 
   file.accounts[account] = { email, refreshToken: tokens.refresh_token };
   mkdirSync(dirname(tokensPath), { recursive: true });
-  writeFileSync(tokensPath, JSON.stringify(file, null, 2));
+  writeFileSync(tokensPath, JSON.stringify(file, null, 2), { mode: 0o600 });
+  chmodSync(tokensPath, 0o600); // mode only applies on creation — enforce on rewrites too
   console.log(`\n✓ Account "${account}" (${email}) connected. Tokens in ${tokensPath}`);
   console.log("Restart the daemon to start watching this account.");
 }
