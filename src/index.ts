@@ -269,7 +269,7 @@ async function main(): Promise<void> {
   clock.start();
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, finance, gate, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, jobs, vault, config, router, finance, gate, voice, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 

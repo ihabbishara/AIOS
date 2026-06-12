@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, existsSync, writeFileSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { roles } from "../agents/roles/index.js";
 import { playbookSchema } from "../engine/playbook.js";
@@ -12,6 +12,7 @@ import type { Config } from "../config.js";
 import type { MessageRouter } from "../router.js";
 import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
+import type { VoiceService } from "../voice/index.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -51,6 +52,7 @@ export interface WebDeps {
   router: MessageRouter;
   finance: FinanceAgent;
   gate: ActionGate;
+  voice: VoiceService;
   envPath: string;
   uiDist: string;
   log?: (line: string) => void;
@@ -68,6 +70,19 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+const VOICE_BODY_CAP = 25 * 1024 * 1024;
+
+async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const c of req) {
+    total += (c as Buffer).length;
+    if (total > cap) throw new Error(`body too large (cap ${cap} bytes)`);
+    chunks.push(c as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
 function updateEnvFile(envPath: string, key: string, value: string): void {
   const lines = existsSync(envPath) ? readFileSync(envPath, "utf8").split("\n") : [];
   const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
@@ -77,7 +92,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): void {
-  const { store, bus, jobs, vault, config, router, gate, log = () => {} } = deps;
+  const { store, bus, jobs, vault, config, router, gate, voice, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
 
@@ -101,6 +116,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
         if (path === "/api/state" && req.method === "GET") {
           return json(res, 200, {
             uptimeMs: Date.now() - startedAt,
+            voice: deps.voice.available(),
             agents: [
               {
                 name: "moderator", kind: "moderator",
@@ -212,6 +228,37 @@ export function startWebServer(deps: WebDeps, port: number): void {
             reply = await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } });
           }
           return json(res, 200, { reply });
+        }
+
+        // ---- voice ----
+        if (path === "/api/voice" && req.method === "POST") {
+          if (!voice.available()) {
+            return json(res, 503, { error: `voice disabled: ${voice.disabledReason()}` });
+          }
+          const target = url.searchParams.get("target") ?? "moderator";
+          let audioPath: string | undefined;
+          try {
+            const body = await readBodyBuffer(req, VOICE_BODY_CAP);
+            audioPath = join(config.dataDir, "voice-tmp", `web-${Date.now()}.webm`);
+            writeFileSync(audioPath, body);
+            const transcript = await voice.transcribe(audioPath);
+            if (!transcript.trim()) return json(res, 422, { error: "could not transcribe audio" });
+            const text = target && target !== "moderator" ? `@${target} ${transcript}` : transcript;
+            const reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } })) ?? "";
+            let audio: string | null = null;
+            try {
+              const oggPath = await voice.synthesize(reply);
+              audio = readFileSync(oggPath).toString("base64");
+              rmSync(oggPath, { force: true });
+            } catch (err) {
+              log(`voice reply synthesis failed: ${(err as Error).message}`);
+            }
+            return json(res, 200, { transcript, reply, audio });
+          } catch (err) {
+            return json(res, 400, { error: (err as Error).message });
+          } finally {
+            if (audioPath) rmSync(audioPath, { force: true });
+          }
         }
 
         // ---- playbooks ----
