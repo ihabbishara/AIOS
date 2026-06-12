@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type StateInfo } from "../api.js";
 
-interface Msg { who: "you" | string; text: string; pending?: boolean; audio?: string }
+interface Msg { who: "you" | string; text: string; pending?: boolean; pendingId?: string; audio?: string }
 
 const LOG_KEY = "aios_chat_log";
 
@@ -35,13 +35,15 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
     if (!text || busy) return;
     setInput("");
     setBusy(true);
-    setLog((l) => [...l, { who: "you", text }, { who: target, text: "…", pending: true }]);
+    // Unique id so concurrent text/voice round trips resolve only their own placeholder.
+    const pid = crypto.randomUUID();
+    setLog((l) => [...l, { who: "you", text }, { who: target, text: "…", pending: true, pendingId: pid }]);
     setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
     try {
       const { reply } = await api.chat(target, text);
-      setLog((l) => l.map((m) => (m.pending ? { who: target, text: reply ?? "(no reply)" } : m)));
+      setLog((l) => l.map((m) => (m.pendingId === pid ? { who: target, text: reply ?? "(no reply)" } : m)));
     } catch (err) {
-      setLog((l) => l.map((m) => (m.pending ? { who: target, text: `error: ${(err as Error).message}` } : m)));
+      setLog((l) => l.map((m) => (m.pendingId === pid ? { who: target, text: `error: ${(err as Error).message}` } : m)));
     } finally {
       setBusy(false);
       setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -62,20 +64,22 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
       setRecording(null);
       setVoiceBusy(true);
       // Show immediate feedback while the round-trip is in flight.
-      setLog((l) => [...l, { who: "you", text: "🎙 transcribing…", pending: true }]);
+      // Unique id so concurrent text/voice round trips resolve only their own placeholder.
+      const pid = crypto.randomUUID();
+      setLog((l) => [...l, { who: "you", text: "🎙 transcribing…", pending: true, pendingId: pid }]);
       setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
       try {
         const { transcript, reply, audio } = await api.voiceChat(target, new Blob(chunks, { type: "audio/webm" }));
         // Replace the pending placeholder with the real transcript, then append the reply.
         setLog((l) => [
-          ...l.map((m) => (m.pending ? { who: "you" as const, text: `🎙 ${transcript}` } : m)),
+          ...l.map((m) => (m.pendingId === pid ? { who: "you" as const, text: `🎙 ${transcript}` } : m)),
           { who: target, text: reply, ...(audio ? { audio } : {}) },
         ]);
         setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
         // Best-effort autoplay — works when the round trip is fast enough that the click gesture is still live.
         if (audio) new Audio(`data:audio/ogg;base64,${audio}`).play().catch(() => {});
       } catch (e) {
-        setLog((l) => l.map((m) => (m.pending ? { who: "you" as const, text: `voice error: ${(e as Error).message}` } : m)));
+        setLog((l) => l.map((m) => (m.pendingId === pid ? { who: "you" as const, text: `voice error: ${(e as Error).message}` } : m)));
         setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
       }
       setVoiceBusy(false);
