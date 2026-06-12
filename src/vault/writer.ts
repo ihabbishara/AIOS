@@ -1,5 +1,5 @@
 import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -26,12 +26,21 @@ export class VaultWriter {
     }
   }
 
+  /** Caller-supplied relative paths must resolve inside the vault — blocks `../` traversal. */
+  private assertContained(absPath: string, relPath: string): void {
+    const base = resolve(this.root);
+    if (absPath !== base && !absPath.startsWith(base + sep)) {
+      throw new Error(`path escapes vault: ${relPath}`);
+    }
+  }
+
   jobDirName(slug: string): string {
     return `${today()}-${slug}`;
   }
 
   jobDir(jobDirName: string): string {
     const dir = join(this.root, "jobs", jobDirName);
+    this.assertContained(resolve(dir), jobDirName);
     mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -47,17 +56,20 @@ export class VaultWriter {
       .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
       .join("\n");
     const path = join(dir, fileName);
+    this.assertContained(resolve(path), fileName);
     writeFileSync(path, `---\n${fm}\n---\n\n${content}\n`);
     return path;
   }
 
   readJobArtifact(jobDirName: string, fileName: string): string | undefined {
     const path = join(this.root, "jobs", jobDirName, fileName);
+    this.assertContained(resolve(path), join(jobDirName, fileName));
     return existsSync(path) ? readFileSync(path, "utf8") : undefined;
   }
 
   writeNote(relPath: string, content: string): string {
     const path = join(this.root, relPath.endsWith(".md") ? relPath : `${relPath}.md`);
+    this.assertContained(resolve(path), relPath);
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, content);
     return path;
@@ -66,8 +78,9 @@ export class VaultWriter {
   /** Copy an external file into the vault (e.g. invoice evidence). Returns the absolute path. */
   storeFile(relDir: string, fileName: string, srcPath: string): string {
     const dir = join(this.root, relDir);
-    mkdirSync(dir, { recursive: true });
     const dest = join(dir, fileName);
+    this.assertContained(resolve(dest), join(relDir, fileName));
+    mkdirSync(dir, { recursive: true });
     copyFileSync(srcPath, dest);
     return dest;
   }
@@ -75,6 +88,7 @@ export class VaultWriter {
   /** Write any file (no .md coercion) — e.g. CSV exports. Returns the absolute path. */
   writeFile(relPath: string, content: string): string {
     const path = join(this.root, relPath);
+    this.assertContained(resolve(path), relPath);
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, content);
     return path;
@@ -82,11 +96,13 @@ export class VaultWriter {
 
   readNote(relPath: string): string | undefined {
     const path = join(this.root, relPath.endsWith(".md") ? relPath : `${relPath}.md`);
+    this.assertContained(resolve(path), relPath);
     return existsSync(path) ? readFileSync(path, "utf8") : undefined;
   }
 
   listNotes(relDir = ""): string[] {
     const dir = join(this.root, relDir);
+    this.assertContained(resolve(dir), relDir);
     if (!existsSync(dir)) return [];
     const out: string[] = [];
     const walk = (d: string, prefix: string) => {

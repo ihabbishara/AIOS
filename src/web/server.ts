@@ -11,6 +11,7 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { Config } from "../config.js";
 import type { MessageRouter } from "../router.js";
 import type { FinanceAgent } from "../finance/agent.js";
+import type { ActionGate } from "../kernel/gate.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -37,6 +38,8 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
   { key: "AIOS_MAX_CONCURRENT_JOBS", secret: false },
   { key: "AIOS_PROJECTS_ROOT", secret: false },
   { key: "AIOS_UI_TOKEN", secret: true },
+  { key: "AIOS_TRUST_SEED", secret: false },
+  { key: "AIOS_ALWAYS_SUPERVISED", secret: false },
 ];
 
 export interface WebDeps {
@@ -47,6 +50,7 @@ export interface WebDeps {
   config: Config;
   router: MessageRouter;
   finance: FinanceAgent;
+  gate: ActionGate;
   envPath: string;
   uiDist: string;
   log?: (line: string) => void;
@@ -73,7 +77,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): void {
-  const { store, bus, jobs, vault, config, router, log = () => {} } = deps;
+  const { store, bus, jobs, vault, config, router, gate, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
 
@@ -164,6 +168,36 @@ export function startWebServer(deps: WebDeps, port: number): void {
             byDay[day] = (byDay[day] ?? 0) + e.event.costUsd;
           }
           return json(res, 200, { byAgent, byDay });
+        }
+
+        // ---- action gate ----
+        if (path === "/api/actions" && req.method === "GET") {
+          const status = url.searchParams.get("status") ?? undefined;
+          return json(res, 200, store.listActions(status, Number(url.searchParams.get("limit") ?? 100)));
+        }
+
+        const resolveMatch = /^\/api\/actions\/([\w-]+)\/resolve$/.exec(path);
+        if (resolveMatch && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { verdict: "approve" | "reject"; reason?: string };
+          if (body.verdict !== "approve" && body.verdict !== "reject") {
+            return json(res, 400, { error: "verdict must be approve or reject" });
+          }
+          try {
+            const row = await gate.resolve(resolveMatch[1], body.verdict, { by: "ui", reason: body.reason });
+            return json(res, 200, row);
+          } catch (err) {
+            return json(res, 400, { error: (err as Error).message });
+          }
+        }
+
+        if (path === "/api/trust" && req.method === "GET") {
+          return json(res, 200, store.listTrust());
+        }
+
+        const demoteMatch = /^\/api\/trust\/([\w.-]+)\/demote$/.exec(path);
+        if (demoteMatch && req.method === "POST") {
+          gate.demoteType(demoteMatch[1]);
+          return json(res, 200, { ok: true });
         }
 
         // ---- chat ----

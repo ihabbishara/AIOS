@@ -1,4 +1,4 @@
-import { Bot, InputFile, type Context } from "grammy";
+import { Bot, InputFile, InlineKeyboard, type Context } from "grammy";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ChannelAdapter, MessageHandler } from "./types.js";
@@ -22,6 +22,7 @@ function chunk(text: string, size = TELEGRAM_MAX): string[] {
 export class TelegramChannel implements ChannelAdapter {
   readonly name = "telegram";
   private bot: Bot;
+  private verdictHandler?: (v: { actionId: string; verdict: "approve" | "reject"; by: string }) => Promise<string>;
 
   constructor(
     private token: string,
@@ -101,6 +102,28 @@ export class TelegramChannel implements ChannelAdapter {
         await ctx.reply("Couldn't download that file — try again?");
       }
     });
+    this.bot.on("callback_query:data", async (ctx) => {
+      const m = /^act:([\w-]+):(approve|reject)$/.exec(ctx.callbackQuery.data);
+      if (!m || !this.verdictHandler) return void (await ctx.answerCallbackQuery());
+      // Same guard as the text path: unbound groups blocked, bound-chat members allowed.
+      if (!(await this.authorized(ctx))) {
+        return void (await ctx.answerCallbackQuery({ text: "Not authorized" }));
+      }
+      try {
+        const outcome = await this.verdictHandler({
+          actionId: m[1],
+          verdict: m[2] as "approve" | "reject",
+          by: ctx.from.username ?? String(ctx.from.id),
+        });
+        await ctx.answerCallbackQuery({ text: outcome.slice(0, 190) });
+        // Append the outcome to the original message and drop the buttons.
+        const original = ctx.callbackQuery.message?.text ?? "";
+        await ctx.editMessageText(`${original}\n\n→ ${outcome}`).catch(() => {});
+      } catch (err) {
+        await ctx.answerCallbackQuery({ text: `Error: ${(err as Error).message}`.slice(0, 190) }).catch(() => {});
+      }
+    });
+
     // Long-polling: outbound only, works behind NAT. Don't await — runs forever.
     // Pending updates are kept so messages sent during a daemon restart are processed.
     void this.bot.start();
@@ -119,6 +142,23 @@ export class TelegramChannel implements ChannelAdapter {
 
   async sendFile(chatId: string, filePath: string, caption?: string): Promise<void> {
     await this.bot.api.sendDocument(Number(chatId), new InputFile(filePath), { caption });
+  }
+
+  setVerdictHandler(
+    handler: (v: { actionId: string; verdict: "approve" | "reject"; by: string }) => Promise<string>,
+  ): void {
+    this.verdictHandler = handler;
+  }
+
+  async sendApprovalRequest(chatId: string, a: { id: string; type: string; preview: string }): Promise<void> {
+    const kb = new InlineKeyboard()
+      .text("✓ Approve", `act:${a.id}:approve`)
+      .text("✗ Reject", `act:${a.id}:reject`);
+    await this.bot.api.sendMessage(
+      Number(chatId),
+      `⚖ Approval needed [${a.type}]\n${a.preview}\n\nOr reply: /approve ${a.id} · /reject ${a.id} <reason>`,
+      { reply_markup: kb },
+    );
   }
 
   async stop(): Promise<void> {

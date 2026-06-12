@@ -16,15 +16,27 @@ Telegram / Slack / CLI
         │
         ▼
 Moderator (persistent Agent SDK session per chat)
-  tools: run_playbook, job_status, vault_read/write/list
+  tools: run_playbook, job_status, vault_read/write/list, propose_action
+        ▼
+Action Gate (every outward effect: trust ledger, approval queue, audit log)
         ▼
 Playbook Engine (deterministic: stage order, review-loop caps, retries, budgets)
         ▼
 Specialists (one Agent SDK session per task: role prompt + tool allowlist + cwd)
         │
-        ├── SQLite (data/aios.sqlite — job queue, stage state, session ids)
+        ├── SQLite (data/aios.sqlite — job queue, stage state, actions, trust, session ids)
         └── Obsidian vault (~/Desktop/AI-Vault/AIOS — artifacts, daily log, knowledge)
 ```
+
+### Earned autonomy (Action Gate)
+
+Outward actions (e.g. `vault.write`, `test.echo`) pass through a trust gate. Supervised
+types queue for your approval — reply `/approve <id>` or `/reject <id> [reason]` in any
+chat, tap the Telegram buttons, or use the **approvals** tab in Mission Control. After a
+streak of approvals (default 10 over 30+ days) the gate proposes promoting the type to
+autonomous; the promotion itself needs your approval. Any rejection demotes instantly,
+and the **trust** tab shows the ledger with a manual demote button. `vault_write` is
+seeded autonomous by default (`AIOS_TRUST_SEED`); everything else starts supervised.
 
 ## Setup
 

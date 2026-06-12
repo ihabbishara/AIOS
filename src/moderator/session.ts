@@ -5,6 +5,7 @@ import type { Store } from "../store/db.js";
 import type { JobManager } from "../engine/jobs.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
+import type { ActionGate } from "../kernel/gate.js";
 
 const MCP_TOOLS = [
   "mcp__aios__run_playbook",
@@ -14,6 +15,7 @@ const MCP_TOOLS = [
   "mcp__aios__vault_write",
   "mcp__aios__vault_read",
   "mcp__aios__vault_list",
+  "mcp__aios__propose_action",
 ];
 
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
@@ -28,6 +30,8 @@ export interface ModeratorDeps {
   model?: string;
   specialistModel?: string;
   log?: (line: string) => void;
+  gate: ActionGate;
+  actionTypes: string[];
 }
 
 /**
@@ -66,6 +70,8 @@ export class Moderator {
       origin: this.origin,
       consult: (role, question) =>
         this.deps.run(role, question, { cwd: projectsRoot, model: this.deps.specialistModel }),
+      gate: this.deps.gate,
+      actionTypes: this.deps.actionTypes,
     });
 
     return resumableTurn({

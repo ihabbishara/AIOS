@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMembers, parseBindings } from "../src/config.js";
+import { parseMembers, parseBindings, parseTrustSeeds } from "../src/config.js";
 
 describe("parseBindings", () => {
   it("parses default agent plus @-addressable extras", () => {
@@ -34,5 +34,22 @@ describe("parseMembers", () => {
   it("returns empty for unset", () => {
     expect(parseMembers(undefined)).toEqual([]);
     expect(parseMembers("")).toEqual([]);
+  });
+});
+
+describe("parseTrustSeeds", () => {
+  it("parses type=state pairs", () => {
+    const seeds = parseTrustSeeds("vault.write=autonomous, test.echo=supervised");
+    expect(seeds.get("vault.write")).toBe("autonomous");
+    expect(seeds.get("test.echo")).toBe("supervised");
+  });
+
+  it("ignores malformed entries and unknown states", () => {
+    const seeds = parseTrustSeeds("bad, x=wat, =autonomous");
+    expect(seeds.size).toBe(0);
+  });
+
+  it("handles undefined", () => {
+    expect(parseTrustSeeds(undefined).size).toBe(0);
   });
 });
