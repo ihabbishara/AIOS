@@ -104,4 +104,23 @@ describe("GmailWatcher", () => {
     store.kvSet("gmail:personal:historyId", "1");
     await expect(watcher.poll()).rejects.toThrow("history error");
   });
+
+  it("paginates history.list and stamps historyId only after the last page", async () => {
+    const pageA = { history: [{ messagesAdded: [{ message: { id: "a1" } }] }], nextPageToken: "p1", historyId: "700" };
+    const pageB = { history: [{ messagesAdded: [{ message: { id: "b1" } }, { message: { id: "b2" } }] }], historyId: "700" };
+    const calls: Array<string | undefined> = [];
+    const gmail = {
+      users: {
+        getProfile: async () => ({ data: { historyId: "1" } }),
+        history: { list: async (p: { pageToken?: string }) => { calls.push(p.pageToken); return { data: p.pageToken === "p1" ? pageB : pageA }; } },
+        messages: { get: async ({ id }: { id: string }) => ({ data: msg(id) }) },
+      },
+    } as unknown as GmailLike;
+    const { store, events, watcher } = setup(gmail);
+    store.kvSet("gmail:personal:historyId", "500");
+    await watcher.poll();
+    expect(calls).toEqual([undefined, "p1"]);
+    expect(events.filter((e) => e.type === "mail.received")).toHaveLength(3);
+    expect(store.kvGet("gmail:personal:historyId")).toBe("700");
+  });
 });

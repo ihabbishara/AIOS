@@ -11,7 +11,8 @@ export interface GmailLike {
         userId: string;
         startHistoryId: string;
         historyTypes: string[];
-      }): Promise<{ data: { history?: Array<{ messagesAdded?: Array<{ message?: { id?: string | null } | null }> | null }> | null; historyId?: string | null } }>;
+        pageToken?: string;
+      }): Promise<{ data: { history?: Array<{ messagesAdded?: Array<{ message?: { id?: string | null } | null }> | null }> | null; historyId?: string | null; nextPageToken?: string | null } }>;
     };
     messages: {
       get(p: { userId: string; id: string; format: string; metadataHeaders?: string[] }): Promise<{
@@ -39,6 +40,9 @@ function header(headers: Array<{ name?: string | null; value?: string | null }>,
   return headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
+/** Safety cap on history pagination per poll (~1000 messages at Gmail's 100/page default). */
+const MAX_HISTORY_PAGES = 10;
+
 /**
  * Incremental Gmail poll via the history API. Bootstrap stamps the current
  * historyId WITHOUT emitting (no backlog flood). historyId is stamped after
@@ -58,28 +62,42 @@ export class GmailWatcher {
       await this.bootstrap();
       return;
     }
-    let history;
-    try {
-      history = await this.deps.gmail.users.history.list({
-        userId: "me",
-        startHistoryId: last,
-        historyTypes: ["messageAdded"],
-      });
-    } catch (err) {
-      if ((err as { code?: number }).code === 404) {
-        // historyId expired (long downtime) — re-bootstrap; Gmail still has the mail.
-        this.deps.log?.(`gmail(${this.deps.account}): historyId expired — re-bootstrapping`);
-        await this.bootstrap();
-        return;
-      }
-      throw err;
-    }
-
+    // history.list paginates (100/page default) and every page reports the
+    // CURRENT mailbox historyId — stamping after one page would silently drop
+    // everything beyond it. Walk all pages (capped) before emitting/stamping.
     const ids = new Set<string>();
-    for (const h of history.data.history ?? []) {
-      for (const added of h.messagesAdded ?? []) {
-        if (added.message?.id) ids.add(added.message.id);
+    let latestHistoryId: string | undefined;
+    let pageToken: string | undefined;
+    for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
+      let history;
+      try {
+        history = await this.deps.gmail.users.history.list({
+          userId: "me",
+          startHistoryId: last,
+          historyTypes: ["messageAdded"],
+          ...(pageToken ? { pageToken } : {}),
+        });
+      } catch (err) {
+        if ((err as { code?: number }).code === 404) {
+          // historyId expired (long downtime) — re-bootstrap; Gmail still has the mail.
+          this.deps.log?.(`gmail(${this.deps.account}): historyId expired — re-bootstrapping`);
+          await this.bootstrap();
+          return;
+        }
+        throw err;
       }
+
+      for (const h of history.data.history ?? []) {
+        for (const added of h.messagesAdded ?? []) {
+          if (added.message?.id) ids.add(added.message.id);
+        }
+      }
+      if (history.data.historyId) latestHistoryId = history.data.historyId;
+      pageToken = history.data.nextPageToken ?? undefined;
+      if (!pageToken) break;
+    }
+    if (pageToken) {
+      this.deps.log?.(`gmail(${this.deps.account}): history pagination capped at ${MAX_HISTORY_PAGES} pages — stamping anyway, check Gmail for anything older`);
     }
 
     for (const id of ids) {
@@ -105,7 +123,7 @@ export class GmailWatcher {
       });
     }
 
-    if (history.data.historyId) store.kvSet(this.kvKey(), history.data.historyId);
+    if (latestHistoryId) store.kvSet(this.kvKey(), latestHistoryId);
   }
 
   private async bootstrap(): Promise<void> {
