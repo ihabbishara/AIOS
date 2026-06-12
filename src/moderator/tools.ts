@@ -151,9 +151,70 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     },
   );
 
+  const addReminder = tool(
+    "add_reminder",
+    "Schedule a reminder for the user. Convert natural-language times to an absolute " +
+      "ISO-8601 timestamp WITH timezone offset BEFORE calling (e.g. 2026-06-13T15:00:00+02:00). " +
+      "Always confirm the resolved time back to the user.",
+    {
+      due_at: z.string().describe("Absolute ISO-8601 timestamp with timezone offset"),
+      text: z.string().describe("What to remind the user about"),
+    },
+    async (args) => {
+      const due = new Date(args.due_at);
+      if (Number.isNaN(due.getTime())) return text(`Invalid due_at: ${args.due_at}`);
+      if (due.getTime() <= Date.now()) return text(`due_at is in the past: ${args.due_at}`);
+      const id = deps.store.addReminder({
+        text: args.text,
+        dueAt: due.toISOString(),
+        originChannel: deps.origin.channel,
+        originChatId: deps.origin.chatId,
+      });
+      return text(`Reminder #${id} set for ${args.due_at}: "${args.text}". Tell the user the resolved time so misparses surface.`);
+    },
+  );
+
+  const listReminders = tool(
+    "list_reminders",
+    "List the user's reminders (pending by default).",
+    { status: z.enum(["pending", "fired", "cancelled"]).optional() },
+    async (args) => {
+      const rows = deps.store.listReminders(args.status ?? "pending");
+      if (!rows.length) return text("No reminders.");
+      return text(rows.map((r) => `#${r.id} [${r.status}] ${r.due_at} — ${r.text}`).join("\n"));
+    },
+  );
+
+  const cancelReminder = tool(
+    "cancel_reminder",
+    "Cancel a pending reminder by id.",
+    { id: z.number() },
+    async (args) =>
+      text(deps.store.cancelReminder(args.id) ? `Reminder #${args.id} cancelled.` : `No pending reminder #${args.id}.`),
+  );
+
+  const addTriageRule = tool(
+    "add_triage_rule",
+    "Persist a notification rule when the user asks to change how event types interrupt them " +
+      '(e.g. "stop pinging me about failed jobs" → event_type "job.status", verdict "batch"). ' +
+      'event_type is exact ("reminder.due") or a glob prefix ("action.*").',
+    {
+      event_type: z.string(),
+      verdict: z.enum(["ignore", "batch", "notify_now"]),
+    },
+    async (args) => {
+      deps.store.addTriageRule({ eventType: args.event_type, verdict: args.verdict, source: "correction" });
+      return text(`Rule saved: ${args.event_type} → ${args.verdict}. This overrides defaults from now on.`);
+    },
+  );
+
   return createSdkMcpServer({
     name: "aios",
     version: "0.1.0",
-    tools: [runPlaybook, jobStatus, listPlaybooks, askSpecialist, vaultWrite, vaultRead, vaultList, proposeAction],
+    tools: [
+      runPlaybook, jobStatus, listPlaybooks, askSpecialist,
+      vaultWrite, vaultRead, vaultList, proposeAction,
+      addReminder, listReminders, cancelReminder, addTriageRule,
+    ],
   });
 }

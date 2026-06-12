@@ -16,6 +16,10 @@ const MCP_TOOLS = [
   "mcp__aios__vault_read",
   "mcp__aios__vault_list",
   "mcp__aios__propose_action",
+  "mcp__aios__add_reminder",
+  "mcp__aios__list_reminders",
+  "mcp__aios__cancel_reminder",
+  "mcp__aios__add_triage_rule",
 ];
 
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
