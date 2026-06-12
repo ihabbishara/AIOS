@@ -13,7 +13,10 @@ export type AiosEvent =
   | { type: "action.proposed"; actionId: string; actionType: string; preview: string }
   | { type: "action.executed"; actionId: string; actionType: string; auto: boolean; ok: boolean }
   | { type: "action.resolved"; actionId: string; actionType: string; verdict: "approved" | "rejected" | "expired" }
-  | { type: "trust.changed"; actionType: string; state: string };
+  | { type: "trust.changed"; actionType: string; state: string }
+  | { type: "reminder.due"; id: number; text: string; channel: string; chatId: string }
+  | { type: "brief.sent"; anchor: "morning" | "evening"; chatKey: string | null }
+  | { type: "triage.decision"; eventType: string; verdict: string; via: "rule" | "default" | "model" };
 
 export interface StoredEvent {
   id: number;
