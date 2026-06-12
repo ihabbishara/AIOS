@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
+import { randomUUID } from "node:crypto";
 import { roles } from "../agents/roles/index.js";
 import { playbookSchema } from "../engine/playbook.js";
 import { parse as parseYaml } from "yaml";
@@ -239,7 +240,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
           let audioPath: string | undefined;
           try {
             const body = await readBodyBuffer(req, VOICE_BODY_CAP);
-            audioPath = join(config.dataDir, "voice-tmp", `web-${Date.now()}.webm`);
+            audioPath = join(config.dataDir, "voice-tmp", `web-${randomUUID()}.webm`);
             writeFileSync(audioPath, body);
             const transcript = await voice.transcribe(audioPath);
             if (!transcript.trim()) return json(res, 422, { error: "could not transcribe audio" });
