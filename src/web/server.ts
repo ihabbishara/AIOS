@@ -42,6 +42,10 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
   { key: "AIOS_UI_TOKEN", secret: true },
   { key: "AIOS_TRUST_SEED", secret: false },
   { key: "AIOS_ALWAYS_SUPERVISED", secret: false },
+  { key: "AIOS_GMAIL_POLL_SECONDS", secret: false },
+  { key: "AIOS_CALENDAR_POLL_SECONDS", secret: false },
+  { key: "AIOS_MEETING_PING_MINUTES", secret: false },
+  { key: "AIOS_GMAIL_SKIP_CATEGORIES", secret: false },
 ];
 
 export interface WebDeps {

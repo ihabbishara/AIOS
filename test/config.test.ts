@@ -99,3 +99,30 @@ describe("voice config", () => {
     }
   });
 });
+
+describe("senses config", () => {
+  it("defaults", () => {
+    delete process.env.AIOS_GMAIL_POLL_SECONDS;
+    delete process.env.AIOS_CALENDAR_POLL_SECONDS;
+    delete process.env.AIOS_MEETING_PING_MINUTES;
+    delete process.env.AIOS_GMAIL_SKIP_CATEGORIES;
+    const cfg = loadConfig();
+    expect(cfg.gmailPollSeconds).toBe(120);
+    expect(cfg.calendarPollSeconds).toBe(300);
+    expect(cfg.meetingPingMinutes).toBe(15);
+    expect(cfg.gmailSkipCategories).toEqual(["promotions", "social"]);
+  });
+
+  it("overrides parse", () => {
+    process.env.AIOS_GMAIL_POLL_SECONDS = "30";
+    process.env.AIOS_GMAIL_SKIP_CATEGORIES = "promotions, updates ,forums";
+    try {
+      const cfg = loadConfig();
+      expect(cfg.gmailPollSeconds).toBe(30);
+      expect(cfg.gmailSkipCategories).toEqual(["promotions", "updates", "forums"]);
+    } finally {
+      delete process.env.AIOS_GMAIL_POLL_SECONDS;
+      delete process.env.AIOS_GMAIL_SKIP_CATEGORIES;
+    }
+  });
+});

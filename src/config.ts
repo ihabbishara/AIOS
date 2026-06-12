@@ -48,6 +48,11 @@ export interface Config {
   whisperModel: string;
   /** Kokoro voice id; "say" forces the macOS fallback. */
   ttsVoice: string;
+  gmailPollSeconds: number;
+  calendarPollSeconds: number;
+  meetingPingMinutes: number;
+  /** Gmail categories never emitted as events (lowercase, e.g. "promotions"). */
+  gmailSkipCategories: string[];
 }
 
 export interface FinanceMember {
@@ -149,6 +154,11 @@ export function loadConfig(root = process.cwd()): Config {
     voiceEnabled: process.env.AIOS_VOICE_ENABLED !== "false",
     whisperModel: process.env.AIOS_WHISPER_MODEL ?? "base",
     ttsVoice: process.env.AIOS_TTS_VOICE ?? "af_heart",
+    gmailPollSeconds: Number(process.env.AIOS_GMAIL_POLL_SECONDS ?? 120),
+    calendarPollSeconds: Number(process.env.AIOS_CALENDAR_POLL_SECONDS ?? 300),
+    meetingPingMinutes: Number(process.env.AIOS_MEETING_PING_MINUTES ?? 15),
+    gmailSkipCategories: (process.env.AIOS_GMAIL_SKIP_CATEGORIES ?? "promotions,social")
+      .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
   };
 }
 
