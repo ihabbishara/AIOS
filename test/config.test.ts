@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMembers, parseBindings, parseTrustSeeds } from "../src/config.js";
+import { parseMembers, parseBindings, parseTrustSeeds, parsePrimaryChat } from "../src/config.js";
 
 describe("parseBindings", () => {
   it("parses default agent plus @-addressable extras", () => {
@@ -51,5 +51,23 @@ describe("parseTrustSeeds", () => {
 
   it("handles undefined", () => {
     expect(parseTrustSeeds(undefined).size).toBe(0);
+  });
+});
+
+describe("parsePrimaryChat", () => {
+  it("parses channel:chatId", () => {
+    expect(parsePrimaryChat("telegram:12345")).toEqual({ channel: "telegram", chatId: "12345" });
+  });
+
+  it("splits on the FIRST colon only (negative group ids keep their dash, ids may contain colons)", () => {
+    expect(parsePrimaryChat("telegram:-100987")).toEqual({ channel: "telegram", chatId: "-100987" });
+    expect(parsePrimaryChat("web:ui:main")).toEqual({ channel: "web", chatId: "ui:main" });
+  });
+
+  it("returns undefined for empty/malformed input", () => {
+    expect(parsePrimaryChat(undefined)).toBeUndefined();
+    expect(parsePrimaryChat("")).toBeUndefined();
+    expect(parsePrimaryChat("justachannel")).toBeUndefined();
+    expect(parsePrimaryChat(":nochannnel")).toBeUndefined();
   });
 });

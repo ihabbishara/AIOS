@@ -35,6 +35,13 @@ export interface Config {
   trustPolicy: TrustPolicy;
   /** Initial trust states applied at startup for types with no existing record. */
   trustSeeds: Map<string, TrustState>;
+  /** Where briefs and notify_now pings go ("channel:chatId"). Unset: vault-only briefs. */
+  primaryChat?: { channel: string; chatId: string };
+  /** Local times, "HH:MM". */
+  anchorMorning: string;
+  anchorEvening: string;
+  /** Model for the triage classifier one-shot. */
+  triageModel: string;
 }
 
 export interface FinanceMember {
@@ -69,6 +76,14 @@ export function parseTrustSeeds(raw: string | undefined): Map<string, TrustState
     if (type && (state === "autonomous" || state === "supervised")) map.set(type, state);
   }
   return map;
+}
+
+/** Parses "telegram:12345" → {channel, chatId}. Splits on the FIRST colon only. */
+export function parsePrimaryChat(raw: string | undefined): { channel: string; chatId: string } | undefined {
+  if (!raw) return undefined;
+  const idx = raw.indexOf(":");
+  if (idx <= 0 || idx === raw.length - 1) return undefined;
+  return { channel: raw.slice(0, idx), chatId: raw.slice(idx + 1) };
 }
 
 export function parseBindings(raw: string | undefined): Map<string, ChatBinding> {
@@ -121,6 +136,10 @@ export function loadConfig(root = process.cwd()): Config {
       ]),
     },
     trustSeeds: parseTrustSeeds(process.env.AIOS_TRUST_SEED ?? "vault.write=autonomous"),
+    primaryChat: parsePrimaryChat(process.env.AIOS_PRIMARY_CHAT),
+    anchorMorning: process.env.AIOS_ANCHOR_MORNING ?? "07:30",
+    anchorEvening: process.env.AIOS_ANCHOR_EVENING ?? "21:00",
+    triageModel: process.env.AIOS_TRIAGE_MODEL ?? "claude-haiku-4-5-20251001",
   };
 }
 
