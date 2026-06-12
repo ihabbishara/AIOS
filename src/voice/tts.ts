@@ -9,6 +9,19 @@ const run = promisify(execFile);
 
 export const MAX_TTS_CHARS = 3000;
 
+const KOKORO_LOAD_TIMEOUT_MS = 120_000;
+const KOKORO_GENERATE_TIMEOUT_MS = 60_000;
+
+/** A network stall must reject (→ say fallback), never hang the reply path. */
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms).unref(),
+    ),
+  ]);
+}
+
 /** Voice notes shouldn't be podcasts — the full text is always sent alongside. */
 export function clipForSpeech(text: string): string {
   if (text.length <= MAX_TTS_CHARS) return text;
@@ -61,15 +74,23 @@ export class TtsEngine {
         KokoroTTS: { from_pretrained(id: string, o: { dtype: string; device: string }): Promise<KokoroLike> };
       };
       this.deps.log?.("loading kokoro tts model (one-time download ~80MB)…");
-      this.kokoro = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
-        dtype: "q8",
-        device: "cpu",
-      });
+      this.kokoro = await withTimeout(
+        KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+          dtype: "q8",
+          device: "cpu",
+        }),
+        KOKORO_LOAD_TIMEOUT_MS,
+        "kokoro model load",
+      );
     }
     const wav = join(this.deps.tmpDir, `${randomUUID()}.wav`);
     const ogg = join(this.deps.tmpDir, `${randomUUID()}.ogg`);
     try {
-      const audio = await this.kokoro.generate(text, { voice: this.deps.voice });
+      const audio = await withTimeout(
+        this.kokoro.generate(text, { voice: this.deps.voice }),
+        KOKORO_GENERATE_TIMEOUT_MS,
+        "kokoro generation",
+      );
       await audio.save(wav);
       await run(this.deps.ffmpegBin, ["-y", "-i", wav, "-c:a", "libopus", ogg]);
       return ogg;

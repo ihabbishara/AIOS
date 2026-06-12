@@ -43,6 +43,25 @@ describe("VoiceService.create", () => {
   });
 });
 
+describe("VoiceService model retry", () => {
+  it("a failed model download retries on the next transcribe", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aios-voice-"));
+    let attempts = 0;
+    const v = await VoiceService.create({
+      enabled: true, whisperModel: "base", ttsVoice: "say", dataDir: dir, probeFn: async () => true,
+      ensureModelFn: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error("network blip");
+        return join(dir, "ggml-base.bin");
+      },
+    });
+    await expect(v.transcribe("/a.ogg")).rejects.toThrow("network blip");
+    // second attempt must re-run ensureModel (and then fail later for a different reason — missing model file is fine; we only assert the retry happened)
+    await v.transcribe("/b.ogg").catch(() => {});
+    expect(attempts).toBe(2);
+  });
+});
+
 describe("VoiceService queue", () => {
   it("serializes transcriptions (no overlap)", async () => {
     const dir = tmp();

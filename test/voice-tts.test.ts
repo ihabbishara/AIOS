@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { TtsEngine, clipForSpeech, MAX_TTS_CHARS } from "../src/voice/tts.js";
+import { TtsEngine, clipForSpeech, withTimeout, MAX_TTS_CHARS } from "../src/voice/tts.js";
 
 const FIX = resolve("test/fixtures");
 const FAKE_FFMPEG = join(FIX, "fake-ffmpeg.sh");
@@ -22,6 +22,18 @@ describe("clipForSpeech", () => {
     const clipped = clipForSpeech(long);
     expect(clipped.length).toBeLessThan(long.length);
     expect(clipped.endsWith("… full text below.")).toBe(true);
+  });
+});
+
+describe("withTimeout", () => {
+  it("passes through a resolving promise", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 1000, "thing")).resolves.toBe("ok");
+  });
+  it("rejects a stalled promise after ms with the message", async () => {
+    const never = new Promise<string>(() => {});
+    await expect(withTimeout(never, 10, "kokoro model load")).rejects.toThrow(
+      "kokoro model load timed out after 10ms",
+    );
   });
 });
 

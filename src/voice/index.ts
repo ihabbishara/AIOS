@@ -16,6 +16,8 @@ export interface VoiceServiceOpts {
   log?: (line: string) => void;
   /** Injectable binary probe for tests. Default: `which <bin>` succeeds. */
   probeFn?: (bin: string) => Promise<boolean>;
+  /** Injectable model downloader for tests. Default: the real ensureModel. */
+  ensureModelFn?: (model: string, dir: string, opts: { log?: (line: string) => void }) => Promise<string>;
 }
 
 async function defaultProbe(bin: string): Promise<boolean> {
@@ -101,8 +103,13 @@ export class VoiceService {
   private async ensureStt(): Promise<SttLike> {
     if (this.stt) return this.stt;
     // Lazy model download — first voice note pays the ~150MB one-time cost.
-    this.modelReady ??= ensureModel(this.opts.whisperModel, join(this.opts.dataDir, "models"), {
-      log: this.opts.log,
+    this.modelReady ??= (this.opts.ensureModelFn ?? ensureModel)(
+      this.opts.whisperModel,
+      join(this.opts.dataDir, "models"),
+      { log: this.opts.log },
+    ).catch((err) => {
+      this.modelReady = undefined; // interrupted download → retry on next transcribe (spec guarantee)
+      throw err;
     });
     const modelPath = await this.modelReady;
     this.stt = new SttEngine({
