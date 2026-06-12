@@ -6,6 +6,8 @@ import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import { roles } from "../agents/roles/index.js";
 import type { ActionGate } from "../kernel/gate.js";
+import { listInbox, readEmail } from "../senses/google/read.js";
+import type { GoogleAccounts } from "../senses/google/auth.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -23,6 +25,7 @@ export interface ModeratorToolsDeps {
   gate: ActionGate;
   /** Registered executor types, for the tool description. */
   actionTypes: string[];
+  google: GoogleAccounts;
 }
 
 export function buildModeratorServer(deps: ModeratorToolsDeps) {
@@ -208,6 +211,28 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     },
   );
 
+  const listInboxTool = tool(
+    "list_inbox",
+    "List recent email (read-only). query uses Gmail search syntax, e.g. 'is:unread from:hannah'. " +
+      "Accounts available: ask list with an invalid account to see names.",
+    {
+      account: z.string().describe("Google account name, e.g. personal"),
+      query: z.string().optional(),
+      limit: z.number().optional(),
+    },
+    async (args) => text(await listInbox(deps.google, args)),
+  );
+
+  const readEmailTool = tool(
+    "read_email",
+    "Read one email's full body (read-only). Use the [id] from list_inbox. Returns headers + ThreadId (pass threadId to email.send/email.draft for proper reply threading).",
+    {
+      account: z.string(),
+      message_id: z.string(),
+    },
+    async (args) => text(await readEmail(deps.google, { account: args.account, messageId: args.message_id })),
+  );
+
   return createSdkMcpServer({
     name: "aios",
     version: "0.1.0",
@@ -215,6 +240,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       runPlaybook, jobStatus, listPlaybooks, askSpecialist,
       vaultWrite, vaultRead, vaultList, proposeAction,
       addReminder, listReminders, cancelReminder, addTriageRule,
+      listInboxTool, readEmailTool,
     ],
   });
 }

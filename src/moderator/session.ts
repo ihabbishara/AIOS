@@ -6,6 +6,7 @@ import type { JobManager } from "../engine/jobs.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { ActionGate } from "../kernel/gate.js";
+import type { GoogleAccounts } from "../senses/google/auth.js";
 
 const MCP_TOOLS = [
   "mcp__aios__run_playbook",
@@ -20,6 +21,8 @@ const MCP_TOOLS = [
   "mcp__aios__list_reminders",
   "mcp__aios__cancel_reminder",
   "mcp__aios__add_triage_rule",
+  "mcp__aios__list_inbox",
+  "mcp__aios__read_email",
 ];
 
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
@@ -36,6 +39,7 @@ export interface ModeratorDeps {
   log?: (line: string) => void;
   gate: ActionGate;
   actionTypes: string[];
+  google: GoogleAccounts;
 }
 
 /**
@@ -76,6 +80,7 @@ export class Moderator {
         this.deps.run(role, question, { cwd: projectsRoot, model: this.deps.specialistModel }),
       gate: this.deps.gate,
       actionTypes: this.deps.actionTypes,
+      google: this.deps.google,
     });
 
     return resumableTurn({
