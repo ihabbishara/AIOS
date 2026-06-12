@@ -38,6 +38,16 @@ autonomous; the promotion itself needs your approval. Any rejection demotes inst
 and the **trust** tab shows the ledger with a manual demote button. `vault_write` is
 seeded autonomous by default (`AIOS_TRUST_SEED`); everything else starts supervised.
 
+### Heartbeat (briefs & reminders)
+
+The daemon sends a **morning brief** (07:30) and **evening close** (21:00) to
+`AIOS_PRIMARY_CHAT` (e.g. `telegram:12345`) — pending approvals, autonomous-action
+digests, finished/failed jobs, trust changes, and the day's reminders, narrated by
+the moderator. Raw briefs are archived in the vault under `briefs/`. Ask for
+reminders in chat ("remind me Friday 15:00 to call the accountant") — they ping the
+chat where you set them. Say "stop pinging me about X" to add a triage rule.
+Anchor times: `AIOS_ANCHOR_MORNING` / `AIOS_ANCHOR_EVENING`.
+
 ## Setup
 
 ```bash
