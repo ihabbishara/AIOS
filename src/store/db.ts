@@ -30,6 +30,25 @@ export interface StageRow {
   finished_at: string | null;
 }
 
+export interface ReminderRow {
+  id: number;
+  text: string;
+  due_at: string;
+  origin_channel: string;
+  origin_chat_id: string;
+  status: "pending" | "fired" | "cancelled";
+  created_at: string;
+}
+
+export interface TriageRuleRow {
+  id: number;
+  /** Exact event type ("reminder.due") or glob prefix ("action.*"). */
+  event_type: string;
+  verdict: "ignore" | "batch" | "notify_now";
+  source: "manual" | "correction";
+  created_at: string;
+}
+
 export class Store {
   private db: DatabaseSync;
 
@@ -116,6 +135,25 @@ export class Store {
         expires_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        origin_channel TEXT NOT NULL,
+        origin_chat_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, due_at);
+      CREATE TABLE IF NOT EXISTS triage_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL UNIQUE,
+        verdict TEXT NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -350,6 +388,67 @@ export class Store {
     );
     for (const r of rows) expire.run(nowIso, r.id);
     return rows.map((r) => r.id);
+  }
+
+  // ---- reminders ----
+
+  addReminder(r: { text: string; dueAt: string; originChannel: string; originChatId: string }): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO reminders (text, due_at, origin_channel, origin_chat_id, status, created_at)
+         VALUES (?, ?, ?, ?, 'pending', ?)`,
+      )
+      .run(r.text, r.dueAt, r.originChannel, r.originChatId, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  listReminders(status?: string): ReminderRow[] {
+    const rows = status
+      ? this.db.prepare("SELECT * FROM reminders WHERE status = ? ORDER BY due_at").all(status)
+      : this.db.prepare("SELECT * FROM reminders ORDER BY due_at").all();
+    return rows as unknown as ReminderRow[];
+  }
+
+  cancelReminder(id: number): boolean {
+    const res = this.db
+      .prepare("UPDATE reminders SET status = 'cancelled' WHERE id = ? AND status = 'pending'")
+      .run(id);
+    return res.changes > 0;
+  }
+
+  /** Atomically flip due pending reminders to fired; returns the claimed rows (at-most-once). */
+  claimDueReminders(nowIso: string): ReminderRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM reminders WHERE status = 'pending' AND due_at <= ? ORDER BY due_at")
+      .all(nowIso) as unknown as ReminderRow[];
+    const fire = this.db.prepare("UPDATE reminders SET status = 'fired' WHERE id = ? AND status = 'pending'");
+    return rows.filter((r) => fire.run(r.id).changes === 1);
+  }
+
+  // ---- triage rules ----
+
+  addTriageRule(r: { eventType: string; verdict: TriageRuleRow["verdict"]; source: TriageRuleRow["source"] }): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO triage_rules (event_type, verdict, source, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(event_type) DO UPDATE SET verdict=excluded.verdict, source=excluded.source, created_at=excluded.created_at`,
+      )
+      .run(r.eventType, r.verdict, r.source, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  listTriageRules(): TriageRuleRow[] {
+    return this.db
+      .prepare("SELECT * FROM triage_rules ORDER BY id")
+      .all() as unknown as TriageRuleRow[];
+  }
+
+  // ---- events window (brief assembly) ----
+
+  listEventsSince(tsIso: string, limit = 1000): Array<{ id: number; ts: string; payload: string }> {
+    return this.db
+      .prepare("SELECT * FROM events WHERE ts > ? ORDER BY id LIMIT ?")
+      .all(tsIso, limit) as unknown as Array<{ id: number; ts: string; payload: string }>;
   }
 
   close(): void {
