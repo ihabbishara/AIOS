@@ -42,6 +42,12 @@ export interface Config {
   anchorEvening: string;
   /** Model for the triage classifier one-shot. */
   triageModel: string;
+  /** Voice kill-switch (AIOS_VOICE_ENABLED=false disables STT/TTS everywhere). */
+  voiceEnabled: boolean;
+  /** Whisper ggml model name: base | small | medium. */
+  whisperModel: string;
+  /** Kokoro voice id; "say" forces the macOS fallback. */
+  ttsVoice: string;
 }
 
 export interface FinanceMember {
@@ -140,6 +146,9 @@ export function loadConfig(root = process.cwd()): Config {
     anchorMorning: process.env.AIOS_ANCHOR_MORNING ?? "07:30",
     anchorEvening: process.env.AIOS_ANCHOR_EVENING ?? "21:00",
     triageModel: process.env.AIOS_TRIAGE_MODEL ?? "claude-haiku-4-5-20251001",
+    voiceEnabled: process.env.AIOS_VOICE_ENABLED !== "false",
+    whisperModel: process.env.AIOS_WHISPER_MODEL ?? "base",
+    ttsVoice: process.env.AIOS_TTS_VOICE ?? "af_heart",
   };
 }
 

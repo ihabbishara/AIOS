@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMembers, parseBindings, parseTrustSeeds, parsePrimaryChat } from "../src/config.js";
+import { parseMembers, parseBindings, parseTrustSeeds, parsePrimaryChat, loadConfig } from "../src/config.js";
 
 describe("parseBindings", () => {
   it("parses default agent plus @-addressable extras", () => {
@@ -69,5 +69,30 @@ describe("parsePrimaryChat", () => {
     expect(parsePrimaryChat("")).toBeUndefined();
     expect(parsePrimaryChat("justachannel")).toBeUndefined();
     expect(parsePrimaryChat(":nochannnel")).toBeUndefined();
+  });
+});
+
+describe("voice config", () => {
+  it("defaults: enabled, base model, af_heart voice", () => {
+    delete process.env.AIOS_VOICE_ENABLED;
+    delete process.env.AIOS_WHISPER_MODEL;
+    delete process.env.AIOS_TTS_VOICE;
+    const cfg = loadConfig();
+    expect(cfg.voiceEnabled).toBe(true);
+    expect(cfg.whisperModel).toBe("base");
+    expect(cfg.ttsVoice).toBe("af_heart");
+  });
+
+  it("kill-switch and overrides", () => {
+    process.env.AIOS_VOICE_ENABLED = "false";
+    process.env.AIOS_WHISPER_MODEL = "small";
+    process.env.AIOS_TTS_VOICE = "say";
+    const cfg = loadConfig();
+    expect(cfg.voiceEnabled).toBe(false);
+    expect(cfg.whisperModel).toBe("small");
+    expect(cfg.ttsVoice).toBe("say");
+    delete process.env.AIOS_VOICE_ENABLED;
+    delete process.env.AIOS_WHISPER_MODEL;
+    delete process.env.AIOS_TTS_VOICE;
   });
 });
