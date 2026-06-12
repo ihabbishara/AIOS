@@ -6,6 +6,8 @@ export interface InboundMessage {
   sender?: { name?: string; username?: string };
   /** Files attached to the message, already downloaded to local paths. */
   attachments?: Array<{ path: string; fileName: string }>;
+  /** True when the text came from voice transcription — replies mirror back as voice. */
+  voiceIn?: boolean;
 }
 
 export type MessageHandler = (msg: InboundMessage) => Promise<void>;
@@ -22,4 +24,6 @@ export interface ChannelAdapter {
   setVerdictHandler?(
     handler: (v: { actionId: string; verdict: "approve" | "reject"; by: string }) => Promise<string>,
   ): void;
+  /** Send a voice note (OGG/opus) with optional caption. Channels without it get text fallback. */
+  sendVoice?(chatId: string, audioPath: string, caption?: string): Promise<void>;
 }
