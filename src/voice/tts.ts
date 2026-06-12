@@ -22,6 +22,28 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
   ]);
 }
 
+/** Markdown/emoji → speech-friendly text. The written text keeps its formatting; only the spoken track is cleaned. */
+export function cleanForSpeech(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, " code block omitted. ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "link")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/^[ \t]*[-*•]\s+/gm, "")
+    .replace(/^[ \t]*\d+\.\s+/gm, "")
+    .replace(/[:;]-?[)(DPp](?=\s|$)/g, "")
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,!?])/g, "$1")
+    .trim();
+}
+
 /** Voice notes shouldn't be podcasts — the full text is always sent alongside. */
 export function clipForSpeech(text: string): string {
   if (text.length <= MAX_TTS_CHARS) return text;
@@ -55,7 +77,7 @@ export class TtsEngine {
   }
 
   async synthesize(text: string): Promise<string> {
-    const speech = clipForSpeech(text);
+    const speech = clipForSpeech(cleanForSpeech(text));
     if (this.deps.voice !== "say" && !this.kokoroFailed) {
       try {
         return await this.viaKokoro(speech);

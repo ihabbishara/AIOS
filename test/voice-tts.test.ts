@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { TtsEngine, clipForSpeech, withTimeout, MAX_TTS_CHARS } from "../src/voice/tts.js";
+import { TtsEngine, clipForSpeech, withTimeout, MAX_TTS_CHARS, cleanForSpeech } from "../src/voice/tts.js";
 
 const FIX = resolve("test/fixtures");
 const FAKE_FFMPEG = join(FIX, "fake-ffmpeg.sh");
@@ -34,6 +34,27 @@ describe("withTimeout", () => {
     await expect(withTimeout(never, 10, "kokoro model load")).rejects.toThrow(
       "kokoro model load timed out after 10ms",
     );
+  });
+});
+
+describe("cleanForSpeech", () => {
+  it("strips markdown emphasis and headers", () => {
+    expect(cleanForSpeech("**Good morning** and *welcome* to __the__ _brief_")).toBe("Good morning and welcome to the brief");
+    expect(cleanForSpeech("## Today\nAll good")).toBe("Today All good");
+  });
+  it("strips emoji and emoticons", () => {
+    expect(cleanForSpeech("Good morning :) 🌞")).toBe("Good morning");
+    expect(cleanForSpeech("Done! 🎉🎉 ;)")).toBe("Done!");
+  });
+  it("converts links and code for speech", () => {
+    expect(cleanForSpeech("See [the docs](https://x.com/y) and `npm test`")).toBe("See the docs and npm test");
+    expect(cleanForSpeech("Visit https://example.com/long/path now")).toBe("Visit link now");
+  });
+  it("flattens bullets, numbered lists, and newlines", () => {
+    expect(cleanForSpeech("- one\n- two\n\n1. three")).toBe("one two. three");
+  });
+  it("omits code blocks", () => {
+    expect(cleanForSpeech("Run this:\n```bash\nnpm i\n```\ndone")).toContain("code block omitted");
   });
 });
 
