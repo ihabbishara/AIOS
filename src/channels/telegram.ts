@@ -1,6 +1,7 @@
 import { Bot, InputFile, InlineKeyboard, type Context } from "grammy";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { ChannelAdapter, MessageHandler } from "./types.js";
 import { mdToTelegramHtml } from "./format.js";
 
@@ -23,6 +24,7 @@ export class TelegramChannel implements ChannelAdapter {
   readonly name = "telegram";
   private bot: Bot;
   private verdictHandler?: (v: { actionId: string; verdict: "approve" | "reject"; by: string }) => Promise<string>;
+  /** Kept for handlers registered after start() (voice). Existing handlers use the start() closure param — keep both in sync when refactoring. */
   private onMessageHandler?: MessageHandler;
 
   constructor(
@@ -114,19 +116,34 @@ export class TelegramChannel implements ChannelAdapter {
         await ctx.reply("Voice processing is unavailable right now — type it instead?");
         return;
       }
+      // "recording..." indicator over the whole flow — transcription + agent turn (auto-expires ~5s, so repeat).
+      const typing = setInterval(() => {
+        this.bot.api.sendChatAction(ctx.chat.id, "record_voice").catch(() => {});
+      }, 4500);
+      this.bot.api.sendChatAction(ctx.chat.id, "record_voice").catch(() => {});
       try {
-        const file = await ctx.getFile();
-        if (!file.file_path) throw new Error("no file_path from Telegram");
-        const res = await fetch(`https://api.telegram.org/file/bot${this.token}/${file.file_path}`);
-        if (!res.ok) throw new Error(`download failed: ${res.status}`);
-        const local = join(this.downloadsDir, `${Date.now()}-voice.ogg`);
-        writeFileSync(local, Buffer.from(await res.arrayBuffer()));
-        const transcript = await this.voice.transcribe(local);
-        if (!transcript.trim()) {
-          await ctx.reply("I couldn't hear anything in that — try again?");
+        let transcript: string;
+        try {
+          const file = await ctx.getFile();
+          if (!file.file_path) throw new Error("no file_path from Telegram");
+          const res = await fetch(`https://api.telegram.org/file/bot${this.token}/${file.file_path}`);
+          if (!res.ok) throw new Error(`download failed: ${res.status}`);
+          const local = join(this.downloadsDir, `${randomUUID()}-voice.ogg`);
+          writeFileSync(local, Buffer.from(await res.arrayBuffer()));
+          transcript = await this.voice.transcribe(local);
+        } catch (err) {
+          console.log(`[telegram] voice handling failed: ${(err as Error).message}`);
+          await ctx.reply("Couldn't transcribe that — try again?").catch(() => {});
           return;
         }
-        await ctx.reply(`🎙 "${transcript}"`);
+        if (!transcript.trim()) {
+          await ctx.reply("I couldn't hear anything in that — try again?").catch(() => {});
+          return;
+        }
+        // Echo is best-effort — a rate-limited echo must never drop the message.
+        await ctx.reply(`🎙 "${transcript}"`).catch((err) =>
+          console.log(`[telegram] transcript echo failed: ${(err as Error).message}`),
+        );
         await this.onMessageHandler?.({
           channel: this.name,
           chatId: String(ctx.chat.id),
@@ -134,9 +151,8 @@ export class TelegramChannel implements ChannelAdapter {
           sender: this.sender(ctx),
           voiceIn: true,
         });
-      } catch (err) {
-        console.log(`[telegram] voice handling failed: ${(err as Error).message}`);
-        await ctx.reply("Couldn't transcribe that — try again?");
+      } finally {
+        clearInterval(typing);
       }
     });
 
