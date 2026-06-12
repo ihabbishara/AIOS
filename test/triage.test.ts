@@ -100,6 +100,17 @@ describe("Triage.handle", () => {
     expect(notified).toHaveLength(0);
   });
 
+  it("own outputs are never triageable even when a user rule matches them", async () => {
+    const { store, triage, notified, bus } = setup();
+    store.addTriageRule({ eventType: "triage.*", verdict: "notify_now", source: "correction" });
+    const decisions: string[] = [];
+    bus.on((e) => { if (e.event.type === "triage.decision") decisions.push(e.event.type); });
+    await triage.handle({ type: "triage.decision", eventType: "x", verdict: "batch", via: "rule" });
+    await triage.handle({ type: "brief.sent", anchor: "morning", chatKey: null });
+    expect(notified).toHaveLength(0);
+    expect(decisions).toHaveLength(0);
+  });
+
   it("a throwing notify never propagates", async () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);

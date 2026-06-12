@@ -71,6 +71,9 @@ export class Triage {
   }
 
   async handle(event: AiosEvent): Promise<void> {
+    // Own outputs are never triageable — not even via user rules. A rule matching
+    // "triage.*" would otherwise re-emit synchronously and storm the bus.
+    if (event.type === "triage.decision" || event.type === "brief.sent") return;
     try {
       let verdict: TriageVerdict | undefined;
       let via: "rule" | "default" | "model";
