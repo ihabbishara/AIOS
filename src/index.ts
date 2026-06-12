@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { loadConfig, assertAuth } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
@@ -23,6 +24,10 @@ import { Triage, modelClassifier } from "./heartbeat/triage.js";
 import { runBrief } from "./heartbeat/briefs.js";
 import { VoiceService } from "./voice/index.js";
 import { deliverReply } from "./voice/mirror.js";
+import { GoogleAccounts } from "./senses/google/auth.js";
+import { GmailWatcher } from "./senses/google/gmail.js";
+import { CalendarWatcher } from "./senses/google/calendar.js";
+import { emailExecutors } from "./senses/google/executors.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -70,6 +75,15 @@ async function main(): Promise<void> {
     log,
   });
 
+  // ---- google senses (gmail + calendar) ----
+  const google = GoogleAccounts.load(join(config.dataDir, "google-tokens.json"));
+  if (!google.enabled()) {
+    log(`google senses disabled: ${google.disabledReason()}`);
+  } else {
+    for (const exec of emailExecutors(google)) registry.register(exec);
+    log(`google senses: ${google.accounts().map((a) => `${a.name} (${a.email})`).join(", ")}`);
+  }
+
   const channels = new Map<string, ChannelAdapter>();
 
   const onJobComplete = async (outcome: JobOutcome): Promise<void> => {
@@ -107,6 +121,7 @@ async function main(): Promise<void> {
     log,
     gate,
     actionTypes: registry.types(),
+    google,
   });
 
   const directChats = new DirectChats({
@@ -225,6 +240,18 @@ async function main(): Promise<void> {
       await sendVia(e.channel, e.chatId, `⏰ Reminder: ${e.text}`);
       return;
     }
+    if (e.type === "calendar.reminder") {
+      if (!config.primaryChat) return;
+      await sendVia(config.primaryChat.channel, config.primaryChat.chatId,
+        `📅 ${e.summary} in ${e.minutesUntil} min${e.link ? ` — ${e.link}` : ""}`);
+      return;
+    }
+    if (e.type === "mail.received") {
+      if (!config.primaryChat) return;
+      await sendVia(config.primaryChat.channel, config.primaryChat.chatId,
+        `📧 ${e.from}: ${e.subject} (${e.account})\n${e.snippet.slice(0, 150)}`);
+      return;
+    }
     if (!config.primaryChat) return;
     const summary =
       e.type === "job.status"
@@ -268,6 +295,45 @@ async function main(): Promise<void> {
   });
   clock.start();
 
+  // Watcher loops: per-account isolation with capped backoff (1m → 5m → 15m).
+  const stops: Array<() => void> = [];
+  if (google.enabled()) {
+    const BACKOFFS = [60_000, 300_000, 900_000];
+    const startWatcher = (name: string, intervalMs: number, pollFn: () => Promise<void>) => {
+      let failures = 0;
+      let timer: NodeJS.Timeout;
+      const tick = async () => {
+        try {
+          await pollFn();
+          failures = 0;
+          const accountName = name.split(":")[1];
+          if (accountName) google.clearDegraded(accountName);
+        } catch (err) {
+          failures++;
+          const accountName = name.split(":")[1];
+          if (accountName) google.markDegraded(accountName, (err as Error).message.slice(0, 120));
+          log(`${name} poll failed (${failures}): ${(err as Error).message}`);
+        }
+        const delay = failures > 0 ? BACKOFFS[Math.min(failures - 1, BACKOFFS.length - 1)] : intervalMs;
+        timer = setTimeout(() => void tick(), delay);
+        timer.unref?.();
+      };
+      void tick();
+      return () => clearTimeout(timer);
+    };
+
+    for (const acc of google.accounts()) {
+      const gmailWatcher = new GmailWatcher({
+        account: acc.name, gmail: acc.gmail, store, bus, skipCategories: config.gmailSkipCategories, log,
+      });
+      const calWatcher = new CalendarWatcher({
+        account: acc.name, calendar: acc.calendar, store, bus, pingMinutes: config.meetingPingMinutes, log,
+      });
+      stops.push(startWatcher(`gmail:${acc.name}`, config.gmailPollSeconds * 1000, () => gmailWatcher.poll()));
+      stops.push(startWatcher(`gcal:${acc.name}`, config.calendarPollSeconds * 1000, () => calWatcher.poll()));
+    }
+  }
+
   startWebServer(
     { store, bus, jobs, vault, config, router, finance, gate, voice, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
@@ -278,6 +344,7 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     log("shutting down");
+    stops.forEach((s) => s());
     for (const ch of channels.values()) await ch.stop().catch(() => {});
     clock.stop();
     triage.stop();

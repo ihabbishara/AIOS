@@ -59,6 +59,22 @@ Setup: `brew install whisper-cpp ffmpeg` (models auto-download on first use).
 Config: `AIOS_VOICE_ENABLED`, `AIOS_WHISPER_MODEL` (base|small|medium),
 `AIOS_TTS_VOICE` (kokoro voice id, or `say`).
 
+### Email & Calendar (first senses)
+
+Connect Google accounts once: create a GCP project → enable **Gmail API** +
+**Google Calendar API** → OAuth consent screen (External, add yourself as test
+user) → Credentials → **Create OAuth client → Desktop app** → copy id/secret,
+then run `npx tsx scripts/google-auth.ts personal` (repeat per account) and
+restart the daemon.
+
+The daemon then watches your inbox (urgent mail pings you; the rest lands in
+briefs as a digest) and calendar (meeting reminders 15 min ahead; agenda in the
+morning brief). Ask the moderator things like *"what's unread?"* or *"draft a
+reply to Hannah saying I'll confirm Monday"* — drafts, sends, archives, and
+labels all go through the approval gate and earn autonomy like everything else.
+Polling: `AIOS_GMAIL_POLL_SECONDS` (120), `AIOS_CALENDAR_POLL_SECONDS` (300),
+`AIOS_MEETING_PING_MINUTES` (15), `AIOS_GMAIL_SKIP_CATEGORIES` (promotions,social).
+
 ## Setup
 
 ```bash
