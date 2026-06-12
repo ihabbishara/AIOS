@@ -451,6 +451,13 @@ export class Store {
       .all(tsIso, limit) as unknown as Array<{ id: number; ts: string; payload: string }>;
   }
 
+  /** All kv entries whose key starts with the prefix (used by brief assembly for calendar snapshots). */
+  kvByPrefix(prefix: string): Array<{ key: string; value: string }> {
+    return this.db
+      .prepare("SELECT key, value FROM kv WHERE key LIKE ? ORDER BY key")
+      .all(`${prefix}%`) as unknown as Array<{ key: string; value: string }>;
+  }
+
   close(): void {
     this.db.close();
   }

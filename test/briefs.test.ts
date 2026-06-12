@@ -89,6 +89,7 @@ describe("renderBriefNote", () => {
       pendingApprovals: [{ id: "a", type: "test.echo", preview: "p", expires_at: NOW, expiringSoon: false }],
       graduationProposals: [], autonomousDigest: [{ type: "vault.write", count: 3 }],
       jobsFinished: [], jobsFailed: [], trustChanges: [], remindersToday: [],
+      mailDigest: [], meetings: [],
       sinceLastBrief: null,
     };
     const md = renderBriefNote(data, "Morning. One approval waiting.");
@@ -176,5 +177,38 @@ describe("runBrief", () => {
     store.insertAction(action("hhhh8888"));
     await expect(runBrief(deps, "morning")).resolves.toBeUndefined();
     expect(vault.readNote("briefs/2026-06-12-morning.md")).toBeTruthy();
+  });
+});
+
+describe("assembleBrief senses sections", () => {
+  it("mail digest groups by account and sender domain since the window", () => {
+    const store = new Store(":memory:");
+    const mail = (account: string, from: string, id: string) =>
+      store.addEvent(JSON.stringify({ type: "mail.received", account, messageId: id, threadId: id, from, to: "", subject: `s-${id}`, snippet: "", labels: ["INBOX"], receivedAt: NOW }));
+    mail("personal", "Amy <amy@acme.com>", "m1");
+    mail("personal", "Bob <bob@acme.com>", "m2");
+    mail("work", "Carl <c@corp.io>", "m3");
+    const data = assembleBrief(store, "morning", NOW, "2020-01-01T00:00:00.000Z");
+    expect(data.mailDigest).toEqual([
+      { account: "personal", count: 2, senders: ["acme.com × 2"] },
+      { account: "work", count: 1, senders: ["corp.io × 1"] },
+    ]);
+  });
+
+  it("meetings come from the calendar snapshot kv (morning=today, evening=tomorrow)", () => {
+    const store = new Store(":memory:");
+    store.kvSet("gcal:personal:snapshot", JSON.stringify({
+      e1: { updated: "u", summary: "Standup", start: "2026-06-12T14:00:00.000Z", end: "", status: "confirmed", organizer: "", link: "https://meet/x" },
+      e2: { updated: "u", summary: "Tomorrow mtg", start: "2026-06-13T09:00:00.000Z", end: "", status: "confirmed", organizer: "", link: null },
+    }));
+    const morning = assembleBrief(store, "morning", NOW, null);
+    expect(morning.meetings).toEqual([{ account: "personal", summary: "Standup", start: "2026-06-12T14:00:00.000Z", link: "https://meet/x" }]);
+    const evening = assembleBrief(store, "evening", NOW, null);
+    expect(evening.meetings).toEqual([{ account: "personal", summary: "Tomorrow mtg", start: "2026-06-13T09:00:00.000Z", link: null }]);
+  });
+
+  it("empty senses sections keep isEmptyBrief true", () => {
+    const store = new Store(":memory:");
+    expect(isEmptyBrief(assembleBrief(store, "morning", NOW, null))).toBe(true);
   });
 });

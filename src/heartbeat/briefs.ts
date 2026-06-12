@@ -13,6 +13,8 @@ export interface BriefData {
   jobsFailed: Array<{ title: string; error: string }>;
   trustChanges: Array<{ type: string; state: string }>;
   remindersToday: Array<{ id: number; text: string; due_at: string }>;
+  mailDigest: Array<{ account: string; count: number; senders: string[] }>;
+  meetings: Array<{ account: string; summary: string; start: string; link: string | null }>;
   sinceLastBrief: string | null;
 }
 
@@ -47,6 +49,7 @@ export function assembleBrief(
   const jobsFinished: BriefData["jobsFinished"] = [];
   const jobsFailed: BriefData["jobsFailed"] = [];
   const trustChanges: BriefData["trustChanges"] = [];
+  const mailByAccount = new Map<string, Map<string, number>>(); // account → domain → count
   if (sinceTs) {
     for (const row of store.listEventsSince(sinceTs)) {
       let event: AiosEvent;
@@ -63,6 +66,11 @@ export function assembleBrief(
         else if (event.status === "done") jobsFinished.push({ title, status: event.status });
       } else if (event.type === "trust.changed") {
         trustChanges.push({ type: event.actionType, state: event.state });
+      } else if (event.type === "mail.received") {
+        const domain = event.from.match(/@([^>\s]+)/)?.[1] ?? event.from;
+        const acc = mailByAccount.get(event.account) ?? new Map<string, number>();
+        acc.set(domain, (acc.get(domain) ?? 0) + 1);
+        mailByAccount.set(event.account, acc);
       }
     }
   }
@@ -76,6 +84,27 @@ export function assembleBrief(
     .filter((r) => localDateOf(r.due_at) === targetDate)
     .map((r) => ({ id: r.id, text: r.text, due_at: r.due_at }));
 
+  const targetDateMeetings = localDateOf(
+    anchor === "morning" ? nowIso : new Date(nowMs + DAY).toISOString(),
+  );
+  const meetings: BriefData["meetings"] = [];
+  for (const row of store.kvByPrefix("gcal:")) {
+    const m = /^gcal:(.+):snapshot$/.exec(row.key);
+    if (!m) continue;
+    let snap: Record<string, { summary: string; start: string; link: string | null }>;
+    try {
+      snap = JSON.parse(row.value) as never;
+    } catch {
+      continue;
+    }
+    for (const entry of Object.values(snap)) {
+      if (localDateOf(entry.start) === targetDateMeetings) {
+        meetings.push({ account: m[1], summary: entry.summary, start: entry.start, link: entry.link ?? null });
+      }
+    }
+  }
+  meetings.sort((a, b) => a.start.localeCompare(b.start));
+
   return {
     anchor,
     pendingApprovals,
@@ -85,6 +114,14 @@ export function assembleBrief(
     jobsFailed,
     trustChanges,
     remindersToday,
+    mailDigest: [...mailByAccount.entries()]
+      .map(([account, domains]) => ({
+        account,
+        count: [...domains.values()].reduce((a, b) => a + b, 0),
+        senders: [...domains.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, c]) => `${d} × ${c}`),
+      }))
+      .sort((a, b) => a.account.localeCompare(b.account)),
+    meetings,
     sinceLastBrief: sinceTs,
   };
 }
@@ -97,7 +134,9 @@ export function isEmptyBrief(d: BriefData): boolean {
     d.jobsFinished.length === 0 &&
     d.jobsFailed.length === 0 &&
     d.trustChanges.length === 0 &&
-    d.remindersToday.length === 0
+    d.remindersToday.length === 0 &&
+    d.mailDigest.length === 0 &&
+    d.meetings.length === 0
   );
 }
 
@@ -116,6 +155,9 @@ export function renderBriefNote(d: BriefData, narration: string): string {
   section("Jobs finished", d.jobsFinished.map((j) => `${j.title} (${j.status})`));
   section("Jobs failed", d.jobsFailed.map((j) => `${j.title} — ${j.error}`));
   section("Trust changes", d.trustChanges.map((t) => `${t.type} → ${t.state}`));
+  section("Mail", d.mailDigest.map((x) => `${x.account}: ${x.count} new (${x.senders.join(", ")})`));
+  section(d.anchor === "morning" ? "Meetings today" : "Meetings tomorrow",
+    d.meetings.map((mt) => `${mt.start.slice(11, 16)} ${mt.summary} (${mt.account})${mt.link ? ` — ${mt.link}` : ""}`));
   section(d.anchor === "morning" ? "Reminders today" : "Reminders tomorrow",
     d.remindersToday.map((r) => `#${r.id} ${r.text} (${r.due_at})`));
   return lines.join("\n");

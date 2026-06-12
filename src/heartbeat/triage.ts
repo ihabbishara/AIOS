@@ -30,6 +30,12 @@ export function defaultVerdict(event: AiosEvent): TriageVerdict | undefined {
       return "batch";
     case "job.status":
       return "ignore"; // job completion AND failure already narrated by the moderator flow
+    case "calendar.reminder":
+      return "notify_now";
+    case "calendar.changed":
+      return "batch";
+    case "mail.received":
+      return undefined; // model decides — quiet posture prompt below
     case "job.created":
     case "stage.start":
     case "stage.finish":
@@ -120,8 +126,12 @@ export function modelClassifier(model: string): (event: AiosEvent) => Promise<Tr
       prompt: `Event:\n${JSON.stringify(event)}\n\nHow should this be handled for the user?`,
       options: {
         systemPrompt:
-          "You triage events for a personal AI OS. Verdicts: notify_now (interrupt the user — urgent or time-sensitive), " +
-          "batch (include in the next scheduled brief), ignore (noise).",
+          "You triage events for a personal AI OS. Verdicts: notify_now (interrupt the user NOW), " +
+          "batch (include in the next scheduled brief), ignore (noise). " +
+          "POSTURE: quiet by default. For email (mail.received): interrupt ONLY for genuinely urgent, " +
+          "time-sensitive items — explicit same-day deadlines, payment or security problems, direct " +
+          "personal requests that clearly cannot wait. Newsletters, receipts, notifications, FYIs, " +
+          "and anything that can wait a few hours: batch. When unsure: batch.",
         allowedTools: [],
         maxTurns: 1,
         settingSources: [],

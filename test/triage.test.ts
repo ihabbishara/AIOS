@@ -42,6 +42,11 @@ describe("defaultVerdict", () => {
     expect(defaultVerdict({ type: "triage.decision", eventType: "x", verdict: "batch", via: "rule" })).toBe("ignore");
     expect(defaultVerdict({ type: "brief.sent", anchor: "morning", chatKey: null })).toBe("ignore");
   });
+  it("calendar reminders interrupt; calendar changes batch; mail goes to the model", () => {
+    expect(defaultVerdict({ type: "calendar.reminder", account: "p", eventId: "e", summary: "s", start: "", minutesUntil: 10, link: null })).toBe("notify_now");
+    expect(defaultVerdict({ type: "calendar.changed", account: "p", eventId: "e", summary: "s", start: "", end: "", status: "confirmed", organizer: "" })).toBe("batch");
+    expect(defaultVerdict({ type: "mail.received", account: "p", messageId: "m", threadId: "t", from: "", to: "", subject: "", snippet: "", labels: [], receivedAt: "" })).toBeUndefined();
+  });
 });
 
 describe("Triage.handle", () => {
