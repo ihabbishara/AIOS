@@ -21,6 +21,8 @@ import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
 import { Triage, modelClassifier } from "./heartbeat/triage.js";
 import { runBrief } from "./heartbeat/briefs.js";
+import { VoiceService } from "./voice/index.js";
+import { deliverReply } from "./voice/mirror.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -58,6 +60,15 @@ async function main(): Promise<void> {
       log(`trust seed: ${type} -> ${state}`);
     }
   }
+
+  // ---- voice (local STT/TTS) ----
+  const voice = await VoiceService.create({
+    enabled: config.voiceEnabled,
+    whisperModel: config.whisperModel,
+    ttsVoice: config.ttsVoice,
+    dataDir: config.dataDir,
+    log,
+  });
 
   const channels = new Map<string, ChannelAdapter>();
 
@@ -130,7 +141,7 @@ async function main(): Promise<void> {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
       const reply = await router.handle(msg);
-      if (reply !== null) await channels.get(msg.channel)?.send(msg.chatId, reply);
+      if (reply !== null) await deliverReply({ voice, log }, channels.get(msg.channel), msg, reply);
     } catch (err) {
       log(`handler error: ${(err as Error).stack}`);
       await channels.get(msg.channel)?.send(msg.chatId, `Error: ${(err as Error).message}`);
@@ -149,7 +160,7 @@ async function main(): Promise<void> {
       .map((k) => k.slice("telegram:".length));
     channels.set(
       "telegram",
-      new TelegramChannel(config.telegramToken, allowed, boundTelegramChats, `${config.dataDir}/downloads`),
+      new TelegramChannel(config.telegramToken, allowed, boundTelegramChats, `${config.dataDir}/downloads`, voice),
     );
   }
   if (config.slackBotToken && config.slackAppToken) {
