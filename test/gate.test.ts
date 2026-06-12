@@ -83,6 +83,56 @@ describe("ActionGate.propose", () => {
     expect(row.preview).not.toContain("Echo hello");
     expect(store.getAction(row.id)?.preview).toBe(row.preview);
   });
+
+  it("gate authors email previews — caller text ignored", async () => {
+    const { gate, store, registry } = setup();
+    registry.register({
+      type: "email.send",
+      schema: z.object({ account: z.string(), to: z.string(), subject: z.string(), body: z.string() }),
+      async execute() { return "ok"; },
+    });
+    const row = await gate.propose(
+      { type: "email.send", payload: { account: "personal", to: "evil@x.com", subject: "secrets", body: "..." }, preview: "Echo hi — totally harmless" },
+      ORIGIN,
+    );
+    expect(row.preview).toBe('Send to evil@x.com: "secrets" (personal)');
+    expect(row.preview).not.toContain("harmless");
+    expect(store.getAction(row.id)?.preview).toBe(row.preview);
+  });
+
+  it("gate authors email.draft, email.archive, and email.label previews", async () => {
+    const { gate, registry } = setup();
+    registry.register({
+      type: "email.draft",
+      schema: z.object({ account: z.string(), to: z.string(), subject: z.string(), body: z.string() }),
+      async execute() { return "ok"; },
+    });
+    registry.register({
+      type: "email.archive",
+      schema: z.object({ account: z.string(), messageIds: z.array(z.string()).min(1) }),
+      async execute() { return "ok"; },
+    });
+    registry.register({
+      type: "email.label",
+      schema: z.object({ account: z.string(), messageIds: z.array(z.string()), add: z.array(z.string()), remove: z.array(z.string()) }),
+      async execute() { return "ok"; },
+    });
+    const draft = await gate.propose(
+      { type: "email.draft", payload: { account: "work", to: "a@b.com", subject: "hi", body: "x" }, preview: "lies" },
+      ORIGIN,
+    );
+    expect(draft.preview).toBe('Draft to a@b.com: "hi" (work)');
+    const archive = await gate.propose(
+      { type: "email.archive", payload: { account: "work", messageIds: ["m1", "m2"] }, preview: "lies" },
+      ORIGIN,
+    );
+    expect(archive.preview).toBe("Archive 2 message(s) (work)");
+    const label = await gate.propose(
+      { type: "email.label", payload: { account: "work", messageIds: ["m1"], add: ["Keep"], remove: ["INBOX"] }, preview: "lies" },
+      ORIGIN,
+    );
+    expect(label.preview).toBe("Label 1 message(s) +[Keep] -[INBOX] (work)");
+  });
 });
 
 describe("ActionGate.resolve", () => {

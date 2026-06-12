@@ -37,16 +37,10 @@ export class ActionGate {
     if (!executor) throw new Error(`no executor registered for action type "${input.type}"`);
     executor.schema.parse(input.payload);
 
-    // Privileged meta-type: the gate authors the preview so a caller can never
-    // disguise a promotion behind innocuous-looking text.
-    if (input.type === "trust.promote") {
-      const target = String((input.payload as { action_type?: unknown }).action_type ?? "");
-      const targetTrust = store.getTrust(target);
-      input = {
-        ...input,
-        preview: `Promote ${target} to autonomous (${targetTrust?.streak ?? 0} consecutive approvals, currently ${targetTrust?.state ?? "unknown"})`,
-      };
-    }
+    // Privileged types: the gate authors the preview so a caller can never
+    // disguise what executes behind innocuous-looking text.
+    const authored = this.authoredPreview(input);
+    if (authored) input = { ...input, preview: authored };
 
     const now = new Date().toISOString();
     let trust = store.getTrust(input.type);
@@ -85,6 +79,27 @@ export class ActionGate {
 
     bus.emit({ type: "action.proposed", actionId: row.id, actionType: row.type, preview: row.preview });
     return row;
+  }
+
+  /** Privileged types get gate-authored previews — a caller can never disguise what executes. */
+  private authoredPreview(input: ActionInput): string | undefined {
+    const p = input.payload as Record<string, unknown>;
+    switch (input.type) {
+      case "trust.promote": {
+        const target = String(p.action_type ?? "");
+        const t = this.deps.store.getTrust(target);
+        return `Promote ${target} to autonomous (${t?.streak ?? 0} consecutive approvals, currently ${t?.state ?? "unknown"})`;
+      }
+      case "email.send":
+        return `Send to ${String(p.to)}: "${String(p.subject)}" (${String(p.account)})`;
+      case "email.draft":
+        return `Draft to ${String(p.to)}: "${String(p.subject)}" (${String(p.account)})`;
+      case "email.archive":
+        return `Archive ${(p.messageIds as string[]).length} message(s) (${String(p.account)})`;
+      case "email.label":
+        return `Label ${(p.messageIds as string[]).length} message(s) +[${(p.add as string[]).join(",")}] -[${(p.remove as string[]).join(",")}] (${String(p.account)})`;
+    }
+    return undefined;
   }
 
   /** Apply a user verdict to a queued action. */
