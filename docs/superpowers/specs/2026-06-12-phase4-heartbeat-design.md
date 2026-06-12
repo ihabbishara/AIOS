@@ -77,8 +77,7 @@ Subscribes to the EventBus. Decides `ignore | batch | notify_now` per event.
   | `reminder.due` | notify_now |
   | `action.executed` (auto) | batch |
   | `trust.changed` | batch |
-  | `job.status` = failed | notify_now |
-  | `job.status` other | ignore (existing moderator completion flow already notifies) |
+  | `job.status` (all) | ignore (moderator completion flow already narrates both success and failure) |
   | `chat.*`, `agent.*`, `action.proposed`, `action.resolved` | ignore (Phase 3 notifier already pings proposals — no double-ping) |
 - **Model fallback** — no rule matches → one-shot SDK call (`AIOS_TRIAGE_MODEL`,
   default Haiku-class) returning strict JSON `{verdict, reason}`. Malformed output or

@@ -29,7 +29,7 @@ export function defaultVerdict(event: AiosEvent): TriageVerdict | undefined {
     case "trust.changed":
       return "batch";
     case "job.status":
-      return event.status === "failed" ? "notify_now" : "ignore";
+      return "ignore"; // job completion AND failure already narrated by the moderator flow
     case "job.created":
     case "stage.start":
     case "stage.finish":

@@ -28,8 +28,8 @@ describe("defaultVerdict", () => {
     expect(defaultVerdict({ type: "action.executed", actionId: "a", actionType: "t", auto: true, ok: true })).toBe("batch");
     expect(defaultVerdict({ type: "action.executed", actionId: "a", actionType: "t", auto: false, ok: true })).toBe("ignore");
   });
-  it("failed jobs interrupt; other job statuses are ignored", () => {
-    expect(defaultVerdict({ type: "job.status", jobId: "j", status: "failed" })).toBe("notify_now");
+  it("job statuses are ignored (moderator completion flow already narrates them)", () => {
+    expect(defaultVerdict({ type: "job.status", jobId: "j", status: "failed" })).toBe("ignore");
     expect(defaultVerdict({ type: "job.status", jobId: "j", status: "done" })).toBe("ignore");
   });
   it("trust changes batch; chat/agent/proposal noise is ignored", () => {
