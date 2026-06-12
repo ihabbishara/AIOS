@@ -18,6 +18,9 @@ import { ExecutorRegistry } from "./kernel/actions.js";
 import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
 import { newRecord } from "./kernel/trust.js";
+import { Clock } from "./heartbeat/clock.js";
+import { Triage, modelClassifier } from "./heartbeat/triage.js";
+import { runBrief } from "./heartbeat/briefs.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -197,6 +200,63 @@ async function main(): Promise<void> {
     if (n) log(`expired ${n} stale approval(s)`);
   }, 60_000);
 
+  // ---- heartbeat: anchors, briefs, reminders, triage ----
+  if (!config.primaryChat) {
+    log("WARNING: AIOS_PRIMARY_CHAT not set — briefs are vault-only, notify pings disabled");
+  }
+
+  const sendVia = async (channel: string, chatId: string, text: string): Promise<void> => {
+    await channels.get(channel)?.send(chatId, text);
+  };
+
+  const notify = async (e: import("./events.js").AiosEvent): Promise<void> => {
+    if (e.type === "reminder.due") {
+      await sendVia(e.channel, e.chatId, `⏰ Reminder: ${e.text}`);
+      return;
+    }
+    if (!config.primaryChat) return;
+    const summary =
+      e.type === "job.status"
+        ? `🔔 Job ${e.jobId} ${e.status}${e.error ? `: ${e.error.slice(0, 200)}` : ""}`
+        : `🔔 ${e.type}: ${JSON.stringify(e).slice(0, 200)}`;
+    await sendVia(config.primaryChat.channel, config.primaryChat.chatId, summary);
+  };
+
+  const triage = new Triage({
+    store,
+    bus,
+    classify: modelClassifier(config.triageModel),
+    notify,
+    log,
+  });
+  triage.start();
+
+  const narrate = (anchor: "morning" | "evening", dataJson: string): Promise<string> => {
+    const p = config.primaryChat!;
+    return moderator.handle(
+      p.channel,
+      p.chatId,
+      `[${anchor.toUpperCase()}-BRIEF] ${dataJson} — narrate this as my chief of staff: short, lead with what needs me, plain text.`,
+    );
+  };
+
+  const clock = new Clock({
+    store,
+    anchors: [
+      { name: "morning", hhmm: config.anchorMorning },
+      { name: "evening", hhmm: config.anchorEvening },
+    ],
+    onAnchor: (name) =>
+      runBrief(
+        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, log },
+        name,
+      ),
+    onReminderDue: (r) =>
+      bus.emit({ type: "reminder.due", id: r.id, text: r.text, channel: r.origin_channel, chatId: r.origin_chat_id }),
+    log,
+  });
+  clock.start();
+
   startWebServer(
     { store, bus, jobs, vault, config, router, finance, gate, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
@@ -208,6 +268,8 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     log("shutting down");
     for (const ch of channels.values()) await ch.stop().catch(() => {});
+    clock.stop();
+    triage.stop();
     store.close();
     process.exit(0);
   };
