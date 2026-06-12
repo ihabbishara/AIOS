@@ -18,9 +18,12 @@ export interface GmailSendLike {
 
 /** RFC2822 → base64url, with RFC2047 UTF-8 subject encoding. */
 export function buildRawEmail(p: { to: string; subject: string; body: string }): string {
+  // Strip CR/LF from the recipient — a raw newline here would let a
+  // prompt-injected payload smuggle extra headers (e.g. Bcc:) into the message.
+  const safeTo = p.to.replace(/[\r\n]+/g, " ").trim();
   const subject = `=?UTF-8?B?${Buffer.from(p.subject, "utf8").toString("base64")}?=`;
   const mime = [
-    `To: ${p.to}`,
+    `To: ${safeTo}`,
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
@@ -87,6 +90,7 @@ export function emailExecutors(accounts: GoogleAccounts): Executor[] {
         return `Archived ${p.messageIds.length} message(s) (${p.account})`;
       },
     },
+    // NOTE: Gmail expects label IDs (STARRED, IMPORTANT, …); custom labels need their Label_<id>, not display names.
     {
       type: "email.label",
       schema: z.object({

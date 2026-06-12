@@ -13,6 +13,19 @@ describe("buildRawEmail", () => {
     expect(raw).not.toContain("+"); // base64url, not base64
     expect(raw).not.toContain("/");
   });
+
+  it("strips CRLF from to — header injection impossible", () => {
+    const raw = buildRawEmail({ to: "v@x.com\r\nBcc: evil@attacker.com", subject: "s", body: "b" });
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    const headerBlock = decoded.split("\r\n\r\n")[0];
+    const lines = headerBlock.split("\r\n");
+    // No injected Bcc header line may exist in the header block.
+    expect(lines.filter((l) => l.startsWith("Bcc"))).toHaveLength(0);
+    // The To header survives intact as exactly one line, CR/LF gone from its value.
+    const toLines = lines.filter((l) => l.startsWith("To: "));
+    expect(toLines).toHaveLength(1);
+    expect(toLines[0]).toContain("v@x.com");
+  });
 });
 
 function fakeAccounts(calls: Array<{ method: string; args: unknown }>): GoogleAccounts {
