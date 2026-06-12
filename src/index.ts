@@ -286,7 +286,7 @@ async function main(): Promise<void> {
     ],
     onAnchor: (name) =>
       runBrief(
-        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, log },
+        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => google.degraded(), log },
         name,
       ),
     onReminderDue: (r) =>

@@ -15,6 +15,8 @@ export interface BriefData {
   remindersToday: Array<{ id: number; text: string; due_at: string }>;
   mailDigest: Array<{ account: string; count: number; senders: string[] }>;
   meetings: Array<{ account: string; summary: string; start: string; link: string | null }>;
+  /** Google accounts whose watcher is failing (revoked token etc.) — filled by runBrief, not assembleBrief. */
+  sensesNeedingReauth: Array<{ name: string; reason: string }>;
   sinceLastBrief: string | null;
 }
 
@@ -122,6 +124,7 @@ export function assembleBrief(
       }))
       .sort((a, b) => a.account.localeCompare(b.account)),
     meetings,
+    sensesNeedingReauth: [], // assembleBrief stays pure — runBrief injects live degraded state
     sinceLastBrief: sinceTs,
   };
 }
@@ -136,7 +139,8 @@ export function isEmptyBrief(d: BriefData): boolean {
     d.trustChanges.length === 0 &&
     d.remindersToday.length === 0 &&
     d.mailDigest.length === 0 &&
-    d.meetings.length === 0
+    d.meetings.length === 0 &&
+    d.sensesNeedingReauth.length === 0
   );
 }
 
@@ -147,6 +151,9 @@ export function renderBriefNote(d: BriefData, narration: string): string {
     if (!rows.length) return;
     lines.push(`## ${title}`, ...rows.map((r) => `- ${r}`), "");
   };
+  section("⚠ Senses needing re-auth", d.sensesNeedingReauth.map(
+    (s) => `re-auth needed: ${s.name} (${s.reason}) — run: npx tsx scripts/google-auth.ts ${s.name}`,
+  ));
   section("Pending approvals", d.pendingApprovals.map(
     (a) => `[${a.id}] ${a.type} — ${a.preview}${a.expiringSoon ? " ⚠ expiring soon" : ""}`,
   ));
@@ -172,6 +179,8 @@ export interface BriefRunnerDeps {
   /** Channel delivery. */
   send: (channel: string, chatId: string, text: string) => Promise<void>;
   primary?: { channel: string; chatId: string };
+  /** Live degraded-sense snapshot (e.g. GoogleAccounts.degraded) — surfaced as a re-auth section. */
+  degraded?: () => Array<{ name: string; reason: string }>;
   log?: (line: string) => void;
   nowFn?: () => Date;
 }
@@ -180,6 +189,7 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   const now = (deps.nowFn ?? (() => new Date()))();
   const since = deps.store.kvGet("brief:last-ts") ?? null;
   const data = assembleBrief(deps.store, anchor, now.toISOString(), since);
+  data.sensesNeedingReauth = deps.degraded?.() ?? [];
   deps.store.kvSet("brief:last-ts", now.toISOString()); // window always advances — no overlaps, no gaps
 
   const empty = isEmptyBrief(data);

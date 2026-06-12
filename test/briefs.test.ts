@@ -89,7 +89,7 @@ describe("renderBriefNote", () => {
       pendingApprovals: [{ id: "a", type: "test.echo", preview: "p", expires_at: NOW, expiringSoon: false }],
       graduationProposals: [], autonomousDigest: [{ type: "vault.write", count: 3 }],
       jobsFinished: [], jobsFailed: [], trustChanges: [], remindersToday: [],
-      mailDigest: [], meetings: [],
+      mailDigest: [], meetings: [], sensesNeedingReauth: [],
       sinceLastBrief: null,
     };
     const md = renderBriefNote(data, "Morning. One approval waiting.");
@@ -177,6 +177,18 @@ describe("runBrief", () => {
     store.insertAction(action("hhhh8888"));
     await expect(runBrief(deps, "morning")).resolves.toBeUndefined();
     expect(vault.readNote("briefs/2026-06-12-morning.md")).toBeTruthy();
+  });
+
+  it("degraded senses make an otherwise-empty brief non-empty and surface re-auth", async () => {
+    const { sent, deps, vault } = setup({ degraded: () => [{ name: "work", reason: "invalid_grant" }] });
+    await runBrief(deps, "morning"); // store is EMPTY — only the degraded sense
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toBe("Narrated brief."); // not the quiet one-liner
+    expect(sent[0].text).not.toContain("Quiet");
+    const note = vault.readNote("briefs/2026-06-12-morning.md")!;
+    expect(note).toContain("re-auth needed");
+    expect(note).toContain("work");
+    expect(note).toContain("invalid_grant");
   });
 });
 
