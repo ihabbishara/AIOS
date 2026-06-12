@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type StateInfo } from "../api.js";
 
-interface Msg { who: "you" | string; text: string; pending?: boolean }
+interface Msg { who: "you" | string; text: string; pending?: boolean; audio?: string }
 
 const LOG_KEY = "aios_chat_log";
 
@@ -20,9 +20,10 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
   const [recording, setRecording] = useState<MediaRecorder | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
 
-  // Persist across reloads (drop in-flight placeholders, cap at 200 entries).
+  // Persist across reloads (drop in-flight placeholders, cap at 200 entries; strip audio blobs to keep storage small).
   useEffect(() => {
-    localStorage.setItem(LOG_KEY, JSON.stringify(log.filter((m) => !m.pending).slice(-200)));
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    localStorage.setItem(LOG_KEY, JSON.stringify(log.filter((m) => !m.pending).slice(-200).map(({ audio, ...m }) => m)));
   }, [log]);
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
@@ -47,11 +48,6 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
     }
   };
 
-  const appendMessage = (who: "you" | string, text: string) => {
-    setLog((l) => [...l, { who, text }]);
-    setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
-  };
-
   const toggleMic = async () => {
     if (recording) {
       recording.stop();
@@ -65,13 +61,22 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
       stream.getTracks().forEach((t) => t.stop());
       setRecording(null);
       setVoiceBusy(true);
+      // Show immediate feedback while the round-trip is in flight.
+      setLog((l) => [...l, { who: "you", text: "🎙 transcribing…", pending: true }]);
+      setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
       try {
         const { transcript, reply, audio } = await api.voiceChat(target, new Blob(chunks, { type: "audio/webm" }));
-        appendMessage("you", `🎙 ${transcript}`);
-        appendMessage(target, reply);
+        // Replace the pending placeholder with the real transcript, then append the reply.
+        setLog((l) => [
+          ...l.map((m) => (m.pending ? { who: "you" as const, text: `🎙 ${transcript}` } : m)),
+          { who: target, text: reply, ...(audio ? { audio } : {}) },
+        ]);
+        setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        // Best-effort autoplay — works when the round trip is fast enough that the click gesture is still live.
         if (audio) new Audio(`data:audio/ogg;base64,${audio}`).play().catch(() => {});
       } catch (e) {
-        appendMessage("system", `voice error: ${(e as Error).message}`);
+        setLog((l) => l.map((m) => (m.pending ? { who: "you" as const, text: `voice error: ${(e as Error).message}` } : m)));
+        setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
       }
       setVoiceBusy(false);
     };
@@ -104,7 +109,18 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
         )}
         {log.map((m, i) => (
           <div key={i} className={m.who === "you" ? "self-end max-w-[80%]" : "self-start max-w-[85%]"}>
-            <div className={`label mb-1 ${m.who === "you" ? "text-right text-cyan" : "text-phosphor"}`}>{m.who}</div>
+            <div className={`label mb-1 flex items-center gap-2 ${m.who === "you" ? "justify-end text-cyan" : "text-phosphor"}`}>
+              {m.who}
+              {m.audio && (
+                <button
+                  onClick={() => new Audio(`data:audio/ogg;base64,${m.audio}`).play().catch(() => {})}
+                  title="Replay audio"
+                  className="border border-line text-dim hover:text-phosphor text-[10px] px-1 leading-none transition-colors"
+                >
+                  ▶
+                </button>
+              )}
+            </div>
             <div
               className={`px-3 py-2 text-[13px] whitespace-pre-wrap leading-relaxed border ${
                 m.who === "you" ? "border-cyan/40 bg-panel-2 text-bright" : "border-line bg-panel-2 text-fg"
