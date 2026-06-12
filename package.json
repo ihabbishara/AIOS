@@ -24,6 +24,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.173",
     "@slack/bolt": "^4.7.3",
     "dotenv": "^17.4.2",
+    "googleapis": "^173.0.0",
     "grammy": "^1.43.0",
     "kokoro-js": "^1.2.1",
     "yaml": "^2.9.0",
