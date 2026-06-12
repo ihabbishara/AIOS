@@ -87,12 +87,15 @@ describe("voice config", () => {
     process.env.AIOS_VOICE_ENABLED = "false";
     process.env.AIOS_WHISPER_MODEL = "small";
     process.env.AIOS_TTS_VOICE = "say";
-    const cfg = loadConfig();
-    expect(cfg.voiceEnabled).toBe(false);
-    expect(cfg.whisperModel).toBe("small");
-    expect(cfg.ttsVoice).toBe("say");
-    delete process.env.AIOS_VOICE_ENABLED;
-    delete process.env.AIOS_WHISPER_MODEL;
-    delete process.env.AIOS_TTS_VOICE;
+    try {
+      const cfg = loadConfig();
+      expect(cfg.voiceEnabled).toBe(false);
+      expect(cfg.whisperModel).toBe("small");
+      expect(cfg.ttsVoice).toBe("say");
+    } finally {
+      delete process.env.AIOS_VOICE_ENABLED;
+      delete process.env.AIOS_WHISPER_MODEL;
+      delete process.env.AIOS_TTS_VOICE;
+    }
   });
 });
