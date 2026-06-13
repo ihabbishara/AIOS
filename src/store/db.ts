@@ -503,25 +503,39 @@ export class Store {
     postings: Array<[string, number]>,
   ): void {
     const now = new Date().toISOString();
-    const existing = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(doc.source, doc.ref) as { id: number } | undefined;
-    if (existing) {
-      this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(existing.id);
-      this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
+    this.db.exec("BEGIN");
+    try {
+      const existing = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(doc.source, doc.ref) as { id: number } | undefined;
+      if (existing) {
+        this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(existing.id);
+        this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
+      }
+      const res = this.db
+        .prepare(`INSERT INTO memory_doc (source, ref, domain, title, body, ts, len, fingerprint, indexed_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(doc.source, doc.ref, doc.domain, doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
+      const docId = Number(res.lastInsertRowid);
+      const ins = this.db.prepare("INSERT INTO memory_token (token, doc_id, tf) VALUES (?, ?, ?)");
+      for (const [token, tf] of postings) ins.run(token, docId, tf);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
     }
-    const res = this.db
-      .prepare(`INSERT INTO memory_doc (source, ref, domain, title, body, ts, len, fingerprint, indexed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(doc.source, doc.ref, doc.domain, doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
-    const docId = Number(res.lastInsertRowid);
-    const ins = this.db.prepare("INSERT INTO memory_token (token, doc_id, tf) VALUES (?, ?, ?)");
-    for (const [token, tf] of postings) ins.run(token, docId, tf);
   }
 
   deleteMemoryDoc(source: string, ref: string): void {
     const row = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(source, ref) as { id: number } | undefined;
     if (!row) return;
-    this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(row.id);
-    this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(row.id);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(row.id);
+      this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(row.id);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   listMemoryRefs(source: string): string[] {
