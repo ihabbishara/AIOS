@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
+import { ActionGate } from "../src/kernel/gate.js";
+import { EventBus } from "../src/events.js";
+import { ExecutorRegistry } from "../src/kernel/actions.js";
+import { z } from "zod";
 
 describe("memory index store", () => {
   it("upserts a doc with postings and reads them back", () => {
@@ -38,5 +42,37 @@ describe("memory index store", () => {
     expect(s.memoryPostings(["invoice"], "money").length).toBe(1);
     const id = s.memoryPostings(["invoice"], "money")[0].doc_id;
     expect(s.memoryDocsByIds([id])[0].body).toBe("invoice");
+  });
+});
+
+describe("teachings + decisions", () => {
+  it("captures teachings and consolidates them", () => {
+    const s = new Store(":memory:");
+    const id = s.addTeaching({ text: "always CC Sara", domain: "money", kind: "preference" });
+    const fact = s.addTeaching({ text: "Sara is my partner", domain: null, kind: "fact" });
+    expect(s.listUnconsolidatedTeachings().length).toBe(2);
+    expect(s.listUnconsolidatedTeachings("money").map((t) => t.id)).toEqual([id]);
+    expect(s.listUnconsolidatedTeachings(null).map((t) => t.id)).toEqual([fact]); // profile (domain IS NULL)
+    s.markTeachingsConsolidated([id]);
+    expect(s.listUnconsolidatedTeachings("money").length).toBe(0);
+    expect(s.listUnconsolidatedTeachings().length).toBe(1);
+  });
+
+  it("listDecisions derives verdict from status + verdict_by", async () => {
+    const s = new Store(":memory:");
+    const bus = new EventBus(s);
+    const registry = new ExecutorRegistry();
+    registry.register({ type: "finance.pay", schema: z.object({}), async execute() { return "ok"; } });
+    const gate = new ActionGate({ store: s, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
+    const a = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay rent" }, { channel: "cli", chatId: "x" });
+    await gate.resolve(a.id, "approve", { by: "ihab" });
+    const b = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay gym" }, { channel: "cli", chatId: "x" });
+    await gate.resolve(b.id, "reject", { by: "ihab", reason: "cancel it" });
+    const decs = s.listDecisions();
+    const pay = decs.find((d) => d.preview === "pay rent")!;
+    const gym = decs.find((d) => d.preview === "pay gym")!;
+    expect(pay.verdict).toBe("approved");
+    expect(gym.verdict).toBe("rejected");
+    expect(gym.reason).toBe("cancel it");
   });
 });

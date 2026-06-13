@@ -49,6 +49,24 @@ export interface TriageRuleRow {
   created_at: string;
 }
 
+export interface TeachingRow {
+  id: number;
+  text: string;
+  domain: string | null;
+  kind: string;
+  created_at: string;
+  consolidated_at: string | null;
+}
+
+export interface DecisionRow {
+  id: string;
+  type: string;
+  preview: string;
+  verdict: "approved" | "auto" | "rejected" | "failed";
+  reason: string | null;
+  ts: string;
+}
+
 export class Store {
   private db: DatabaseSync;
 
@@ -563,6 +581,52 @@ export class Store {
     if (!ids.length) return [];
     const ph = ids.map(() => "?").join(", ");
     return this.db.prepare(`SELECT id, title, body FROM memory_doc WHERE id IN (${ph})`).all(...ids) as never;
+  }
+
+  // ---- teachings ----
+
+  addTeaching(t: { text: string; domain: string | null; kind: string }): number {
+    const res = this.db
+      .prepare("INSERT INTO teachings (text, domain, kind, created_at) VALUES (?, ?, ?, ?)")
+      .run(t.text, t.domain, t.kind, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  listUnconsolidatedTeachings(domain?: string | null): TeachingRow[] {
+    let sql = "SELECT * FROM teachings WHERE consolidated_at IS NULL";
+    const args: string[] = [];
+    if (domain === null) {
+      sql += " AND domain IS NULL";
+    } else if (domain !== undefined) {
+      sql += " AND domain = ?";
+      args.push(domain);
+    }
+    sql += " ORDER BY id";
+    return this.db.prepare(sql).all(...args) as unknown as TeachingRow[];
+  }
+
+  markTeachingsConsolidated(ids: number[]): void {
+    if (!ids.length) return;
+    const stmt = this.db.prepare("UPDATE teachings SET consolidated_at = ? WHERE id = ?");
+    const now = new Date().toISOString();
+    for (const id of ids) stmt.run(now, id);
+  }
+
+  // ---- decision journal (read model over actions) ----
+
+  listDecisions(since?: string): DecisionRow[] {
+    const rows = (since
+      ? this.db.prepare("SELECT id, type, preview, status, verdict_by, reject_reason, created_at, resolved_at FROM actions WHERE status IN ('executed','failed','rejected') AND COALESCE(resolved_at, created_at) > ? ORDER BY COALESCE(resolved_at, created_at)").all(since)
+      : this.db.prepare("SELECT id, type, preview, status, verdict_by, reject_reason, created_at, resolved_at FROM actions WHERE status IN ('executed','failed','rejected') ORDER BY COALESCE(resolved_at, created_at)").all()
+    ) as Array<{ id: string; type: string; preview: string; status: string; verdict_by: string | null; reject_reason: string | null; created_at: string; resolved_at: string | null }>;
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      preview: r.preview,
+      verdict: r.status === "rejected" ? "rejected" : r.status === "failed" ? "failed" : r.verdict_by ? "approved" : "auto",
+      reason: r.reject_reason,
+      ts: r.resolved_at ?? r.created_at,
+    }));
   }
 
   close(): void {
