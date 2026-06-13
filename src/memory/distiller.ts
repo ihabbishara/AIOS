@@ -20,29 +20,35 @@ export interface DistillDeps {
 }
 
 export async function distill(deps: DistillDeps): Promise<void> {
-  const now = deps.nowIso ?? new Date().toISOString();
   for (const domain of DOMAINS) {
     try {
-      await distillDomain(deps, domain, now);
+      await distillDomain(deps, domain);
     } catch (err) {
       deps.log?.(`distill ${domain} failed: ${(err as Error).message}`);
     }
   }
 }
 
-async function distillDomain(deps: DistillDeps, domain: Domain, now: string): Promise<void> {
+async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   const { store, vault, gate, curate } = deps;
   const since = store.kvGet(`distill:last:${domain}`) ?? undefined;
 
   const decisions = domain === "profile"
     ? []
-    : store.listDecisions(since).filter((d) => domainForType(d.type) === domain);
+    // Exclude vault.write: the distiller's own gate-audited memo writes are recorded as
+    // decisions; re-consuming them would create a self-feeding loop (every run re-curates the
+    // 'general' domain those writes map to). Memo writes carry no preference signal.
+    : store.listDecisions(since).filter((d) => d.type !== "vault.write" && domainForType(d.type) === domain);
 
+  // The two queries are disjoint (domain IS NULL vs domain = 'profile'), so no dedup is needed.
+  // Collecting both also rescues any pre-existing rows mis-stamped with the literal "profile" domain.
   const teachings = domain === "profile"
-    ? store.listUnconsolidatedTeachings(null).filter((t) => t.kind === "fact" || t.kind === "forget")
+    ? [...store.listUnconsolidatedTeachings(null), ...store.listUnconsolidatedTeachings("profile")].filter((t) => t.kind === "fact" || t.kind === "forget")
     : store.listUnconsolidatedTeachings(domain).filter((t) => t.kind === "preference" || t.kind === "forget");
 
-  if (!decisions.length && !teachings.length) return; // no-op, do not bump the cursor
+  // No-op without bumping the cursor: decisions are deliberately re-read every run until a write
+  // succeeds, so the cursor stays write-dependent (do not "fix" it into a write-independent one).
+  if (!decisions.length && !teachings.length) return;
 
   const existing = vault.readNote(memoRelPath(domain)) ?? "";
   const signals = [
@@ -61,8 +67,13 @@ async function distillDomain(deps: DistillDeps, domain: Domain, now: string): Pr
     ORIGIN,
   );
   if (row.status === "executed") {
-    store.markTeachingsConsolidated(teachings.map((t) => t.id));
-    store.kvSet(`distill:last:${domain}`, now);
+    if (teachings.length) store.markTeachingsConsolidated(teachings.map((t) => t.id));
+    if (decisions.length) {
+      // Stamp the cursor with the MAX consumed decision ts (not "now") so a decision resolved
+      // mid-run is re-read next run (a benign re-curate) instead of being silently skipped.
+      const watermark = decisions.reduce((m, d) => (d.ts > m ? d.ts : m), decisions[0].ts);
+      store.kvSet(`distill:last:${domain}`, watermark);
+    }
   } else {
     deps.log?.(`distill ${domain}: memo write not executed (${row.status})`);
   }

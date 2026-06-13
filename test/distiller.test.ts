@@ -81,4 +81,42 @@ describe("distill", () => {
     expect(vault.readNote("memos/profile.md")).toContain("Sara is my business partner");
     rmSync(root, { recursive: true, force: true });
   });
+
+  it("does not re-distill a decision after a successful write", async () => {
+    const { root, store, vault, gate } = harness();
+    // seed one resolved decision in 'money'
+    store.insertAction({ id: "d1", type: "finance.pay_bill", payload: "{}", preview: "pay rent", status: "executed", origin_channel: "cli", origin_chat_id: "x", trust_state: "autonomous", verdict_by: null, reject_reason: null, result: "ok", created_at: "2026-06-10T00:00:00.000Z", resolved_at: "2026-06-10T00:00:00.000Z", expires_at: "2026-06-11T00:00:00.000Z" });
+    let calls = 0;
+    const curate = async (i: { domain: string; signals: string }) => { calls++; return `# ${i.domain}\n${i.signals}`; };
+    await distill({ store, vault, gate, curate, nowIso: NOW });
+    await distill({ store, vault, gate, curate, nowIso: NOW }); // no new signal
+    expect(calls).toBe(1); // money distilled once; second run is a no-op
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("does not consolidate or write when vault.write is not autonomous", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vault-"));
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(root, "AIOS");
+    vault.init();
+    const bus = new EventBus(store);
+    const registry = new ExecutorRegistry();
+    registry.register(vaultWriteExecutor(vault));
+    // NOTE: vault.write left supervised (no promote) AND forced supervised:
+    const gate = new ActionGate({ store, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set(["vault.write"]) }, bus, expiryMs: 60000 });
+    store.addTeaching({ text: "rule", domain: "general", kind: "preference" });
+    await distill({ store, vault, gate, curate: async (i) => `# ${i.domain}\nx`, nowIso: NOW, log: () => {} });
+    expect(vault.readNote("memos/general.md")).toBeUndefined(); // queued, not executed
+    expect(store.listUnconsolidatedTeachings().length).toBe(1); // NOT consolidated
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("folds a profile-domain forget teaching into the profile memo", async () => {
+    const { root, store, vault, gate } = harness();
+    store.addTeaching({ text: "drop the morning-meetings note", domain: "profile", kind: "forget" });
+    await distill({ store, vault, gate, curate: async (i: { domain: string; signals: string }) => `# ${i.domain}\n${i.signals}`, nowIso: NOW });
+    expect(vault.readNote("memos/profile.md")).toContain("drop the morning-meetings note");
+    expect(store.listUnconsolidatedTeachings().length).toBe(0);
+    rmSync(root, { recursive: true, force: true });
+  });
 });
