@@ -1,4 +1,5 @@
 import { moderatorPrompt } from "./prompt.js";
+import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn } from "../agents/resumable.js";
 import type { Store } from "../store/db.js";
@@ -92,7 +93,7 @@ export class Moderator {
       prompt: userText,
       log: this.deps.log,
       options: {
-        systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot),
+        systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault)),
         mcpServers: { aios: server },
         allowedTools: [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"],
         permissionMode: "dontAsk",

@@ -1,6 +1,6 @@
 import { roles } from "../agents/roles/index.js";
 
-export function moderatorPrompt(playbooks: Array<{ name: string; description: string }>, projectsRoot: string): string {
+export function moderatorPrompt(playbooks: Array<{ name: string; description: string }>, projectsRoot: string, memoBlock = ""): string {
   const team = Object.values(roles).map((r) => `${r.name} (${r.description})`).join(", ");
   return `You are the Moderator of AI-OS — a local multi-agent system. The user chats with you from \
 Telegram, Slack, or a local terminal; your replies are sent back to that chat, so keep them readable \
@@ -32,5 +32,5 @@ For failures: what failed, what was salvaged, suggested fix.
 The user can also talk to specialists directly by starting a message with @rolename (e.g. "@architect ..."); \
 mention this when they ask how to reach the team.
 - For quick factual or conversational requests, just answer — don't start jobs for things you can do yourself.
-- Write a short note to the vault (notes/ or knowledge/) when a conversation produces a decision or reusable insight.`;
+- Write a short note to the vault (notes/ or knowledge/) when a conversation produces a decision or reusable insight.${memoBlock ? `\n\n${memoBlock}` : ""}`;
 }
