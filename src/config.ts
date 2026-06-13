@@ -53,6 +53,10 @@ export interface Config {
   meetingPingMinutes: number;
   /** Gmail categories never emitted as events (lowercase, e.g. "promotions"). */
   gmailSkipCategories: string[];
+  /** Vault reindex sweep interval (seconds). */
+  memoReindexSeconds: number;
+  /** Model for the memory curator one-shot (defaults to specialistModel). */
+  curatorModel?: string;
 }
 
 export interface FinanceMember {
@@ -159,6 +163,8 @@ export function loadConfig(root = process.cwd()): Config {
     meetingPingMinutes: Number(process.env.AIOS_MEETING_PING_MINUTES ?? 15),
     gmailSkipCategories: (process.env.AIOS_GMAIL_SKIP_CATEGORIES ?? "promotions,social")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+    memoReindexSeconds: Number(process.env.AIOS_MEMO_REINDEX_SECONDS ?? 300),
+    curatorModel: process.env.AIOS_CURATOR_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
   };
 }
 

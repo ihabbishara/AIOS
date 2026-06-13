@@ -1,4 +1,5 @@
 import { moderatorPrompt } from "./prompt.js";
+import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn } from "../agents/resumable.js";
 import type { Store } from "../store/db.js";
@@ -23,6 +24,9 @@ const MCP_TOOLS = [
   "mcp__aios__add_triage_rule",
   "mcp__aios__list_inbox",
   "mcp__aios__read_email",
+  "mcp__aios__recall",
+  "mcp__aios__remember",
+  "mcp__aios__forget",
 ];
 
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
@@ -89,7 +93,7 @@ export class Moderator {
       prompt: userText,
       log: this.deps.log,
       options: {
-        systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot),
+        systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault)),
         mcpServers: { aios: server },
         allowedTools: [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"],
         permissionMode: "dontAsk",

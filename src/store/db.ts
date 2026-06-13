@@ -49,6 +49,24 @@ export interface TriageRuleRow {
   created_at: string;
 }
 
+export interface TeachingRow {
+  id: number;
+  text: string;
+  domain: string | null;
+  kind: string;
+  created_at: string;
+  consolidated_at: string | null;
+}
+
+export interface DecisionRow {
+  id: string;
+  type: string;
+  preview: string;
+  verdict: "approved" | "auto" | "rejected" | "failed";
+  reason: string | null;
+  ts: string;
+}
+
 export class Store {
   private db: DatabaseSync;
 
@@ -153,6 +171,37 @@ export class Store {
         verdict TEXT NOT NULL,
         source TEXT NOT NULL,
         created_at TEXT NOT NULL
+      );
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_doc (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        len INTEGER NOT NULL,
+        fingerprint TEXT NOT NULL,
+        indexed_at TEXT NOT NULL,
+        UNIQUE(source, ref)
+      );
+      CREATE TABLE IF NOT EXISTS memory_token (
+        token TEXT NOT NULL,
+        doc_id INTEGER NOT NULL,
+        tf INTEGER NOT NULL,
+        PRIMARY KEY (token, doc_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_token_token ON memory_token(token);
+      CREATE INDEX IF NOT EXISTS idx_memory_token_doc ON memory_token(doc_id);
+      CREATE TABLE IF NOT EXISTS teachings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        domain TEXT,
+        kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        consolidated_at TEXT
       );
     `);
   }
@@ -456,6 +505,131 @@ export class Store {
     return this.db
       .prepare("SELECT key, value FROM kv WHERE key LIKE ? ORDER BY key")
       .all(`${prefix}%`) as unknown as Array<{ key: string; value: string }>;
+  }
+
+  // ---- memory index ----
+
+  memoryFingerprint(source: string, ref: string): string | undefined {
+    const r = this.db
+      .prepare("SELECT fingerprint FROM memory_doc WHERE source = ? AND ref = ?")
+      .get(source, ref) as { fingerprint: string } | undefined;
+    return r?.fingerprint;
+  }
+
+  upsertMemoryDoc(
+    doc: { source: string; ref: string; domain: string; title: string; body: string; ts: string; len: number; fingerprint: string },
+    postings: Array<[string, number]>,
+  ): void {
+    const now = new Date().toISOString();
+    this.db.exec("BEGIN");
+    try {
+      const existing = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(doc.source, doc.ref) as { id: number } | undefined;
+      if (existing) {
+        this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(existing.id);
+        this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
+      }
+      const res = this.db
+        .prepare(`INSERT INTO memory_doc (source, ref, domain, title, body, ts, len, fingerprint, indexed_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(doc.source, doc.ref, doc.domain, doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
+      const docId = Number(res.lastInsertRowid);
+      const ins = this.db.prepare("INSERT INTO memory_token (token, doc_id, tf) VALUES (?, ?, ?)");
+      for (const [token, tf] of postings) ins.run(token, docId, tf);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  deleteMemoryDoc(source: string, ref: string): void {
+    const row = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(source, ref) as { id: number } | undefined;
+    if (!row) return;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(row.id);
+      this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(row.id);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  listMemoryRefs(source: string): string[] {
+    return (this.db.prepare("SELECT ref FROM memory_doc WHERE source = ?").all(source) as Array<{ ref: string }>).map((r) => r.ref);
+  }
+
+  memoryStats(domain?: string): { count: number; avgLen: number } {
+    const r = (domain
+      ? this.db.prepare("SELECT COUNT(*) c, COALESCE(AVG(len), 0) a FROM memory_doc WHERE domain = ?").get(domain)
+      : this.db.prepare("SELECT COUNT(*) c, COALESCE(AVG(len), 0) a FROM memory_doc").get()) as { c: number; a: number };
+    return { count: Number(r.c), avgLen: Number(r.a) };
+  }
+
+  memoryPostings(tokens: string[], domain?: string): Array<{ token: string; doc_id: number; tf: number; len: number; domain: string; source: string; ref: string; ts: string }> {
+    if (!tokens.length) return [];
+    const ph = tokens.map(() => "?").join(", ");
+    const sql = `SELECT t.token, t.doc_id, t.tf, d.len, d.domain, d.source, d.ref, d.ts
+                 FROM memory_token t JOIN memory_doc d ON d.id = t.doc_id
+                 WHERE t.token IN (${ph})${domain ? " AND d.domain = ?" : ""}`;
+    const args = domain ? [...tokens, domain] : tokens;
+    return this.db.prepare(sql).all(...args) as never;
+  }
+
+  memoryDocsByIds(ids: number[]): Array<{ id: number; title: string; body: string }> {
+    if (!ids.length) return [];
+    const ph = ids.map(() => "?").join(", ");
+    return this.db.prepare(`SELECT id, title, body FROM memory_doc WHERE id IN (${ph})`).all(...ids) as never;
+  }
+
+  // ---- teachings ----
+
+  addTeaching(t: { text: string; domain: string | null; kind: string }): number {
+    const res = this.db
+      .prepare("INSERT INTO teachings (text, domain, kind, created_at) VALUES (?, ?, ?, ?)")
+      .run(t.text, t.domain, t.kind, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  listUnconsolidatedTeachings(domain?: string | null): TeachingRow[] {
+    let sql = "SELECT * FROM teachings WHERE consolidated_at IS NULL";
+    const args: string[] = [];
+    if (domain === null) {
+      sql += " AND domain IS NULL";
+    } else if (domain !== undefined) {
+      sql += " AND domain = ?";
+      args.push(domain);
+    }
+    sql += " ORDER BY id";
+    return this.db.prepare(sql).all(...args) as unknown as TeachingRow[];
+  }
+
+  markTeachingsConsolidated(ids: number[]): void {
+    if (!ids.length) return;
+    const stmt = this.db.prepare("UPDATE teachings SET consolidated_at = ? WHERE id = ?");
+    const now = new Date().toISOString();
+    for (const id of ids) stmt.run(now, id);
+  }
+
+  // ---- decision journal (read model over actions) ----
+
+  listDecisions(since?: string): DecisionRow[] {
+    // Only resolved verdicts carry preference signal; proposed/executing/expired are
+    // excluded — expired means the user never decided, so it teaches nothing.
+    let sql = "SELECT id, type, preview, status, verdict_by, reject_reason, created_at, resolved_at FROM actions WHERE status IN ('executed','failed','rejected')";
+    const args: string[] = [];
+    if (since) { sql += " AND COALESCE(resolved_at, created_at) > ?"; args.push(since); }
+    sql += " ORDER BY COALESCE(resolved_at, created_at)";
+    const rows = this.db.prepare(sql).all(...args) as Array<{ id: string; type: string; preview: string; status: string; verdict_by: string | null; reject_reason: string | null; created_at: string; resolved_at: string | null }>;
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      preview: r.preview,
+      verdict: r.status === "rejected" ? "rejected" : r.status === "failed" ? "failed" : r.verdict_by ? "approved" : "auto",
+      reason: r.reject_reason,
+      ts: r.resolved_at ?? r.created_at,
+    }));
   }
 
   close(): void {
