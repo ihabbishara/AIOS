@@ -20,4 +20,10 @@ describe("tokenize", () => {
   it("drops tokens longer than 40 chars", () => {
     expect(tokenize("a".repeat(50))).toEqual([]);
   });
+  it("keeps numeric-only tokens", () => {
+    expect(tokenize("paid 99 and 1234 today")).toEqual(["paid", "99", "1234", "today"]);
+  });
+  it("drops non-latin text (documented lexical limitation)", () => {
+    expect(tokenize("中文 ℓ")).toEqual([]);
+  });
 });

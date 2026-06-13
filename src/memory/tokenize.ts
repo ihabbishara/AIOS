@@ -25,7 +25,7 @@ export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "") // strip combining diacritical marks
+    .replace(/[\u0300-\u036f]/g, "") // strip combining diacritical marks
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length >= 2 && t.length <= 40 && !STOPWORDS.has(t))
     .map(stem);
