@@ -38,7 +38,13 @@ export class EventBus {
   emit(event: AiosEvent): void {
     const id = this.store.addEvent(JSON.stringify(event));
     const stored: StoredEvent = { id, ts: new Date().toISOString(), event };
-    this.emitter.emit("event", stored);
+    for (const l of this.emitter.listeners("event")) {
+      try {
+        (l as (e: StoredEvent) => void)(stored);
+      } catch {
+        /* a misbehaving listener must never break event emission or other listeners */
+      }
+    }
   }
 
   on(listener: (e: StoredEvent) => void): () => void {
