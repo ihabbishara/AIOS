@@ -8,6 +8,9 @@ import { indexDoc, type Domain, type MemorySource } from "./recall.js";
 /** Event types worth recalling. Inbound email is deliberately absent (security). */
 export const EVENT_INDEX_ALLOW = new Set(["calendar.changed"]);
 
+/** Action statuses considered resolved (a decision worth remembering). */
+const RESOLVED_STATUSES = ["executed", "failed", "rejected"];
+
 /** Map an action type namespace to a memo/recall domain. */
 export function domainForType(type: string): Domain {
   const ns = type.split(".")[0];
@@ -33,6 +36,8 @@ export function indexEvent(store: Store, e: StoredEvent): void {
   if (!EVENT_INDEX_ALLOW.has(e.event.type)) return;
   if (e.event.type !== "calendar.changed") return;
   const ev = e.event;
+  // summary/organizer are attacker-influenceable (external invites) — indexed as retrieval
+  // context only; the Action Gate still protects all effects. Do not widen to attendee-set fields.
   const body = `${ev.summary} ${ev.organizer} ${ev.start}`;
   indexDoc(store, {
     source: "event", ref: `event:${e.id}`, domain: "inbox",
@@ -43,7 +48,7 @@ export function indexEvent(store: Store, e: StoredEvent): void {
 export function indexDecision(store: Store, actionId: string): void {
   const a = store.getAction(actionId);
   if (!a) return;
-  if (!["executed", "failed", "rejected"].includes(a.status)) return;
+  if (!RESOLVED_STATUSES.includes(a.status)) return;
   const body = `${a.preview}${a.reject_reason ? ` ${a.reject_reason}` : ""}`;
   indexDoc(store, {
     source: "decision", ref: a.id, domain: domainForType(a.type),
@@ -81,8 +86,10 @@ export function reindexVault(store: Store, vault: VaultWriter): void {
 /** Boot backfill: vault + all resolved decisions + allowlisted historical events. Idempotent. */
 export function reconcile(store: Store, vault: VaultWriter): void {
   reindexVault(store, vault);
+  // 5000 caps are a deliberate boot-backfill bound (steady state is covered by live indexing +
+  // reindexVault), not a paginated full scan.
   for (const a of store.listActions(undefined, 5000)) {
-    if (["executed", "failed", "rejected"].includes(a.status)) indexDecision(store, a.id);
+    if (RESOLVED_STATUSES.includes(a.status)) indexDecision(store, a.id);
   }
   for (const row of store.listEvents(0, 5000)) {
     try {
