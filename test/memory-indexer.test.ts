@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { recall } from "../src/memory/recall.js";
-import { domainForType, indexEvent, indexDecision, reindexVault } from "../src/memory/indexer.js";
+import { domainForType, domainForVaultPath, indexEvent, indexDecision, reindexVault, reconcile } from "../src/memory/indexer.js";
 
 describe("indexer domain maps", () => {
   it("maps action types to domains", () => {
@@ -16,6 +16,12 @@ describe("indexer domain maps", () => {
     expect(domainForType("git.push")).toBe("code");
     expect(domainForType("vault.write")).toBe("general");
     expect(domainForType("whatever.unknown")).toBe("general");
+  });
+
+  it("maps knowledge/ to research and memos/<d>.md to that domain", () => {
+    expect(domainForVaultPath("knowledge/topic.md")).toBe("research");
+    expect(domainForVaultPath("memos/lifeops.md")).toBe("lifeops");
+    expect(domainForVaultPath("notes/x.md")).toBe("general");
   });
 });
 
@@ -58,6 +64,22 @@ describe("reindexVault", () => {
     reindexVault(store, vault);
     expect(recall(store, "superconductor").length).toBe(0);
     expect(recall(store, "invoices", { domain: "money" }).length).toBe(1);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("reconcile", () => {
+  it("backfills resolved decisions and allowlisted historical events", () => {
+    const root = mkdtempSync(join(tmpdir(), "vault-"));
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(root, "AIOS");
+    vault.init();
+    store.insertAction({ id: "a9", type: "finance.pay_bill", payload: JSON.stringify({ secret: "iban-0000" }), preview: "Pay water utility bill", status: "executed", origin_channel: "cli", origin_chat_id: "x", trust_state: "supervised", verdict_by: "ihab", reject_reason: null, result: null, created_at: "2026-06-05T00:00:00.000Z", resolved_at: "2026-06-05T01:00:00.000Z", expires_at: "2026-06-06T00:00:00.000Z" });
+    store.addEvent(JSON.stringify({ type: "calendar.changed", account: "p", eventId: "e9", summary: "Quarterly review", start: "2026-07-01T10:00:00Z", end: "2026-07-01T11:00:00Z", status: "confirmed", organizer: "self" }));
+    reconcile(store, vault);
+    expect(recall(store, "quarterly").length).toBe(1);
+    expect(recall(store, "water")[0].ref).toBe("a9");
+    expect(recall(store, "iban").length).toBe(0); // payload never indexed
     rmSync(root, { recursive: true, force: true });
   });
 });

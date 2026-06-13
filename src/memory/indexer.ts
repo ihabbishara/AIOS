@@ -1,196 +1,93 @@
-import { createHash } from "node:crypto";
-import { readFileSync, existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "../store/db.js";
-import type { StoredEvent } from "../events.js";
 import type { VaultWriter } from "../vault/writer.js";
-import { indexDoc } from "./recall.js";
-import type { Domain, MemorySource } from "./recall.js";
+import type { StoredEvent } from "../events.js";
+import { indexDoc, type Domain, type MemorySource } from "./recall.js";
 
-// ---- domain mapping ----
+/** Event types worth recalling. Inbound email is deliberately absent (security). */
+export const EVENT_INDEX_ALLOW = new Set(["calendar.changed"]);
 
-const DOMAIN_PREFIX_MAP: Array<[string, Domain]> = [
-  ["email.", "inbox"],
-  ["calendar.", "inbox"],
-  ["mail.", "inbox"],
-  ["finance.", "money"],
-  ["purchase.", "money"],
-  ["payment.", "money"],
-  ["git.", "code"],
-  ["code.", "code"],
-  ["repo.", "code"],
-  ["research.", "research"],
-  ["note.", "general"],
-  ["vault.", "general"],
-  ["task.", "lifeops"],
-  ["health.", "lifeops"],
-  ["profile.", "profile"],
-];
-
+/** Map an action type namespace to a memo/recall domain. */
 export function domainForType(type: string): Domain {
-  for (const [prefix, domain] of DOMAIN_PREFIX_MAP) {
-    if (type.startsWith(prefix)) return domain;
+  const ns = type.split(".")[0];
+  switch (ns) {
+    case "email": case "calendar": return "inbox";
+    case "finance": case "purchase": return "money";
+    case "git": return "code";
+    default: return "general";
   }
+}
+
+/** Map a vault-relative path to a domain. memos/<d>.md uses the memo's own domain. */
+export function domainForVaultPath(rel: string): Domain {
+  if (rel.startsWith("memos/")) {
+    const d = rel.slice("memos/".length).replace(/\.md$/, "") as Domain;
+    return (["inbox", "money", "code", "research", "lifeops", "general", "profile"] as Domain[]).includes(d) ? d : "general";
+  }
+  if (rel.startsWith("knowledge/")) return "research";
   return "general";
 }
 
-// ---- event indexer ----
-
-/**
- * Only calendar.changed events are indexed. mail.received is NEVER indexed
- * (privacy / prompt-injection risk). Other event types are ignored.
- */
-const EVENT_INDEX_ALLOW = new Set(["calendar.changed"]);
-
 export function indexEvent(store: Store, e: StoredEvent): void {
-  const { event } = e;
-  if (!EVENT_INDEX_ALLOW.has(event.type)) return;
-
-  if (event.type === "calendar.changed") {
-    const ref = `event:${e.id}`;
-    const title = event.summary;
-    const body = [event.summary, event.account, event.organizer, event.status].filter(Boolean).join(" ");
-    const fingerprint = sha256(`${event.eventId}|${event.summary}|${event.start}|${event.status}`);
-    indexDoc(store, {
-      source: "event",
-      ref,
-      domain: "inbox",
-      title,
-      body,
-      ts: e.ts,
-      fingerprint,
-    });
-  }
-}
-
-// ---- decision indexer ----
-
-/**
- * Indexes only the preview and reject_reason of a resolved action.
- * The raw payload field is NEVER indexed — it may contain secrets (IBANs, tokens, etc.).
- */
-export function indexDecision(store: Store, actionId: string): void {
-  const action = store.getAction(actionId);
-  if (!action) return;
-
-  // Only index resolved decisions (rejected, executed, failed) — not proposed/expired
-  if (!["rejected", "executed", "failed"].includes(action.status)) return;
-
-  const domain = domainForType(action.type);
-  const parts: string[] = [action.preview];
-  if (action.reject_reason) parts.push(action.reject_reason);
-  const body = parts.join(" ");
-  const fingerprint = sha256(`${action.id}|${action.preview}|${action.reject_reason ?? ""}|${action.status}`);
-
+  if (!EVENT_INDEX_ALLOW.has(e.event.type)) return;
+  if (e.event.type !== "calendar.changed") return;
+  const ev = e.event;
+  const body = `${ev.summary} ${ev.organizer} ${ev.start}`;
   indexDoc(store, {
-    source: "decision",
-    ref: actionId,
-    domain,
-    title: action.preview,
-    body,
-    ts: action.resolved_at ?? action.created_at,
-    fingerprint,
+    source: "event", ref: `event:${e.id}`, domain: "inbox",
+    title: ev.summary, body, ts: e.ts, fingerprint: String(e.id),
   });
 }
 
-// ---- vault walk ----
-
-/**
- * Determine the MemorySource for a vault-relative path.
- * Files under memos/ are tagged "memo"; everything else is "vault".
- */
-function sourceForPath(relPath: string): MemorySource {
-  return relPath.startsWith("memos/") ? "memo" : "vault";
+export function indexDecision(store: Store, actionId: string): void {
+  const a = store.getAction(actionId);
+  if (!a) return;
+  if (!["executed", "failed", "rejected"].includes(a.status)) return;
+  const body = `${a.preview}${a.reject_reason ? ` ${a.reject_reason}` : ""}`;
+  indexDoc(store, {
+    source: "decision", ref: a.id, domain: domainForType(a.type),
+    title: a.type, body, ts: a.resolved_at ?? a.created_at, fingerprint: a.resolved_at ?? a.status,
+  });
 }
 
-/**
- * Determine the Domain for a vault-relative path.
- * memos/<domain>.md → domain from filename (if it's a known domain keyword).
- * Everything else defaults to "general".
- */
-function domainForVaultPath(relPath: string): Domain {
-  if (relPath.startsWith("memos/")) {
-    const filename = relPath.replace(/^memos\//, "").replace(/\.md$/, "");
-    // Use the basename as a domain hint
-    const knownDomains: Domain[] = ["inbox", "money", "code", "research", "lifeops", "general", "profile"];
-    const lower = filename.toLowerCase() as Domain;
-    if (knownDomains.includes(lower)) return lower;
-  }
-  return "general";
-}
-
-/**
- * Walk the vault, index all .md files, and prune deleted ones.
- * Idempotent — fingerprint check inside indexDoc skips unchanged files.
- */
 export function reindexVault(store: Store, vault: VaultWriter): void {
-  const notes = vault.listNotes();
-
-  // Build a set of currently known refs (for pruning)
-  const currentRefs = new Set(notes.map((relPath) => `vault:${relPath}`));
-  const memoRefs = new Set(
-    notes
-      .filter((p) => p.startsWith("memos/"))
-      .map((relPath) => `vault:${relPath}`),
-  );
-
-  // Index each note
-  for (const relPath of notes) {
-    const absPath = join(vault.root, relPath);
-    if (!existsSync(absPath)) continue;
-
-    const content = readFileSync(absPath, "utf8");
-    const source = sourceForPath(relPath);
-    const domain = domainForVaultPath(relPath);
-    const ref = `vault:${relPath}`;
-    const fingerprint = sha256(content);
-
-    // Derive a title from the first heading or the filename
-    const headingMatch = content.match(/^#\s+(.+)/m);
-    const title = headingMatch ? headingMatch[1].trim() : relPath.replace(/.*\//, "").replace(/\.md$/, "");
-
+  const onDisk = new Set<string>();
+  for (const rel of vault.listNotes()) {
+    const source: MemorySource = rel.startsWith("memos/") ? "memo" : "vault";
+    onDisk.add(`${source}::${rel}`);
+    let mtime: string;
+    let isoTs: string;
+    try {
+      const st = statSync(join(vault.root, rel));
+      mtime = String(st.mtimeMs);
+      isoTs = new Date(st.mtime).toISOString();
+    } catch { continue; }
+    if (store.memoryFingerprint(source, rel) === mtime) continue;
+    const content = vault.readNote(rel);
+    if (content === undefined) continue;
     indexDoc(store, {
-      source,
-      ref,
-      domain,
-      title,
-      body: content,
-      ts: new Date().toISOString(),
-      fingerprint,
+      source, ref: rel, domain: domainForVaultPath(rel),
+      title: rel.split("/").pop()!.replace(/\.md$/, ""), body: content, ts: isoTs, fingerprint: mtime,
     });
   }
-
-  // Prune docs that no longer exist on disk
-  // We need to check both "vault" and "memo" sources
-  for (const src of ["vault", "memo"] as MemorySource[]) {
-    const existingRefs = store.listMemoryRefs(src);
-    for (const ref of existingRefs) {
-      // Determine which set to check — memo refs also use vault: prefix in our scheme
-      if (!currentRefs.has(ref)) {
-        store.deleteMemoryDoc(src, ref);
-      }
+  for (const source of ["vault", "memo"] as MemorySource[]) {
+    for (const ref of store.listMemoryRefs(source)) {
+      if (!onDisk.has(`${source}::${ref}`)) store.deleteMemoryDoc(source, ref);
     }
   }
 }
 
-// ---- boot reconcile ----
-
-/**
- * Backfill indexing on boot. Walks vault and re-indexes decisions.
- * Safe to call multiple times — fingerprint checks make it idempotent.
- */
+/** Boot backfill: vault + all resolved decisions + allowlisted historical events. Idempotent. */
 export function reconcile(store: Store, vault: VaultWriter): void {
   reindexVault(store, vault);
-
-  // Re-index all resolved decisions
-  const decisions = store.listDecisions();
-  for (const d of decisions) {
-    indexDecision(store, d.id);
+  for (const a of store.listActions(undefined, 5000)) {
+    if (["executed", "failed", "rejected"].includes(a.status)) indexDecision(store, a.id);
   }
-}
-
-// ---- helpers ----
-
-function sha256(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+  for (const row of store.listEvents(0, 5000)) {
+    try {
+      const event = JSON.parse(row.payload);
+      indexEvent(store, { id: row.id, ts: row.ts, event });
+    } catch { /* skip malformed */ }
+  }
 }
