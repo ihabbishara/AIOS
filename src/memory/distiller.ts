@@ -3,7 +3,8 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import { DOMAINS, type Domain } from "./recall.js";
 import { domainForType } from "./indexer.js";
-import { memoRelPath } from "./memos.js";
+import { memoRelPath, CURATOR_SYSTEM, buildCuratePrompt } from "./memos.js";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const ORIGIN = { channel: "system", chatId: "distill" };
 
@@ -77,4 +78,37 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   } else {
     deps.log?.(`distill ${domain}: memo write not executed (${row.status})`);
   }
+}
+
+/**
+ * Production curator: a single-turn, tool-less LLM call that rewrites a domain memo.
+ * Returns "" on ANY failure so the distiller's empty-output guard keeps the prior memo.
+ * Uses the Claude subscription via the SDK (CLAUDE_CODE_OAUTH_TOKEN) — never an API key.
+ */
+export function curateLLM(model?: string, log?: (line: string) => void): CurateFn {
+  return async ({ domain, existing, signals }) => {
+    try {
+      const q = query({
+        prompt: buildCuratePrompt(domain, existing, signals),
+        options: {
+          systemPrompt: CURATOR_SYSTEM,
+          allowedTools: [],
+          permissionMode: "dontAsk",
+          settingSources: [],
+          persistSession: false,
+          maxTurns: 1,
+          ...(model ? { model } : {}),
+        },
+      });
+      for await (const msg of q) {
+        if (msg.type === "result") {
+          return msg.subtype === "success" ? msg.result : "";
+        }
+      }
+      return "";
+    } catch (err) {
+      log?.(`curateLLM ${domain} failed: ${(err as Error).message}`);
+      return "";
+    }
+  };
 }
