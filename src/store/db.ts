@@ -155,6 +155,37 @@ export class Store {
         created_at TEXT NOT NULL
       );
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_doc (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        len INTEGER NOT NULL,
+        fingerprint TEXT NOT NULL,
+        indexed_at TEXT NOT NULL,
+        UNIQUE(source, ref)
+      );
+      CREATE TABLE IF NOT EXISTS memory_token (
+        token TEXT NOT NULL,
+        doc_id INTEGER NOT NULL,
+        tf INTEGER NOT NULL,
+        PRIMARY KEY (token, doc_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_token_token ON memory_token(token);
+      CREATE INDEX IF NOT EXISTS idx_memory_token_doc ON memory_token(doc_id);
+      CREATE TABLE IF NOT EXISTS teachings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        domain TEXT,
+        kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        consolidated_at TEXT
+      );
+    `);
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
@@ -456,6 +487,68 @@ export class Store {
     return this.db
       .prepare("SELECT key, value FROM kv WHERE key LIKE ? ORDER BY key")
       .all(`${prefix}%`) as unknown as Array<{ key: string; value: string }>;
+  }
+
+  // ---- memory index ----
+
+  memoryFingerprint(source: string, ref: string): string | undefined {
+    const r = this.db
+      .prepare("SELECT fingerprint FROM memory_doc WHERE source = ? AND ref = ?")
+      .get(source, ref) as { fingerprint: string } | undefined;
+    return r?.fingerprint;
+  }
+
+  upsertMemoryDoc(
+    doc: { source: string; ref: string; domain: string; title: string; body: string; ts: string; len: number; fingerprint: string },
+    postings: Array<[string, number]>,
+  ): void {
+    const now = new Date().toISOString();
+    const existing = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(doc.source, doc.ref) as { id: number } | undefined;
+    if (existing) {
+      this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(existing.id);
+      this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
+    }
+    const res = this.db
+      .prepare(`INSERT INTO memory_doc (source, ref, domain, title, body, ts, len, fingerprint, indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(doc.source, doc.ref, doc.domain, doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
+    const docId = Number(res.lastInsertRowid);
+    const ins = this.db.prepare("INSERT INTO memory_token (token, doc_id, tf) VALUES (?, ?, ?)");
+    for (const [token, tf] of postings) ins.run(token, docId, tf);
+  }
+
+  deleteMemoryDoc(source: string, ref: string): void {
+    const row = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(source, ref) as { id: number } | undefined;
+    if (!row) return;
+    this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(row.id);
+    this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(row.id);
+  }
+
+  listMemoryRefs(source: string): string[] {
+    return (this.db.prepare("SELECT ref FROM memory_doc WHERE source = ?").all(source) as Array<{ ref: string }>).map((r) => r.ref);
+  }
+
+  memoryStats(domain?: string): { count: number; avgLen: number } {
+    const r = (domain
+      ? this.db.prepare("SELECT COUNT(*) c, COALESCE(AVG(len), 0) a FROM memory_doc WHERE domain = ?").get(domain)
+      : this.db.prepare("SELECT COUNT(*) c, COALESCE(AVG(len), 0) a FROM memory_doc").get()) as { c: number; a: number };
+    return { count: Number(r.c), avgLen: Number(r.a) };
+  }
+
+  memoryPostings(tokens: string[], domain?: string): Array<{ token: string; doc_id: number; tf: number; len: number; domain: string; source: string; ref: string; ts: string }> {
+    if (!tokens.length) return [];
+    const ph = tokens.map(() => "?").join(", ");
+    const sql = `SELECT t.token, t.doc_id, t.tf, d.len, d.domain, d.source, d.ref, d.ts
+                 FROM memory_token t JOIN memory_doc d ON d.id = t.doc_id
+                 WHERE t.token IN (${ph})${domain ? " AND d.domain = ?" : ""}`;
+    const args = domain ? [...tokens, domain] : tokens;
+    return this.db.prepare(sql).all(...args) as never;
+  }
+
+  memoryDocsByIds(ids: number[]): Array<{ id: number; title: string; body: string }> {
+    if (!ids.length) return [];
+    const ph = ids.map(() => "?").join(", ");
+    return this.db.prepare(`SELECT id, title, body FROM memory_doc WHERE id IN (${ph})`).all(...ids) as never;
   }
 
   close(): void {
