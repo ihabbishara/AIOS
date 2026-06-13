@@ -75,4 +75,21 @@ describe("teachings + decisions", () => {
     expect(gym.verdict).toBe("rejected");
     expect(gym.reason).toBe("cancel it");
   });
+
+  it("listDecisions(since) returns only decisions resolved after the timestamp", async () => {
+    const s = new Store(":memory:");
+    const bus = new EventBus(s);
+    const registry = new ExecutorRegistry();
+    registry.register({ type: "finance.pay", schema: z.object({}), async execute() { return "ok"; } });
+    const gate = new ActionGate({ store: s, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
+    const first = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay first" }, { channel: "cli", chatId: "x" });
+    await gate.resolve(first.id, "approve", { by: "ihab" });
+    await new Promise((r) => setTimeout(r, 5)); // ensure resolved_at timestamps differ
+    const since = new Date().toISOString();
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay second" }, { channel: "cli", chatId: "x" });
+    await gate.resolve(second.id, "approve", { by: "ihab" });
+    const decs = s.listDecisions(since);
+    expect(decs.map((d) => d.preview)).toEqual(["pay second"]);
+  });
 });

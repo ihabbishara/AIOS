@@ -615,10 +615,13 @@ export class Store {
   // ---- decision journal (read model over actions) ----
 
   listDecisions(since?: string): DecisionRow[] {
-    const rows = (since
-      ? this.db.prepare("SELECT id, type, preview, status, verdict_by, reject_reason, created_at, resolved_at FROM actions WHERE status IN ('executed','failed','rejected') AND COALESCE(resolved_at, created_at) > ? ORDER BY COALESCE(resolved_at, created_at)").all(since)
-      : this.db.prepare("SELECT id, type, preview, status, verdict_by, reject_reason, created_at, resolved_at FROM actions WHERE status IN ('executed','failed','rejected') ORDER BY COALESCE(resolved_at, created_at)").all()
-    ) as Array<{ id: string; type: string; preview: string; status: string; verdict_by: string | null; reject_reason: string | null; created_at: string; resolved_at: string | null }>;
+    // Only resolved verdicts carry preference signal; proposed/executing/expired are
+    // excluded — expired means the user never decided, so it teaches nothing.
+    let sql = "SELECT id, type, preview, status, verdict_by, reject_reason, created_at, resolved_at FROM actions WHERE status IN ('executed','failed','rejected')";
+    const args: string[] = [];
+    if (since) { sql += " AND COALESCE(resolved_at, created_at) > ?"; args.push(since); }
+    sql += " ORDER BY COALESCE(resolved_at, created_at)";
+    const rows = this.db.prepare(sql).all(...args) as Array<{ id: string; type: string; preview: string; status: string; verdict_by: string | null; reject_reason: string | null; created_at: string; resolved_at: string | null }>;
     return rows.map((r) => ({
       id: r.id,
       type: r.type,
