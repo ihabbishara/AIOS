@@ -60,7 +60,7 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
   }
 
   const limit = Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, limit);
   const bodies = new Map(store.memoryDocsByIds(ranked.map(([id]) => id)).map((d) => [d.id, d.body]));
 
   return ranked.map(([id, score]) => {
@@ -70,18 +70,19 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
 }
 
 function snippet(body: string, qTokens: string[]): string {
-  const lower = body.toLowerCase();
+  const norm = body.normalize("NFKD").replace(/[\u0300-\u036f]/g, ""); // same fold as tokenize
+  const lower = norm.toLowerCase();
   let at = -1;
   let hit = "";
   for (const t of qTokens) {
     const i = lower.indexOf(t);
-    if (i >= 0 && (at === -1 || i < at)) { at = i; hit = body.slice(i, i + t.length); }
+    if (i >= 0 && (at === -1 || i < at)) { at = i; hit = norm.slice(i, i + t.length); }
   }
-  if (at === -1) return body.slice(0, 120);
+  if (at === -1) return norm.slice(0, 120).replace(/\s+/g, " ").trim();
   const start = Math.max(0, at - 60);
-  const end = Math.min(body.length, at + 60);
-  const pre = (start > 0 ? "…" : "") + body.slice(start, at);
-  const post = body.slice(at + hit.length, end) + (end < body.length ? "…" : "");
+  const end = Math.min(norm.length, at + 60);
+  const pre = (start > 0 ? "…" : "") + norm.slice(start, at);
+  const post = norm.slice(at + hit.length, end) + (end < norm.length ? "…" : "");
   return `${pre}«${hit}»${post}`.replace(/\s+/g, " ").trim();
 }
 

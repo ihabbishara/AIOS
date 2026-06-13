@@ -44,4 +44,30 @@ describe("recall", () => {
     const out = formatHits(recall(s, "lng"));
     expect(out).toMatch(/\[vault\/research\] knowledge\/lng\.md \(2026-05-30\)/);
   });
+  it("title-boost: a title-only match outranks a body-only match", () => {
+    const s = new Store(":memory:");
+    indexDoc(s, { source: "vault", ref: "A.md", domain: "general", title: "zephyr engine", body: "filler words here about machines", ts: "t", fingerprint: "1" });
+    indexDoc(s, { source: "vault", ref: "B.md", domain: "general", title: "machines", body: "zephyr appears once in this longer body of text here", ts: "t", fingerprint: "1" });
+    const hits = recall(s, "zephyr");
+    expect(hits[0].ref).toBe("A.md");
+  });
+  it("single-doc index yields a positive score (idf never negative)", () => {
+    const s = new Store(":memory:");
+    indexDoc(s, { source: "vault", ref: "only.md", domain: "general", title: "solo", body: "unique content", ts: "t", fingerprint: "1" });
+    const hits = recall(s, "unique");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].score).toBeGreaterThan(0);
+  });
+  it("snippet wraps the matched term in guillemets", () => {
+    const s = new Store(":memory:");
+    indexDoc(s, { source: "vault", ref: "x.md", domain: "general", title: "t", body: "the spot price moved", ts: "t", fingerprint: "1" });
+    expect(recall(s, "price")[0].snippet).toContain("«price»");
+  });
+  it("length normalization: a short doc outranks a long doc with the same term", () => {
+    const s = new Store(":memory:");
+    indexDoc(s, { source: "vault", ref: "short.md", domain: "general", title: "", body: "alpha", ts: "t", fingerprint: "1" });
+    indexDoc(s, { source: "vault", ref: "long.md", domain: "general", title: "", body: "alpha " + "filler ".repeat(40), ts: "t", fingerprint: "1" });
+    const hits = recall(s, "alpha");
+    expect(hits[0].ref).toBe("short.md");
+  });
 });
