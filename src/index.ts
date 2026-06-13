@@ -28,6 +28,8 @@ import { GoogleAccounts } from "./senses/google/auth.js";
 import { GmailWatcher } from "./senses/google/gmail.js";
 import { CalendarWatcher } from "./senses/google/calendar.js";
 import { emailExecutors } from "./senses/google/executors.js";
+import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/indexer.js";
+import { distill, curateLLM } from "./memory/distiller.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -226,7 +228,29 @@ async function main(): Promise<void> {
     if (n) log(`expired ${n} stale approval(s)`);
   }, 60_000);
 
+  // ---- second brain: backfill the index on boot, then keep it fresh ----
+  try {
+    reconcile(store, vault);
+  } catch (err) {
+    log(`memory reconcile failed: ${(err as Error).message}`);
+  }
+  bus.on((e) => {
+    try {
+      if (e.event.type === "calendar.changed") indexEvent(store, e);
+      else if (e.event.type === "action.executed" || e.event.type === "action.resolved") {
+        indexDecision(store, e.event.actionId);
+      }
+    } catch (err) {
+      log(`memory index (write-time) failed: ${(err as Error).message}`);
+    }
+  });
+  const reindexTimer = setInterval(() => {
+    try { reindexVault(store, vault); } catch (err) { log(`memory reindex failed: ${(err as Error).message}`); }
+  }, config.memoReindexSeconds * 1000);
+  reindexTimer.unref?.();
+
   // ---- heartbeat: anchors, briefs, reminders, triage ----
+
   if (!config.primaryChat) {
     log("WARNING: AIOS_PRIMARY_CHAT not set — briefs are vault-only, notify pings disabled");
   }
@@ -284,11 +308,20 @@ async function main(): Promise<void> {
       { name: "morning", hhmm: config.anchorMorning },
       { name: "evening", hhmm: config.anchorEvening },
     ],
-    onAnchor: (name) =>
-      runBrief(
+    onAnchor: async (name) => {
+      await runBrief(
         { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => google.degraded(), log },
         name,
-      ),
+      );
+      if (name === "evening") {
+        try {
+          reindexVault(store, vault); // catch direct vault edits before distilling
+          await distill({ store, vault, gate, curate: curateLLM(config.curatorModel, log), log });
+        } catch (err) {
+          log(`distill failed: ${(err as Error).message}`);
+        }
+      }
+    },
     onReminderDue: (r) =>
       bus.emit({ type: "reminder.due", id: r.id, text: r.text, channel: r.origin_channel, chatId: r.origin_chat_id }),
     log,
@@ -297,6 +330,7 @@ async function main(): Promise<void> {
 
   // Watcher loops: per-account isolation with capped backoff (1m → 5m → 15m).
   const stops: Array<() => void> = [];
+  stops.push(() => clearInterval(reindexTimer));
   if (google.enabled()) {
     const BACKOFFS = [60_000, 300_000, 900_000];
     const startWatcher = (name: string, intervalMs: number, pollFn: () => Promise<void>) => {
