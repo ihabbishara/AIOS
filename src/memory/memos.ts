@@ -2,8 +2,13 @@ import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import { DOMAINS, type Domain } from "./recall.js";
 
+/** Character cap (≈ 750–1000 tokens) — kept small to stay within the moderator context budget. */
 const CAP = 3000;
 /** Memos always loaded into the moderator prompt (the rest load on demand via recall). */
+// "inbox" is distilled calendar signal (calendar.changed) — attacker-influenceable invite text
+// can reach the system prompt via inbox.md. Defense-in-depth: the Action Gate still protects all
+// effects, and the curator must not copy invite text verbatim. The teaching path is separately
+// guarded (Task 6 remember/forget anti-injection note).
 const ALWAYS_LOADED: Domain[] = ["general", "inbox"];
 
 export function memoRelPath(domain: Domain): string {
@@ -31,10 +36,11 @@ export function buildCuratePrompt(domain: string, existing: string, signals: str
   ].join("\n");
 }
 
-/** Compact preferences/profile block injected into the moderator system prompt each turn. */
+/** Compact preferences/profile block injected into the moderator system prompt each turn.
+ *  Reads files fresh every turn so edits to vault memos take effect immediately (no restart). */
 export function memoContext(store: Store, vault: VaultWriter): string {
   const parts: string[] = [];
-  const profile = vault.readNote("memos/profile.md");
+  const profile = vault.readNote(memoRelPath("profile"));
   if (profile?.trim()) parts.push(profile.trim());
   for (const d of ALWAYS_LOADED) {
     const m = vault.readNote(memoRelPath(d));

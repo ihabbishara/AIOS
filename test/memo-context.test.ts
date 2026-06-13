@@ -34,6 +34,15 @@ describe("memoContext", () => {
     expect(block).not.toContain("approve under fifty"); // money memo not in the default set
     rmSync(root, { recursive: true, force: true });
   });
+  it("returns a block when only pending teachings exist (no memo files)", () => {
+    const { root, vault } = freshVault();
+    const s = new Store(":memory:");
+    s.addTeaching({ text: "prefer morning meetings", domain: "general", kind: "preference" });
+    const block = memoContext(s, vault);
+    expect(block).toContain("Learned preferences & profile");
+    expect(block).toContain("prefer morning meetings");
+    rmSync(root, { recursive: true, force: true });
+  });
   it("truncates past the cap", () => {
     const { root, vault } = freshVault();
     vault.writeNote("memos/profile.md", "x".repeat(5000));
