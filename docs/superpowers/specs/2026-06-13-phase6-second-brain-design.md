@@ -10,8 +10,8 @@ Give AI-OS a working memory layer: a lexical recall index every agent can search
 a distillation pass that turns the system's own history into durable, human-editable
 memos. Two halves, both built to full depth this phase:
 
-1. **Recall** — an FTS5 index over the vault, events, and decisions, exposed as a
-   `recall(query, domain?)` tool to every agent.
+1. **Recall** — a hand-rolled inverted index over the vault, events, and decisions,
+   exposed as a `recall(query, domain?)` tool to every agent.
 2. **Memos** — an evening distillation pass that folds three signal sources (gate
    decisions, explicit chat teachings, profile facts) into per-domain **preference
    memos** and a curated **profile memo**, which then load into prompts so the system
@@ -29,11 +29,14 @@ live now.
 | Phase 6 focus | Both halves, full depth — recall AND a real distillation pass at the evening anchor |
 | Memo inputs | All three — gate decisions + explicit chat teachings + profile facts (with curation) |
 | Recall safety | **Exclude inbound email** from the index (smallest injection surface) |
-| Index strategy | One denormalized FTS5 table + write-time DB indexing + mtime-walk for vault files |
+| Index engine | **Hand-rolled inverted index** in plain SQLite (FTS5 is NOT compiled into this Node's `node:sqlite` — confirmed `no such module: fts5`). JS tokenizer + postings tables + BM25 scoring in code. Zero deps, no native artifact. |
+| Index strategy | Write-time DB indexing + mtime-walk reindex for vault files |
 
 ## Existing foundation (reused, not rebuilt)
 
-- `node:sqlite` with FTS5 built in — **zero new dependencies** (never better-sqlite3).
+- `node:sqlite` — **zero new dependencies** (never better-sqlite3). **Note:** FTS5 is not
+  compiled into this build (`no such module: fts5`), so the index is hand-rolled in plain
+  SQLite tables rather than an FTS5 virtual table. Recall ranking is BM25 computed in code.
 - `actions` table already is the decision journal: `type, payload, preview, status,
   verdict_by, reject_reason, result, trust_state, created_at, resolved_at`.
 - `events` table: `id, ts, payload` (JSON).
@@ -50,8 +53,8 @@ live now.
 ```
 write-time ──┐
 events ──────┤
-decisions ───┼──▶ memory_fts (FTS5) ◀── recall(query, domain?)  [every agent]
-vault files ─┤        ▲
+decisions ───┼──▶ memory_doc + memory_token (inverted index) ◀── recall(query, domain?)
+vault files ─┤        ▲                                            [every agent, BM25-ranked]
 memos ───────┘        │ mtime-walk reindex (boot / ~5min / pre-distill)
 
 gate decisions ─┐
@@ -63,33 +66,40 @@ profile facts ──┘                                                      │
 
 ### 1. Data model
 
-One FTS5 virtual table plus a change-tracking table:
+Two plain tables — a document store and an inverted index of postings:
 
 ```sql
-CREATE VIRTUAL TABLE memory_fts USING fts5(
-  title, body,
-  source UNINDEXED,   -- 'vault' | 'event' | 'decision' | 'memo'
-  ref    UNINDEXED,   -- vault relpath | event id | action id | memo path
-  domain UNINDEXED,   -- inbox|money|code|research|lifeops|general|profile
-  ts     UNINDEXED,
-  tokenize = 'porter unicode61'
+CREATE TABLE memory_doc (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,        -- 'vault' | 'event' | 'decision' | 'memo'
+  ref TEXT NOT NULL,           -- vault relpath | event id | action id | memo path
+  domain TEXT NOT NULL,        -- inbox|money|code|research|lifeops|general|profile
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  len INTEGER NOT NULL,        -- total weighted token count (BM25 length norm)
+  fingerprint TEXT NOT NULL,   -- mtime (vault) | row updated_at (DB) — skip unchanged
+  indexed_at TEXT NOT NULL,
+  UNIQUE(source, ref)
 );
 
-CREATE TABLE memory_index_state (
-  source TEXT NOT NULL,
-  ref TEXT NOT NULL,
-  fingerprint TEXT NOT NULL,   -- mtime (vault) | row updated_at (DB)
-  indexed_at TEXT NOT NULL,
-  PRIMARY KEY (source, ref)
+CREATE TABLE memory_token (
+  token TEXT NOT NULL,
+  doc_id INTEGER NOT NULL,
+  tf INTEGER NOT NULL,         -- weighted term frequency (title tokens counted ×TITLE_BOOST)
+  PRIMARY KEY (token, doc_id)
 );
+CREATE INDEX idx_memory_token_token ON memory_token(token);
+CREATE INDEX idx_memory_token_doc ON memory_token(doc_id);
 ```
 
-- `title`/`body` are matched + ranked (bm25). The rest are stored for retrieval and
-  equality filtering.
-- Document identity = `(source, ref)`. Reindex a doc = delete its FTS rows, insert
-  fresh, upsert `memory_index_state`. `fingerprint` lets the indexer skip unchanged docs.
-- FTS5 has no UNIQUE constraint — dedup is managed explicitly via delete-then-insert
-  keyed on `(source, ref)`.
+- Document identity = `(source, ref)` (UNIQUE). Reindex a doc = delete its `memory_doc`
+  row + its `memory_token` postings, then insert fresh. `fingerprint` lets the indexer
+  skip unchanged docs (compare before re-tokenizing).
+- `title` tokens are folded into the postings with a small boost (`TITLE_BOOST`, e.g. ×3)
+  so a query term in a title outranks one buried in a body.
+- `len` (weighted token count) and the per-token `tf` are everything BM25 needs; `df`
+  (docs containing a token) is computed at query time from `memory_token`.
 
 ### 2. Indexer + freshness
 
@@ -97,11 +107,15 @@ CREATE TABLE memory_index_state (
   methods. Every write-time index call is wrapped in try/catch — **an index failure
   must never break the underlying event/action/vault write.**
 - **Vault files** are indexed by an **mtime-tracked walk**: on boot, periodically
-  (~5 min), and once **before each evening distill**. This absorbs the user's direct
-  Obsidian edits. A file present in `memory_index_state` but missing on disk → pruned
-  from FTS and state. Binary/corrupt files → skipped.
+  (~5 min, configurable), and once **before each evening distill**. This absorbs the
+  user's direct Obsidian edits. A `(source='vault')` doc whose file is missing on disk →
+  pruned (`memory_doc` row + its postings deleted). Binary/corrupt files → skipped.
+- **Event indexing is an explicit allowlist** — only `calendar.changed` (meeting/context
+  recall) for v1. All operational/noisy types (job/stage/agent/action/trust/brief/triage/
+  reminder/chat) are not indexed. The allowlist is one easily-audited constant, extensible
+  later.
 - **Exclusions (security):**
-  - `mail.received` event payloads are **never** indexed.
+  - `mail.received` event payloads are **never** indexed (not on the event allowlist).
   - Decisions are indexed via the **system-authored `preview` + `reject_reason`
     only**, not the raw `actions` payload — which also keeps drafted email bodies out
     of the index for free.
@@ -129,15 +143,21 @@ specialists + Phase 7 pillar packs inherit it.
 recall(query: string, domain?: enum, limit?: number = 8)
 ```
 
-```sql
-SELECT source, ref, domain, ts,
-       snippet(memory_fts, 1, '«', '»', '…', 12) AS snip,
-       bm25(memory_fts) AS rank
-FROM memory_fts
-WHERE memory_fts MATCH ?            -- sanitized query
-  AND (:domain IS NULL OR domain = :domain)
-ORDER BY rank LIMIT ?;
-```
+Scoring is **BM25 computed in code** (no FTS5 `bm25()` / `MATCH`):
+
+1. Tokenize the query with the **same** tokenizer used at index time (so a query never
+   needs SQL-operator escaping — the tokenizer strips everything non-alphanumeric, so
+   no user input ever reaches a `MATCH` parser; malformed input simply yields zero
+   tokens → empty result, never a thrown error).
+2. Fetch postings for those tokens: `SELECT t.token, t.doc_id, t.tf, d.len, d.domain,
+   d.source, d.ref, d.ts FROM memory_token t JOIN memory_doc d ON d.id = t.doc_id WHERE
+   t.token IN (…) [AND d.domain = ?]`.
+3. Compute per token `df` (distinct docs in the candidate set) and
+   `idf = ln(1 + (N − df + 0.5)/(df + 0.5))`, where `N` = doc count (in the domain if
+   filtered). Accumulate per doc:
+   `score += idf · tf·(k1+1) / (tf + k1·(1 − b + b·dl/avgdl))` with `k1=1.2`, `b=0.75`.
+4. Sort by score descending, take `limit`. Snippet = a ±~60-char window of `body`
+   around the first matching token, with the match wrapped in `«»`.
 
 Output = ranked provenance lines:
 
@@ -146,11 +166,8 @@ Output = ranked provenance lines:
 [vault/research] knowledge/lng-prices.md (2026-05-30): …spot «price» dropped 12%…
 ```
 
-- **Query sanitize**: wrap the raw query so FTS5 operators (`"`, `*`, `:`, `AND`,
-  `NEAR`) can't break syntax or inject — quote the phrase, optionally append prefix
-  tokens. A malformed query yields an empty result, never a thrown error.
-- Default `limit` 8, hard cap 20. `bm25()` ascending (lower = better).
-- FTS unavailable → returns `"recall index unavailable"`; the daemon is unaffected.
+- Default `limit` 8, hard cap 20.
+- Index empty / no matches → `"no matches"`; the daemon is unaffected either way.
 - Results are **reference data only** — agents still gate every effect. `recall` never
   authorizes anything (defense-in-depth).
 
@@ -260,7 +277,7 @@ _updated 2026-06-13 · distill_
 ## Error handling — fail-safe, never silent
 
 - Write-time index failure → try/catch, log, skip. The real write always succeeds.
-- FTS down → `recall` returns "unavailable"; the daemon is unaffected.
+- Index empty or query yields no tokens → `recall` returns "no matches"; daemon unaffected.
 - Distiller: one domain fails → isolated, logged, surfaced next brief; the memo is left
   unchanged (the gate write happens only on a clean curator result).
 - Curator empty/garbage → keep the prior memo.
@@ -269,11 +286,14 @@ _updated 2026-06-13 · distill_
 
 ## Testing
 
-- **Indexer** — event/decision/vault/memo → FTS row; reindex idempotent (no dupes);
-  mtime change → reindex; file delete → prune; `mail.received` excluded; decision
-  indexes preview+reason, not payload.
-- **recall** — bm25 order, domain filter, limit cap, FTS5-operator escaping (no throw),
-  empty result.
+- **Tokenizer** — lowercase, accent-strip, stopword drop, length bounds, light stemming;
+  deterministic; same fn used at index + query time.
+- **Indexer** — event/decision/vault/memo → `memory_doc` + postings; reindex idempotent
+  (no dupes); fingerprint-unchanged → skipped; mtime change → reindex; file delete →
+  prune (doc + postings); `mail.received` excluded; decision indexes preview+reason, not
+  payload.
+- **recall** — BM25 order (idf·tf saturation, length norm), domain filter, limit cap,
+  punctuation/garbage query → empty (no throw), empty index → "no matches".
 - **Decision read model** — resolved-action mapping + domain derivation per namespace.
 - **remember/forget** — teaching captured, `consolidated_at` flips, forget applied
   (fake curator).
@@ -290,14 +310,16 @@ _updated 2026-06-13 · distill_
 - Inbound email is excluded from the index; decisions are indexed via the
   system-authored preview + reason only.
 - Memo writes are audited through the Action Gate.
-- `recall` queries are sanitized against FTS5 syntax; results are reference data —
+- `recall` takes no raw SQL/`MATCH` — the query is tokenized to alphanumerics before
+  any DB access, so there is no query-injection surface. Results are reference data —
   agents still gate every effect.
 - `teachings`/`forget` records are moderator-authored (trusted origin).
 - `recall` is read-only — safe to expose to one-shot specialists.
 
 ## Out of scope (YAGNI)
 
-- Embedding-based / semantic recall — lexical FTS5 first (master-vision rule).
+- Embedding-based / semantic recall — lexical (inverted-index BM25) first
+  (master-vision rule; the vision said FTS5, but FTS5 is unavailable in this build).
 - Mission Control "Memory" view (search + memo editing UI) — Phase 8, full Mission
   Control.
 - Pillar-pack prompt wiring for memos — Phase 7 (the hook is defined here).
