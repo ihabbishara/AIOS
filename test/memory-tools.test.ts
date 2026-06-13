@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { teachingDomain } from "../src/moderator/tools.js";
+
+describe("teachingDomain routing", () => {
+  it("routes facts to profile, forgets to given/null, prefs to given/general", () => {
+    expect(teachingDomain("fact", "money")).toBe(null);
+    expect(teachingDomain("preference")).toBe("general");
+    expect(teachingDomain("preference", "money")).toBe("money");
+    expect(teachingDomain("forget")).toBe(null);
+    expect(teachingDomain("forget", "inbox")).toBe("inbox");
+  });
+});
 
 describe("memory tools registration", () => {
   it("session MCP_TOOLS includes recall/remember/forget", () => {
