@@ -23,6 +23,9 @@ const MCP_TOOLS = [
   "mcp__aios__add_triage_rule",
   "mcp__aios__list_inbox",
   "mcp__aios__read_email",
+  "mcp__aios__recall",
+  "mcp__aios__remember",
+  "mcp__aios__forget",
 ];
 
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
