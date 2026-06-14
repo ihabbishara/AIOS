@@ -58,6 +58,7 @@ export interface WebDeps {
   finance: FinanceAgent;
   gate: ActionGate;
   voice: VoiceService;
+  reloadPacks: () => void;
   envPath: string;
   uiDist: string;
   log?: (line: string) => void;
@@ -97,7 +98,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): void {
-  const { store, bus, jobs, vault, config, router, gate, voice, log = () => {} } = deps;
+  const { store, bus, jobs, vault, config, router, gate, voice, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
 
@@ -283,7 +284,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
             return json(res, 400, { error: `invalid playbook: ${(err as Error).message}` });
           }
           writeFileSync(join(config.playbooksDir, file), body.yaml);
-          jobs.reloadPlaybooks(config.playbooksDir);
+          reloadPacks();
           return json(res, 200, { ok: true, reloaded: true });
         }
 

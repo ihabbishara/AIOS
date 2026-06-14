@@ -44,3 +44,22 @@ export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
 
   return { pillar: pack.pillar, contextBlock, tools, mcpServers: { [SERVER_NAME]: server } };
 }
+
+export interface PackResolverReg {
+  packs: Map<string, Pack>;
+  pillarOf: Map<string, string>;
+  roleOf: Map<string, string>;
+}
+
+/** Closure over the pack registry + shared deps: routes a playbook (or role) to its ResolvedPack. */
+export function makeResolvePackFor(
+  reg: PackResolverReg,
+  deps: { store: Store; vault: VaultWriter; gate: ActionGate },
+) {
+  return (key: string, origin: { channel: string; chatId: string }, byRole = false): ResolvedPack | undefined => {
+    const pillar = byRole ? reg.roleOf.get(key) : reg.pillarOf.get(key);
+    if (!pillar) return undefined;
+    const pack = reg.packs.get(pillar);
+    return pack ? resolvePack(pack, { store: deps.store, vault: deps.vault, gate: deps.gate, origin }) : undefined;
+  };
+}

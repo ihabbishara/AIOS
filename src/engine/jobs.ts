@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { loadPlaybooks, type Playbook } from "./playbook.js";
+import { type Playbook } from "./playbook.js";
 import { PlaybookExecutor, type JobContext } from "./executor.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
@@ -40,13 +40,6 @@ export class JobManager {
     return [...this.deps.playbooks.values()].map((p) => ({
       name: p.name, description: p.description, pillar: this.deps.pillarOf?.get(p.name),
     }));
-  }
-
-  /** Re-reads playbook YAMLs (after a UI edit) into the live map. */
-  reloadPlaybooks(dir: string): void {
-    const fresh = loadPlaybooks(dir);
-    this.deps.playbooks.clear();
-    for (const [k, v] of fresh) this.deps.playbooks.set(k, v);
   }
 
   createJob(params: {
