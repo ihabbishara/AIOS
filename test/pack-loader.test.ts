@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadPacks } from "../src/packs/loader.js";
+import { JobManager } from "../src/engine/jobs.js";
 
 function scaffold(): string {
   const root = mkdtempSync(join(tmpdir(), "pb-"));
@@ -49,6 +50,21 @@ describe("loadPacks", () => {
     const { packs } = loadPacks(root, (l) => logs.push(l));
     expect(packs.size).toBe(1);
     expect(logs.join(" ")).toMatch(/dup/);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("listPlaybooks pillar grouping", () => {
+  it("annotates each playbook with its pillar (or undefined when packless)", () => {
+    const root = scaffold();
+    const { playbooks, pillarOf } = loadPacks(root);
+    const jm = new JobManager({
+      store: {} as never, vault: {} as never, run: (async () => ({})) as never,
+      playbooks, pillarOf, wallTimeMs: 1, maxConcurrent: 1, onComplete: async () => {},
+    });
+    const list = jm.listPlaybooks();
+    expect(list.find((p) => p.name === "sub-audit")?.pillar).toBe("money");
+    expect(list.find((p) => p.name === "echo")?.pillar).toBeUndefined();
     rmSync(root, { recursive: true, force: true });
   });
 });

@@ -26,6 +26,8 @@ export interface JobManagerDeps {
   onEvent?: (event: import("../events.js").AiosEvent) => void;
   /** Resolve the pack for a playbook, given gate-attribution origin. Undefined for packless. */
   resolvePackFor?: (playbookName: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
+  /** playbook name -> pillar (from the pack loader); packless playbooks are absent. */
+  pillarOf?: Map<string, string>;
 }
 
 export class JobManager {
@@ -34,8 +36,10 @@ export class JobManager {
 
   constructor(private deps: JobManagerDeps) {}
 
-  listPlaybooks(): Array<{ name: string; description: string }> {
-    return [...this.deps.playbooks.values()].map((p) => ({ name: p.name, description: p.description }));
+  listPlaybooks(): Array<{ name: string; description: string; pillar?: string }> {
+    return [...this.deps.playbooks.values()].map((p) => ({
+      name: p.name, description: p.description, pillar: this.deps.pillarOf?.get(p.name),
+    }));
   }
 
   /** Re-reads playbook YAMLs (after a UI edit) into the live map. */

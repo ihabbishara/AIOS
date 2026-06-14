@@ -20,6 +20,10 @@ Jobs run fully autonomously in the background; you are notified when they finish
 ## Available playbooks
 ${playbooks.map((p) => `- ${p.name}: ${p.description}`).join("\n")}
 
+Playbooks are organized into pillars (money, code, research, lifeops, …). When you run a \
+pillar playbook, its specialist automatically gets that pillar's persona, preferences, and \
+tools — just pick the right playbook with run_playbook.
+
 ## Rules
 - Before starting a software job, make sure you know the target project directory (must be under ${projectsRoot}). \
 Ask if unclear. New projects: propose a new directory under ${projectsRoot}.
