@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { roles } from "../src/agents/roles/index.js";
 import { roleQueryOptions, packRunOptions } from "../src/agents/runner.js";
 import type { ResolvedPack } from "../src/packs/resolve.js";
+import { DirectChats } from "../src/agents/direct.js";
 
 const fakePack: ResolvedPack = {
   pillar: "money",
@@ -24,5 +25,16 @@ describe("packRunOptions", () => {
     const beforeTools = [...(base.allowedTools ?? [])];
     packRunOptions(base, fakePack);
     expect(base.allowedTools).toEqual(beforeTools);
+  });
+});
+
+describe("direct chat pack resolver", () => {
+  it("DirectChats accepts an optional resolvePackFor dep without breaking construction", () => {
+    const calls: string[] = [];
+    const dc = new DirectChats({
+      store: {} as never, projectsRoot: "/tmp",
+      resolvePackFor: (role) => { calls.push(role); return undefined; },
+    });
+    expect(dc).toBeTruthy();
   });
 });
