@@ -2,7 +2,8 @@ import { join } from "node:path";
 import { loadConfig, assertAuth } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { loadPlaybooks } from "./engine/playbook.js";
+import { loadPacks } from "./packs/loader.js";
+import { resolvePack } from "./packs/resolve.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { runSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
@@ -55,8 +56,9 @@ async function main(): Promise<void> {
       log(`memory index (write-time) failed: ${(err as Error).message}`);
     }
   });
-  const playbooks = loadPlaybooks(config.playbooksDir);
+  const { playbooks, packs, pillarOf, roleOf } = loadPacks(config.playbooksDir, log);
   log(`playbooks: ${[...playbooks.keys()].join(", ")}`);
+  log(`packs: ${[...packs.keys()].join(", ") || "(none)"}`);
 
   // ---- action gate (the only door out) ----
   const registry = new ExecutorRegistry();
@@ -100,6 +102,18 @@ async function main(): Promise<void> {
     log(`google senses: ${google.accounts().map((a) => `${a.name} (${a.email})`).join(", ")}`);
   }
 
+  // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
+  const resolvePackFor = (
+    key: string,
+    origin: { channel: string; chatId: string },
+    byRole = false,
+  ) => {
+    const pillar = byRole ? roleOf.get(key) : pillarOf.get(key);
+    if (!pillar) return undefined;
+    const pack = packs.get(pillar);
+    return pack ? resolvePack(pack, { store, vault, gate, origin }) : undefined;
+  };
+
   const channels = new Map<string, ChannelAdapter>();
 
   const onJobComplete = async (outcome: JobOutcome): Promise<void> => {
@@ -124,6 +138,8 @@ async function main(): Promise<void> {
     onComplete: onJobComplete,
     onEvent: (e) => bus.emit(e),
     log,
+    pillarOf,
+    resolvePackFor: (playbook, origin) => resolvePackFor(playbook, origin, false),
   });
 
   const moderator = new Moderator({
@@ -145,6 +161,7 @@ async function main(): Promise<void> {
     projectsRoot: config.projectsRoot,
     model: config.specialistModel,
     log,
+    resolvePackFor: (role, origin) => resolvePackFor(role, origin, true),
   });
 
   const finance = new FinanceAgent({
