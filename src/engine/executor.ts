@@ -26,6 +26,8 @@ export interface ExecutorDeps {
   wallTimeMs: number;
   log?: (line: string) => void;
   onEvent?: (event: import("../events.js").AiosEvent) => void;
+  /** Resolved pack for this job's playbook (undefined for packless playbooks). */
+  pack?: import("../packs/resolve.js").ResolvedPack;
 }
 
 export interface Verdict {
@@ -112,6 +114,7 @@ export class PlaybookExecutor {
     return {
       cwd: ctx.job.project_dir ?? process.cwd(),
       model: this.deps.model,
+      pack: this.deps.pack,
     };
   }
 

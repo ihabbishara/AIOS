@@ -56,4 +56,22 @@ export function memoContext(store: Store, vault: VaultWriter): string {
   return block;
 }
 
+/** Pillar-scoped variant of memoContext: profile + one domain's memo + that domain's pending
+ *  teachings. Used by pack agents (not the moderator's general/inbox set). */
+export function memoContextForDomain(store: Store, vault: VaultWriter, domain: string): string {
+  const parts: string[] = [];
+  const profile = vault.readNote(memoRelPath("profile"));
+  if (profile?.trim()) parts.push(profile.trim());
+  const memo = vault.readNote(memoRelPath(domain as Domain));
+  if (memo?.trim()) parts.push(memo.trim());
+  const pending = store.listUnconsolidatedTeachings(domain);
+  if (pending.length) {
+    parts.push("## Pending (not yet distilled)\n" + pending.map((t) => `- ${t.text}`).join("\n"));
+  }
+  if (!parts.length) return "";
+  let block = "## Learned preferences & profile\n\n" + parts.join("\n\n");
+  if (block.length > CAP) block = block.slice(0, CAP) + "\n…(more in memos/)";
+  return block;
+}
+
 export { DOMAINS };

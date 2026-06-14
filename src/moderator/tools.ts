@@ -99,9 +99,22 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
 
   const listPlaybooks = tool(
     "list_playbooks",
-    "List available playbooks.",
+    "List available playbooks, grouped by pillar.",
     {},
-    async () => text(deps.jobs.listPlaybooks().map((p) => `${p.name}: ${p.description}`).join("\n")),
+    async () => {
+      const byPillar = new Map<string, string[]>();
+      for (const p of deps.jobs.listPlaybooks()) {
+        const key = p.pillar ?? "general";
+        const arr = byPillar.get(key) ?? [];
+        arr.push(`${p.name}: ${p.description}`);
+        byPillar.set(key, arr);
+      }
+      const out = [...byPillar.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([pillar, items]) => `## ${pillar}\n${items.map((i) => `- ${i}`).join("\n")}`)
+        .join("\n\n");
+      return text(out || "No playbooks.");
+    },
   );
 
   const vaultWrite = tool(

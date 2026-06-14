@@ -1,6 +1,6 @@
 import { roles } from "./roles/index.js";
 import { resumableTurn } from "./resumable.js";
-import { roleQueryOptions, roleSystemPrompt } from "./runner.js";
+import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import type { Store } from "../store/db.js";
 
 const DIRECT_ADDENDUM =
@@ -15,6 +15,8 @@ export interface DirectChatsDeps {
   projectsRoot: string;
   model?: string;
   log?: (line: string) => void;
+  /** Resolve a pack for a direct-addressed role (undefined = role has no/ambiguous pack). */
+  resolvePackFor?: (role: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
 }
 
 /** Persistent one-on-one chats with individual specialists (the `@role ...` syntax). */
@@ -37,15 +39,18 @@ export class DirectChats {
     this.locks.set(key, new Promise((r) => (release = r)));
     await prev;
     try {
+      const pack = this.deps.resolvePackFor?.(role, { channel, chatId });
+      const base = {
+        ...roleQueryOptions(def, { cwd: this.deps.projectsRoot, model: this.deps.model }),
+        systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
+      };
+      const options = pack ? packRunOptions(base, pack) : base;
       return await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
         prompt: userText,
         log: this.deps.log,
-        options: {
-          ...roleQueryOptions(def, { cwd: this.deps.projectsRoot, model: this.deps.model }),
-          systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
-        },
+        options,
       });
     } finally {
       release();

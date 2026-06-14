@@ -2,7 +2,8 @@ import { join } from "node:path";
 import { loadConfig, assertAuth } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { loadPlaybooks } from "./engine/playbook.js";
+import { loadPacks } from "./packs/loader.js";
+import { makeResolvePackFor } from "./packs/resolve.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { runSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
@@ -55,8 +56,21 @@ async function main(): Promise<void> {
       log(`memory index (write-time) failed: ${(err as Error).message}`);
     }
   });
-  const playbooks = loadPlaybooks(config.playbooksDir);
+  const { playbooks, packs, pillarOf, roleOf } = loadPacks(config.playbooksDir, log);
   log(`playbooks: ${[...playbooks.keys()].join(", ")}`);
+  log(`packs: ${[...packs.keys()].join(", ") || "(none)"}`);
+
+  // Reload the WHOLE registry in place (after a UI playbook edit). Mutates the same Map
+  // instances JobManager + resolvePackFor hold by reference, so packs/pillarOf/roleOf
+  // stay in sync — the old flat reload only refreshed top-level playbooks.
+  const reloadPacks = () => {
+    const fresh = loadPacks(config.playbooksDir, log);
+    playbooks.clear(); for (const [k, v] of fresh.playbooks) playbooks.set(k, v);
+    packs.clear();     for (const [k, v] of fresh.packs) packs.set(k, v);
+    pillarOf.clear();  for (const [k, v] of fresh.pillarOf) pillarOf.set(k, v);
+    roleOf.clear();    for (const [k, v] of fresh.roleOf) roleOf.set(k, v);
+    log(`packs reloaded: ${[...packs.keys()].join(", ") || "(none)"}`);
+  };
 
   // ---- action gate (the only door out) ----
   const registry = new ExecutorRegistry();
@@ -100,6 +114,9 @@ async function main(): Promise<void> {
     log(`google senses: ${google.accounts().map((a) => `${a.name} (${a.email})`).join(", ")}`);
   }
 
+  // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
+  const resolvePackFor = makeResolvePackFor({ packs, pillarOf, roleOf }, { store, vault, gate });
+
   const channels = new Map<string, ChannelAdapter>();
 
   const onJobComplete = async (outcome: JobOutcome): Promise<void> => {
@@ -124,6 +141,8 @@ async function main(): Promise<void> {
     onComplete: onJobComplete,
     onEvent: (e) => bus.emit(e),
     log,
+    pillarOf,
+    resolvePackFor: (playbook, origin) => resolvePackFor(playbook, origin, false),
   });
 
   const moderator = new Moderator({
@@ -145,6 +164,7 @@ async function main(): Promise<void> {
     projectsRoot: config.projectsRoot,
     model: config.specialistModel,
     log,
+    resolvePackFor: (role, origin) => resolvePackFor(role, origin, true),
   });
 
   const finance = new FinanceAgent({
@@ -374,7 +394,7 @@ async function main(): Promise<void> {
   }
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, finance, gate, voice, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, jobs, vault, config, router, finance, gate, voice, reloadPacks, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 
