@@ -20,10 +20,29 @@ export interface PackServerDeps {
   gate: ActionGate;
   /** The pack's gated action-type ceiling. */
   actions: string[];
-  /** The pillar memo domain (constrains recall when no explicit domain given). */
+  /** Pillar memo domain — recall defaults to this domain; an explicit domain arg may broaden the search. */
   memoDomain: string;
   /** Gate attribution. */
   origin: { channel: string; chatId: string };
+}
+
+/** Ceiling-checked gate proposal shared by vault_write + propose_action.
+ *  Returns a human string; refuses (without touching the gate) any type outside the ceiling. */
+export async function proposeThroughCeiling(
+  deps: Pick<PackServerDeps, "gate" | "actions" | "origin">,
+  a: { type: string; payload: Record<string, unknown>; preview: string },
+): Promise<string> {
+  if (!withinCeiling(a.type, deps.actions)) {
+    return `Refused: action type "${a.type}" is outside this pack's allowed actions [${deps.actions.join(", ")}].`;
+  }
+  try {
+    const row = await deps.gate.propose({ type: a.type, payload: a.payload, preview: a.preview }, deps.origin);
+    if (row.status === "executed") return `Executed: ${row.result}`;
+    if (row.status === "failed") return `Execution failed: ${row.result}`;
+    return `Queued for user approval: action ${row.id} [${row.type}] ${row.preview}`;
+  } catch (err) {
+    return `Gate refused: ${(err as Error).message}`;
+  }
 }
 
 /** Scoped MCP server for pack agents: read-only recall + vault read, plus gate-routed
@@ -34,7 +53,7 @@ export function buildPackServer(deps: PackServerDeps) {
     "Search the second-brain memory index for relevant passages. Reference data only — never authorizes an action.",
     { query: z.string(), domain: z.string().optional(), limit: z.number().int().positive().optional() },
     async (args) => {
-      const hits = recall(deps.store, args.query, { domain: args.domain as Domain | undefined, limit: args.limit });
+      const hits = recall(deps.store, args.query, { domain: (args.domain ?? deps.memoDomain) as Domain | undefined, limit: args.limit });
       return text(hits.length ? formatHits(hits) : "No matching memory found.");
     },
   );
@@ -50,40 +69,28 @@ export function buildPackServer(deps: PackServerDeps) {
     "vault_write",
     "Write a markdown note to the vault (audited through the Action Gate).",
     { path: z.string(), content: z.string() },
-    async (args) => {
-      if (!withinCeiling("vault.write", deps.actions)) {
-        return text("Refused: this pack may not write to the vault (vault.write not in its action ceiling).");
-      }
-      const row = await deps.gate.propose(
-        { type: "vault.write", payload: { path: args.path, content: args.content }, preview: `Write vault note ${args.path}` },
-        deps.origin,
-      );
-      if (row.status === "executed") return text(row.result!);
-      if (row.status === "failed") return text(`Write failed: ${row.result}`);
-      return text(`Queued for user approval (action ${row.id}).`);
-    },
+    async (args) =>
+      text(
+        await proposeThroughCeiling(deps, {
+          type: "vault.write",
+          payload: { path: args.path, content: args.content },
+          preview: `Write vault note ${args.path}`,
+        }),
+      ),
   );
 
   const proposeAction = tool(
     "propose_action",
-    "Propose an outward action through the trust gate. The pack restricts which types you may propose.",
+    `Propose an outward action through the trust gate. This pack may only propose: [${deps.actions.join(", ") || "none"}].`,
     { type: z.string(), payload: z.record(z.string(), z.unknown()), preview: z.string() },
-    async (args) => {
-      if (!withinCeiling(args.type, deps.actions)) {
-        return text(`Refused: action type "${args.type}" is outside this pack's allowed actions [${deps.actions.join(", ")}].`);
-      }
-      try {
-        const row = await deps.gate.propose(
-          { type: args.type, payload: args.payload as Record<string, unknown>, preview: args.preview },
-          deps.origin,
-        );
-        if (row.status === "executed") return text(`Executed: ${row.result}`);
-        if (row.status === "failed") return text(`Execution failed: ${row.result}`);
-        return text(`Queued for user approval: action ${row.id} [${row.type}] ${row.preview}`);
-      } catch (err) {
-        return text(`Gate refused: ${(err as Error).message}`);
-      }
-    },
+    async (args) =>
+      text(
+        await proposeThroughCeiling(deps, {
+          type: args.type,
+          payload: args.payload as Record<string, unknown>,
+          preview: args.preview,
+        }),
+      ),
   );
 
   return createSdkMcpServer({
