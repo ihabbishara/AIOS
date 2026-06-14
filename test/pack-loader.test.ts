@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadPacks } from "../src/packs/loader.js";
@@ -50,6 +50,15 @@ describe("loadPacks", () => {
     const { packs } = loadPacks(root, (l) => logs.push(l));
     expect(packs.size).toBe(1);
     expect(logs.join(" ")).toMatch(/dup/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("skips a broken symlink entry without aborting the load", () => {
+    const root = scaffold(); // has echo.yaml + the money pack
+    symlinkSync(join(root, "does-not-exist-target"), join(root, "broken-link"));
+    const logs: string[] = [];
+    const { playbooks } = loadPacks(root, (l) => logs.push(l));
+    expect([...playbooks.keys()].sort()).toEqual(["echo", "sub-audit"]); // valid ones still load
     rmSync(root, { recursive: true, force: true });
   });
 });

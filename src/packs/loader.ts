@@ -16,16 +16,20 @@ export function loadPacks(dir: string, log: (line: string) => void = () => {}): 
   const roleCount = new Map<string, Set<string>>(); // role -> set of pillars
 
   for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      loadPackDir(full, entry, { playbooks, packs, pillarOf, roleCount }, log);
-    } else if (entry.endsWith(".yaml") || entry.endsWith(".yml")) {
-      try {
-        const pb = loadPlaybook(full);
-        playbooks.set(pb.name, pb);
-      } catch (err) {
-        log(`playbook ${entry} skipped: ${(err as Error).message}`);
+    try {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        loadPackDir(full, entry, { playbooks, packs, pillarOf, roleCount }, log);
+      } else if (entry.endsWith(".yaml") || entry.endsWith(".yml")) {
+        try {
+          const pb = loadPlaybook(full);
+          playbooks.set(pb.name, pb);
+        } catch (err) {
+          log(`playbook ${entry} skipped: ${(err as Error).message}`);
+        }
       }
+    } catch (err) {
+      log(`playbooks entry ${entry} skipped: ${(err as Error).message}`);
     }
   }
 
