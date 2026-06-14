@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { roles, type RoleDef } from "./roles/index.js";
 import { guardOptions } from "./guards/index.js";
+import type { ResolvedPack } from "../packs/resolve.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -47,6 +48,17 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
   };
 }
 
+/** Apply a resolved pack to base SDK options: persona+memo appended to the prompt,
+ *  tool allowlist replaced, scoped MCP server added. Pure — returns a new object. */
+export function packRunOptions(base: Options, pack: ResolvedPack): Options {
+  return {
+    ...base,
+    systemPrompt: `${base.systemPrompt}\n\n${pack.contextBlock}`,
+    allowedTools: pack.tools,
+    mcpServers: { ...(base.mcpServers ?? {}), ...(pack.mcpServers as Options["mcpServers"]) },
+  };
+}
+
 export interface SpecialistResult {
   text: string;
   structured?: unknown;
@@ -60,6 +72,8 @@ export interface RunOptions {
   additionalDirectories?: string[];
   model?: string;
   signal?: AbortSignal;
+  /** When set, the owning pack's context (persona+memo), tool allowlist, and scoped MCP server. */
+  pack?: ResolvedPack;
 }
 
 export type SpecialistRunFn = (
@@ -77,10 +91,12 @@ export const runSpecialist: SpecialistRunFn = async (roleName, brief, opts) => {
   opts.signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
+    const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
+    const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
     const q = query({
       prompt: brief,
       options: {
-        ...roleQueryOptions(role, { cwd: opts.cwd, model: opts.model }),
+        ...withPack,
         additionalDirectories: opts.additionalDirectories,
         persistSession: false,
         abortController: abort,
