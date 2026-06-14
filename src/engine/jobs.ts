@@ -24,6 +24,8 @@ export interface JobManagerDeps {
   onComplete: (outcome: JobOutcome) => Promise<void>;
   log?: (line: string) => void;
   onEvent?: (event: import("../events.js").AiosEvent) => void;
+  /** Resolve the pack for a playbook, given gate-attribution origin. Undefined for packless. */
+  resolvePackFor?: (playbookName: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
 }
 
 export class JobManager {
@@ -112,6 +114,7 @@ export class JobManager {
       { job: job.id, playbook: job.playbook });
     vault.appendDaily(`job started: [[jobs/${jobDirName}/job|${job.title}]]`);
 
+    const pack = this.deps.resolvePackFor?.(job.playbook, { channel: job.channel, chatId: job.chat_id });
     const executor = new PlaybookExecutor({
       run: this.deps.run,
       store,
@@ -120,6 +123,7 @@ export class JobManager {
       wallTimeMs: this.deps.wallTimeMs,
       log: (l) => log(`[${job.slug}] ${l}`),
       onEvent: this.deps.onEvent,
+      pack,
     });
 
     let outcome: JobOutcome;
