@@ -45,16 +45,21 @@ export class BunqSense {
 
   /** Production fetch: spawn the read-only Python helper and parse its JSON. Read-only by construction. */
   fetch: FetchTransactions = async (sinceIdByAccount) => {
-    const { stdout } = await run(this.opts.pythonBin, [
-      this.opts.helperPath,
-      "--env", this.opts.env,
-      "--context", this.opts.contextPath,
-      "--backfill-days", String(this.opts.backfillDays),
-      "--since", JSON.stringify(sinceIdByAccount),
-    ],
-      // 16MB stdout ceiling (~30-50k txns); large first backfills are bounded by --backfill-days.
-      { maxBuffer: 16 * 1024 * 1024 },
-    );
+    let stdout: string;
+    try {
+      ({ stdout } = await run(this.opts.pythonBin, [
+        this.opts.helperPath,
+        "--env", this.opts.env,
+        "--context", this.opts.contextPath,
+        "--backfill-days", String(this.opts.backfillDays),
+        "--since", JSON.stringify(sinceIdByAccount),
+        // 16MB stdout ceiling (~30-50k txns); large first backfills are bounded by --backfill-days.
+      ], { maxBuffer: 16 * 1024 * 1024 }));
+    } catch (err) {
+      const e = err as { stderr?: string; message?: string };
+      const reason = (e.stderr && e.stderr.trim()) || e.message || "bunq helper failed";
+      throw new Error(reason);
+    }
     const parsed = JSON.parse(stdout) as HelperOutput;
     if (!parsed || !Array.isArray(parsed.transactions) || !Array.isArray(parsed.accounts)) {
       throw new Error("bunq helper: malformed output (expected {accounts,transactions})");
