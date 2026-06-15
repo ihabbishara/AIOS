@@ -236,6 +236,7 @@ export class Store {
         UNIQUE(account_id, bunq_id)
       );
     `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_personal_tx_account ON personal_transactions(account_id, bunq_created DESC);`);
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
