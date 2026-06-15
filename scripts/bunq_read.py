@@ -21,7 +21,11 @@ def main():
     ap.add_argument("--backfill-days", type=int, default=90)
     ap.add_argument("--since", default="{}", help='JSON map account_id -> last bunq_id')
     args = ap.parse_args()
-    since = json.loads(args.since)
+    try:
+        since = json.loads(args.since)
+    except Exception as e:
+        print(f"bunq helper: invalid --since JSON ({e})", file=sys.stderr)
+        sys.exit(3)
 
     from bunq.sdk.context.api_context import ApiContext
     from bunq.sdk.context.bunq_context import BunqContext
