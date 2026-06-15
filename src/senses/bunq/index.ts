@@ -51,7 +51,14 @@ export class BunqSense {
       "--context", this.opts.contextPath,
       "--backfill-days", String(this.opts.backfillDays),
       "--since", JSON.stringify(sinceIdByAccount),
-    ], { maxBuffer: 16 * 1024 * 1024 });
-    return JSON.parse(stdout) as HelperOutput;
+    ],
+      // 16MB stdout ceiling (~30-50k txns); large first backfills are bounded by --backfill-days.
+      { maxBuffer: 16 * 1024 * 1024 },
+    );
+    const parsed = JSON.parse(stdout) as HelperOutput;
+    if (!parsed || !Array.isArray(parsed.transactions) || !Array.isArray(parsed.accounts)) {
+      throw new Error("bunq helper: malformed output (expected {accounts,transactions})");
+    }
+    return parsed;
   };
 }
