@@ -52,7 +52,11 @@ def main():
 
     from bunq.sdk.context.api_context import ApiContext
     from bunq.sdk.context.bunq_context import BunqContext
-    from bunq.sdk.model.generated.endpoint import MonetaryAccountBank, Payment
+    # bunq_sdk >= 1.x renamed endpoint classes with an "ApiObject" suffix; alias to keep call sites stable.
+    from bunq.sdk.model.generated.endpoint import (
+        MonetaryAccountBankApiObject as MonetaryAccountBank,
+        PaymentApiObject as Payment,
+    )
 
     try:
         BunqContext.load_api_context(ApiContext.restore(args.context))
