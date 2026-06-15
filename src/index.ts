@@ -29,6 +29,8 @@ import { GoogleAccounts } from "./senses/google/auth.js";
 import { GmailWatcher } from "./senses/google/gmail.js";
 import { CalendarWatcher } from "./senses/google/calendar.js";
 import { emailExecutors } from "./senses/google/executors.js";
+import { BunqSense } from "./senses/bunq/index.js";
+import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/indexer.js";
 import { distill, curateLLM } from "./memory/distiller.js";
 
@@ -113,6 +115,17 @@ async function main(): Promise<void> {
     for (const exec of emailExecutors(google)) registry.register(exec);
     log(`google senses: ${google.accounts().map((a) => `${a.name} (${a.email})`).join(", ")}`);
   }
+
+  // ---- bunq sense (read-only bank transactions) ----
+  const bunq = BunqSense.load({
+    contextPath: config.bunqContextPath,
+    helperPath: config.bunqHelperPath,
+    env: config.bunqEnv,
+    backfillDays: config.bunqBackfillDays,
+    pythonBin: config.pythonBin,
+  });
+  if (bunq.enabled()) log(`bunq sense: enabled (${config.bunqEnv})`);
+  else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
   // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
   const resolvePackFor = makeResolvePackFor({ packs, pillarOf, roleOf }, { store, vault, gate });
@@ -337,7 +350,7 @@ async function main(): Promise<void> {
     ],
     onAnchor: async (name) => {
       await runBrief(
-        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => google.degraded(), log },
+        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => [...google.degraded(), ...bunq.degraded()], log },
         name,
       );
       if (name === "evening") {
@@ -356,31 +369,36 @@ async function main(): Promise<void> {
   // Watcher loops: per-account isolation with capped backoff (1m → 5m → 15m).
   const stops: Array<() => void> = [];
   stops.push(() => clearInterval(reindexTimer));
-  if (google.enabled()) {
-    const BACKOFFS = [60_000, 300_000, 900_000];
-    const startWatcher = (name: string, intervalMs: number, pollFn: () => Promise<void>) => {
-      let failures = 0;
-      let timer: NodeJS.Timeout;
-      const tick = async () => {
-        try {
-          await pollFn();
-          failures = 0;
-          const accountName = name.split(":")[1];
-          if (accountName) google.clearDegraded(accountName);
-        } catch (err) {
-          failures++;
-          const accountName = name.split(":")[1];
-          if (accountName) google.markDegraded(accountName, (err as Error).message.slice(0, 120));
-          log(`${name} poll failed (${failures}): ${(err as Error).message}`);
-        }
-        const delay = failures > 0 ? BACKOFFS[Math.min(failures - 1, BACKOFFS.length - 1)] : intervalMs;
-        timer = setTimeout(() => void tick(), delay);
-        timer.unref?.();
-      };
-      void tick();
-      return () => clearTimeout(timer);
-    };
 
+  const BACKOFFS = [60_000, 300_000, 900_000];
+  const startWatcher = (
+    name: string,
+    intervalMs: number,
+    pollFn: () => Promise<void>,
+    onFail: (reason: string) => void = () => {},
+    onOk: () => void = () => {},
+  ) => {
+    let failures = 0;
+    let timer: NodeJS.Timeout;
+    const tick = async () => {
+      try {
+        await pollFn();
+        failures = 0;
+        onOk();
+      } catch (err) {
+        failures++;
+        onFail((err as Error).message.slice(0, 120));
+        log(`${name} poll failed (${failures}): ${(err as Error).message}`);
+      }
+      const delay = failures > 0 ? BACKOFFS[Math.min(failures - 1, BACKOFFS.length - 1)] : intervalMs;
+      timer = setTimeout(() => void tick(), delay);
+      timer.unref?.();
+    };
+    void tick();
+    return () => clearTimeout(timer);
+  };
+
+  if (google.enabled()) {
     for (const acc of google.accounts()) {
       const gmailWatcher = new GmailWatcher({
         account: acc.name, gmail: acc.gmail, store, bus, skipCategories: config.gmailSkipCategories, log,
@@ -388,9 +406,17 @@ async function main(): Promise<void> {
       const calWatcher = new CalendarWatcher({
         account: acc.name, calendar: acc.calendar, store, bus, pingMinutes: config.meetingPingMinutes, log,
       });
-      stops.push(startWatcher(`gmail:${acc.name}`, config.gmailPollSeconds * 1000, () => gmailWatcher.poll()));
-      stops.push(startWatcher(`gcal:${acc.name}`, config.calendarPollSeconds * 1000, () => calWatcher.poll()));
+      stops.push(startWatcher(`gmail:${acc.name}`, config.gmailPollSeconds * 1000, () => gmailWatcher.poll(),
+        (r) => google.markDegraded(acc.name, r), () => google.clearDegraded(acc.name)));
+      stops.push(startWatcher(`gcal:${acc.name}`, config.calendarPollSeconds * 1000, () => calWatcher.poll(),
+        (r) => google.markDegraded(acc.name, r), () => google.clearDegraded(acc.name)));
     }
+  }
+
+  if (bunq.enabled()) {
+    const bunqSync = new BunqSync({ store, fetch: bunq.fetch, log });
+    stops.push(startWatcher("bunq", config.bunqPollSeconds * 1000, () => bunqSync.poll().then(() => {}),
+      (r) => bunq.markDegraded(r), () => bunq.clearDegraded()));
   }
 
   startWebServer(

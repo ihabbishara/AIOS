@@ -151,9 +151,10 @@ export function renderBriefNote(d: BriefData, narration: string): string {
     if (!rows.length) return;
     lines.push(`## ${title}`, ...rows.map((r) => `- ${r}`), "");
   };
-  section("⚠ Senses needing re-auth", d.sensesNeedingReauth.map(
-    (s) => `re-auth needed: ${s.name} (${s.reason}) — run: npx tsx scripts/google-auth.ts ${s.name}`,
-  ));
+  section("⚠ Senses needing re-auth", d.sensesNeedingReauth.map((s) => {
+    const cmd = s.name === "bunq" ? "python3 scripts/bunq-setup.py" : `npx tsx scripts/google-auth.ts ${s.name}`;
+    return `re-auth needed: ${s.name} (${s.reason}) — run: ${cmd}`;
+  }));
   section("Pending approvals", d.pendingApprovals.map(
     (a) => `[${a.id}] ${a.type} — ${a.preview}${a.expiringSoon ? " ⚠ expiring soon" : ""}`,
   ));

@@ -67,6 +67,21 @@ export interface DecisionRow {
   ts: string;
 }
 
+export interface PersonalTransactionRow {
+  id: number;
+  account_id: string;
+  account_label: string;
+  bunq_id: number;
+  amount_cents: number;
+  currency: string;
+  description: string;
+  counterparty: string | null;
+  counterparty_iban: string | null;
+  type: string | null;
+  bunq_created: string;
+  synced_at: string;
+}
+
 export class Store {
   private db: DatabaseSync;
 
@@ -204,6 +219,24 @@ export class Store {
         consolidated_at TEXT
       );
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS personal_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id TEXT NOT NULL,
+        account_label TEXT NOT NULL,
+        bunq_id INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        description TEXT NOT NULL,
+        counterparty TEXT,
+        counterparty_iban TEXT,
+        type TEXT,
+        bunq_created TEXT NOT NULL,
+        synced_at TEXT NOT NULL,
+        UNIQUE(account_id, bunq_id)
+      );
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_personal_tx_account ON personal_transactions(account_id, bunq_created DESC);`);
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
@@ -630,6 +663,35 @@ export class Store {
       reason: r.reject_reason,
       ts: r.resolved_at ?? r.created_at,
     }));
+  }
+
+  // ---- personal transactions (bunq bank sense — read-only feed) ----
+
+  /** Insert a bank transaction. Returns true iff a new row was inserted (false = already present). */
+  upsertPersonalTransaction(t: {
+    account_id: string; account_label: string; bunq_id: number; amount_cents: number;
+    currency: string; description: string; counterparty: string | null;
+    counterparty_iban: string | null; type: string | null; bunq_created: string;
+  }): boolean {
+    const res = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO personal_transactions
+           (account_id, account_label, bunq_id, amount_cents, currency, description,
+            counterparty, counterparty_iban, type, bunq_created, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        t.account_id, t.account_label, t.bunq_id, t.amount_cents, t.currency, t.description,
+        t.counterparty, t.counterparty_iban, t.type, t.bunq_created, new Date().toISOString(),
+      );
+    return res.changes > 0;
+  }
+
+  listPersonalTransactions(accountId?: string): PersonalTransactionRow[] {
+    const rows = accountId
+      ? this.db.prepare("SELECT * FROM personal_transactions WHERE account_id = ? ORDER BY bunq_created DESC, id DESC").all(accountId)
+      : this.db.prepare("SELECT * FROM personal_transactions ORDER BY bunq_created DESC, id DESC").all();
+    return rows as unknown as PersonalTransactionRow[];
   }
 
   close(): void {

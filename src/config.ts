@@ -57,6 +57,17 @@ export interface Config {
   memoReindexSeconds: number;
   /** Model for the memory curator one-shot (defaults to specialistModel). */
   curatorModel?: string;
+  /** Bunq environment: "sandbox" | "production". */
+  bunqEnv: string;
+  bunqPollSeconds: number;
+  bunqBackfillDays: number;
+  /** Path to the persisted bunq API context (0600). */
+  bunqContextPath: string;
+  /** Read-only python helper + one-time setup script paths. */
+  bunqHelperPath: string;
+  bunqSetupPath: string;
+  /** Python interpreter for the bunq helper. */
+  pythonBin: string;
 }
 
 export interface FinanceMember {
@@ -165,6 +176,13 @@ export function loadConfig(root = process.cwd()): Config {
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     memoReindexSeconds: Number(process.env.AIOS_MEMO_REINDEX_SECONDS ?? 300),
     curatorModel: process.env.AIOS_CURATOR_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
+    bunqEnv: process.env.AIOS_BUNQ_ENV ?? "sandbox",
+    bunqPollSeconds: Number(process.env.AIOS_BUNQ_POLL_SECONDS ?? 3600),
+    bunqBackfillDays: Number(process.env.AIOS_BUNQ_BACKFILL_DAYS ?? 90),
+    bunqContextPath: join(dataDir, `bunq-context.${process.env.AIOS_BUNQ_ENV ?? "sandbox"}.conf`),
+    bunqHelperPath: join(root, "scripts", "bunq_read.py"),
+    bunqSetupPath: join(root, "scripts", "bunq-setup.py"),
+    pythonBin: process.env.AIOS_PYTHON_BIN ?? "python3",
   };
 }
 
