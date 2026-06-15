@@ -53,7 +53,7 @@ export class BunqSense {
         "--context", this.opts.contextPath,
         "--backfill-days", String(this.opts.backfillDays),
         "--since", JSON.stringify(sinceIdByAccount),
-        // 16MB stdout ceiling (~30-50k txns); large first backfills are bounded by --backfill-days.
+        // 16MB stdout ceiling; the cold-start backfill is bounded by --backfill-days, incremental polls by the cursor.
       ], { maxBuffer: 16 * 1024 * 1024 }));
     } catch (err) {
       const e = err as { stderr?: string; message?: string };
