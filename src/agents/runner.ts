@@ -4,6 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { roles, type RoleDef } from "./roles/index.js";
 import { guardOptions } from "./guards/index.js";
 import type { ResolvedPack } from "../packs/resolve.js";
+import type { Store } from "../store/db.js";
+import type { EventBus } from "../events.js";
+import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -82,47 +85,51 @@ export type SpecialistRunFn = (
   opts: RunOptions,
 ) => Promise<SpecialistResult>;
 
-export const runSpecialist: SpecialistRunFn = async (roleName, brief, opts) => {
-  const role = roles[roleName];
-  if (!role) throw new Error(`Unknown role: ${roleName}`);
+export function makeRunSpecialist(deps: { store: Store; bus: EventBus }): SpecialistRunFn {
+  return async (roleName, brief, opts) => {
+    const role = roles[roleName];
+    if (!role) throw new Error(`Unknown role: ${roleName}`);
 
-  const abort = new AbortController();
-  const onAbort = () => abort.abort();
-  opts.signal?.addEventListener("abort", onAbort, { once: true });
+    const abort = new AbortController();
+    const onAbort = () => abort.abort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
 
-  try {
-    const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
-    const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
-    const q = query({
-      prompt: brief,
-      options: {
-        ...withPack,
-        additionalDirectories: opts.additionalDirectories,
-        persistSession: false,
-        abortController: abort,
-        ...(role.outputSchema
-          ? { outputFormat: { type: "json_schema" as const, schema: role.outputSchema } }
-          : {}),
-      },
-    });
+    try {
+      const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
+      const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
+      const merged = withEffectiveTools(withPack, roleName, deps.store);
+      const observed = withDenialObserver(merged, roleName, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
+      const q = query({
+        prompt: brief,
+        options: {
+          ...observed,
+          additionalDirectories: opts.additionalDirectories,
+          persistSession: false,
+          abortController: abort,
+          ...(role.outputSchema
+            ? { outputFormat: { type: "json_schema" as const, schema: role.outputSchema } }
+            : {}),
+        },
+      });
 
-    for await (const msg of q) {
-      if (msg.type === "result") {
-        if (msg.subtype === "success") {
-          return {
-            text: msg.result,
-            structured: msg.structured_output,
-            costUsd: msg.total_cost_usd,
-            numTurns: msg.num_turns,
-          };
+      for await (const msg of q) {
+        if (msg.type === "result") {
+          if (msg.subtype === "success") {
+            return {
+              text: msg.result,
+              structured: msg.structured_output,
+              costUsd: msg.total_cost_usd,
+              numTurns: msg.num_turns,
+            };
+          }
+          throw new Error(
+            `Specialist ${roleName} failed: ${msg.subtype}${"errors" in msg ? ` — ${msg.errors.join("; ")}` : ""}`,
+          );
         }
-        throw new Error(
-          `Specialist ${roleName} failed: ${msg.subtype}${"errors" in msg ? ` — ${msg.errors.join("; ")}` : ""}`,
-        );
       }
+      throw new Error(`Specialist ${roleName} ended without a result message`);
+    } finally {
+      opts.signal?.removeEventListener("abort", onAbort);
     }
-    throw new Error(`Specialist ${roleName} ended without a result message`);
-  } finally {
-    opts.signal?.removeEventListener("abort", onAbort);
-  }
-};
+  };
+}

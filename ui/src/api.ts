@@ -80,6 +80,17 @@ export interface TrustInfo {
   graduatedAt: string | null;
 }
 
+export interface PermissionInfo {
+  role: string;
+  description: string;
+  permissionMode: string;
+  toolCheckFallback: string;
+  skills: string[];
+  tools: { name: string; source: "default" | "granted" | "revoked" }[];
+  revoked: { name: string; source: "revoked" }[];
+  denials: { tool: string; count: number; lastTs: string }[];
+}
+
 export function getToken(): string {
   return localStorage.getItem("aios_token") ?? "";
 }
@@ -123,6 +134,12 @@ export const api = {
   trust: () => request<TrustInfo[]>("/api/trust"),
   demoteTrust: (type: string) =>
     request<{ ok: boolean }>(`/api/trust/${type}/demote`, { method: "POST" }),
+  permissions: () => request<PermissionInfo[]>("/api/permissions"),
+  proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
+    request<{ id: string; status: string }>("/api/permissions/propose", {
+      method: "POST",
+      body: JSON.stringify({ role, tool, action }),
+    }),
   voiceChat: async (target: string, blob: Blob) => {
     const res = await fetch(`/api/voice?target=${encodeURIComponent(target)}`, {
       method: "POST",

@@ -5,7 +5,7 @@ import { VaultWriter } from "./vault/writer.js";
 import { loadPacks } from "./packs/loader.js";
 import { makeResolvePackFor } from "./packs/resolve.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
-import { runSpecialist } from "./agents/runner.js";
+import { makeRunSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
 import { DirectChats } from "./agents/direct.js";
 import { FinanceAgent } from "./finance/agent.js";
@@ -17,7 +17,7 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
 import type { ChannelAdapter } from "./channels/types.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
-import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor } from "./kernel/executors.js";
+import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
 import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
@@ -42,6 +42,7 @@ async function main(): Promise<void> {
 
   const store = new Store(config.dbPath);
   const bus = new EventBus(store);
+  const runSpecialist = makeRunSpecialist({ store, bus });
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
 
@@ -79,6 +80,8 @@ async function main(): Promise<void> {
   registry.register(vaultWriteExecutor(vault));
   registry.register(echoExecutor());
   registry.register(trustPromoteExecutor(store, bus));
+  registry.register(permissionGrantExecutor(store, bus));
+  registry.register(permissionRevokeExecutor(store, bus));
 
   const gate = new ActionGate({
     store, registry, policy: config.trustPolicy, bus, expiryMs: config.actionExpiryMs, log,
@@ -160,6 +163,7 @@ async function main(): Promise<void> {
 
   const moderator = new Moderator({
     store,
+    bus,
     jobs,
     vault,
     run: runSpecialist,
@@ -174,6 +178,7 @@ async function main(): Promise<void> {
 
   const directChats = new DirectChats({
     store,
+    bus,
     projectsRoot: config.projectsRoot,
     model: config.specialistModel,
     log,
@@ -182,6 +187,7 @@ async function main(): Promise<void> {
 
   const finance = new FinanceAgent({
     store,
+    bus,
     vault,
     company: config.financeCompany,
     members: config.financeMembers,

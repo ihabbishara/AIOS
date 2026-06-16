@@ -7,8 +7,10 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { FinanceMember } from "../config.js";
 import type { InboundMessage } from "../channels/types.js";
 import { guardOptions } from "../agents/guards/index.js";
+import { effectiveAllowedTools, withDenialObserver } from "../agents/permissions.js";
+import type { EventBus } from "../events.js";
 
-const FINANCE_TOOLS = [
+export const FINANCE_TOOLS = [
   "mcp__finance__add_expense",
   "mcp__finance__remove_expense",
   "mcp__finance__list_expenses",
@@ -73,6 +75,7 @@ format the tools return, or bullets.
 
 export interface FinanceAgentDeps {
   store: Store;
+  bus: EventBus;
   vault: VaultWriter;
   company: string;
   members: FinanceMember[];
@@ -255,35 +258,36 @@ export class FinanceAgent {
     this.locks.set(chatKey, new Promise((r) => (release = r)));
     await prev;
     try {
+      const financeOptions = {
+        systemPrompt: financePrompt(this.deps.company, this.deps.members),
+        mcpServers: { finance: this.buildServer(chatKey, { channel, chatId }) },
+        allowedTools: effectiveAllowedTools("finance", FINANCE_TOOLS, this.deps.store),
+        permissionMode: "dontAsk" as const,
+        // Read is for invoice analysis only — confined to the finance evidence folder.
+        // Enforced via PreToolUse hook: the only layer that fires even for
+        // auto-allowed "safe" tools (canUseTool alone is bypassed for those).
+        ...guardOptions(
+          {
+            Read: (input) => {
+              const allowedRoot = `${this.deps.vault.root}/finance/`;
+              return String(input.file_path ?? "").startsWith(allowedRoot)
+                ? { ok: true }
+                : { ok: false, reason: `Reading outside ${allowedRoot} is not permitted.` };
+            },
+          },
+          "allow",
+        ),
+        settingSources: [],
+        strictMcpConfig: true,
+        maxTurns: 20,
+        ...(this.deps.model ? { model: this.deps.model } : {}),
+      };
       return await resumableTurn({
         store: this.deps.store,
         sessionKey: `finance-session:${chatKey}`,
         prompt,
         log: this.deps.log,
-        options: {
-          systemPrompt: financePrompt(this.deps.company, this.deps.members),
-          mcpServers: { finance: this.buildServer(chatKey, { channel, chatId }) },
-          allowedTools: FINANCE_TOOLS,
-          permissionMode: "dontAsk",
-          // Read is for invoice analysis only — confined to the finance evidence folder.
-          // Enforced via PreToolUse hook: the only layer that fires even for
-          // auto-allowed "safe" tools (canUseTool alone is bypassed for those).
-          ...guardOptions(
-            {
-              Read: (input) => {
-                const allowedRoot = `${this.deps.vault.root}/finance/`;
-                return String(input.file_path ?? "").startsWith(allowedRoot)
-                  ? { ok: true }
-                  : { ok: false, reason: `Reading outside ${allowedRoot} is not permitted.` };
-              },
-            },
-            "allow",
-          ),
-          settingSources: [],
-          strictMcpConfig: true,
-          maxTurns: 20,
-          ...(this.deps.model ? { model: this.deps.model } : {}),
-        },
+        options: withDenialObserver(financeOptions, "finance", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
       });
     } finally {
       release();

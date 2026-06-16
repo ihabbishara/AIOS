@@ -8,6 +8,8 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
+import { effectiveAllowedTools, withDenialObserver } from "../agents/permissions.js";
+import type { EventBus } from "../events.js";
 
 const MCP_TOOLS = [
   "mcp__aios__run_playbook",
@@ -29,11 +31,15 @@ const MCP_TOOLS = [
   "mcp__aios__forget",
 ];
 
+/** The moderator pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
+export const MODERATOR_ALLOWED_TOOLS = [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
+
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
 const STREAM_CLOSE_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface ModeratorDeps {
   store: Store;
+  bus: EventBus;
   jobs: JobManager;
   vault: VaultWriter;
   run: SpecialistRunFn;
@@ -87,22 +93,24 @@ export class Moderator {
       google: this.deps.google,
     });
 
+    const moderatorOptions = {
+      systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault)),
+      mcpServers: { aios: server },
+      allowedTools: effectiveAllowedTools("moderator", MODERATOR_ALLOWED_TOOLS, store),
+      permissionMode: "dontAsk" as const,
+      settingSources: [],
+      strictMcpConfig: true,
+      maxTurns: 40,
+      env: { ...process.env, CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: String(STREAM_CLOSE_TIMEOUT_MS) },
+      ...(this.deps.model ? { model: this.deps.model } : {}),
+    };
+
     return resumableTurn({
       store,
       sessionKey: `moderator-session:${chatKey}`,
       prompt: userText,
       log: this.deps.log,
-      options: {
-        systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault)),
-        mcpServers: { aios: server },
-        allowedTools: [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"],
-        permissionMode: "dontAsk",
-        settingSources: [],
-        strictMcpConfig: true,
-        maxTurns: 40,
-        env: { ...process.env, CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: String(STREAM_CLOSE_TIMEOUT_MS) },
-        ...(this.deps.model ? { model: this.deps.model } : {}),
-      },
+      options: withDenialObserver(moderatorOptions, "moderator", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
     });
   }
 }

@@ -26,7 +26,7 @@ export interface TrustPolicy {
 export const DEFAULT_POLICY: TrustPolicy = {
   graduationStreak: 10,
   graduationAgeDays: 30,
-  alwaysSupervised: new Set(["trust.promote"]),
+  alwaysSupervised: new Set(["trust.promote", "permission.grant", "permission.revoke"]),
 };
 
 export function newRecord(actionType: string, now: string): TrustRecord {

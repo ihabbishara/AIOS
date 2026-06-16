@@ -14,6 +14,7 @@ import type { MessageRouter } from "../router.js";
 import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
+import { buildPermissionsView } from "./permissions-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -309,6 +310,31 @@ export function startWebServer(deps: WebDeps, port: number): void {
           log("restart requested from UI");
           setTimeout(() => process.exit(0), 300);
           return;
+        }
+
+        if (path === "/api/permissions" && req.method === "GET") {
+          return json(res, 200, buildPermissionsView(store, bus));
+        }
+
+        if (path === "/api/permissions/propose" && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { role?: string; tool?: string; action?: string };
+          if (body.action !== "grant" && body.action !== "revoke") {
+            return json(res, 400, { error: "action must be grant or revoke" });
+          }
+          if (!body.role || !body.tool) {
+            return json(res, 400, { error: "role and tool are required" });
+          }
+          try {
+            // Proposal-only: the gate authors the preview and (always-supervised) queues it.
+            // Nothing is applied until a human approves — safe despite the unauth-localhost API.
+            const row = await gate.propose(
+              { type: `permission.${body.action}`, payload: { role: body.role, tool: body.tool }, preview: "" },
+              { channel: "web", chatId: "mission-control" },
+            );
+            return json(res, 200, { id: row.id, status: row.status });
+          } catch (err) {
+            return json(res, 400, { error: (err as Error).message });
+          }
         }
 
         return json(res, 404, { error: "not found" });
