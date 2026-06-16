@@ -8,6 +8,7 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
+import { effectiveAllowedTools } from "../agents/permissions.js";
 
 const MCP_TOOLS = [
   "mcp__aios__run_playbook",
@@ -28,6 +29,9 @@ const MCP_TOOLS = [
   "mcp__aios__remember",
   "mcp__aios__forget",
 ];
+
+/** The moderator pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
+export const MODERATOR_ALLOWED_TOOLS = [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
 /** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
 const STREAM_CLOSE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -95,7 +99,7 @@ export class Moderator {
       options: {
         systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault)),
         mcpServers: { aios: server },
-        allowedTools: [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"],
+        allowedTools: effectiveAllowedTools("moderator", MODERATOR_ALLOWED_TOOLS, store),
         permissionMode: "dontAsk",
         settingSources: [],
         strictMcpConfig: true,

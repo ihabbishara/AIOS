@@ -7,8 +7,9 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { FinanceMember } from "../config.js";
 import type { InboundMessage } from "../channels/types.js";
 import { guardOptions } from "../agents/guards/index.js";
+import { effectiveAllowedTools } from "../agents/permissions.js";
 
-const FINANCE_TOOLS = [
+export const FINANCE_TOOLS = [
   "mcp__finance__add_expense",
   "mcp__finance__remove_expense",
   "mcp__finance__list_expenses",
@@ -263,7 +264,7 @@ export class FinanceAgent {
         options: {
           systemPrompt: financePrompt(this.deps.company, this.deps.members),
           mcpServers: { finance: this.buildServer(chatKey, { channel, chatId }) },
-          allowedTools: FINANCE_TOOLS,
+          allowedTools: effectiveAllowedTools("finance", FINANCE_TOOLS, this.deps.store),
           permissionMode: "dontAsk",
           // Read is for invoice analysis only — confined to the finance evidence folder.
           // Enforced via PreToolUse hook: the only layer that fires even for

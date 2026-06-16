@@ -5,7 +5,7 @@ import { VaultWriter } from "./vault/writer.js";
 import { loadPacks } from "./packs/loader.js";
 import { makeResolvePackFor } from "./packs/resolve.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
-import { runSpecialist } from "./agents/runner.js";
+import { makeRunSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
 import { DirectChats } from "./agents/direct.js";
 import { FinanceAgent } from "./finance/agent.js";
@@ -41,6 +41,7 @@ async function main(): Promise<void> {
   assertAuth();
 
   const store = new Store(config.dbPath);
+  const runSpecialist = makeRunSpecialist({ store });
   const bus = new EventBus(store);
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();

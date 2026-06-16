@@ -1,6 +1,7 @@
 import { roles } from "./roles/index.js";
 import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
+import { withEffectiveTools } from "./permissions.js";
 import type { Store } from "../store/db.js";
 
 const DIRECT_ADDENDUM =
@@ -44,7 +45,8 @@ export class DirectChats {
         ...roleQueryOptions(def, { cwd: this.deps.projectsRoot, model: this.deps.model }),
         systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
       };
-      const options = pack ? packRunOptions(base, pack) : base;
+      const withPack = pack ? packRunOptions(base, pack) : base;
+      const options = withEffectiveTools(withPack, role, this.deps.store);
       return await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
