@@ -20,7 +20,8 @@ export type AiosEvent =
   | { type: "mail.received"; account: string; messageId: string; threadId: string; from: string; to: string; subject: string; snippet: string; labels: string[]; receivedAt: string }
   | { type: "calendar.changed"; account: string; eventId: string; summary: string; start: string; end: string; status: string; organizer: string }
   | { type: "calendar.reminder"; account: string; eventId: string; summary: string; start: string; minutesUntil: number; link: string | null }
-  | { type: "permission.changed"; role: string; tool: string; allow: boolean; by: string };
+  | { type: "permission.changed"; role: string; tool: string; allow: boolean; by: string }
+  | { type: "tool.denied"; role: string; tool: string };
 
 export interface StoredEvent {
   id: number;
