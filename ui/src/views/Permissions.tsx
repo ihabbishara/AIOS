@@ -16,11 +16,20 @@ export function Permissions({ events }: { events: StoredEvent[] }) {
   const { data, reload } = usePoll(() => api.permissions(), [lastEvent]);
   if (!data) return <div className="text-dim">loading…</div>;
 
-  const propose = async (role: string, tool: string, action: "grant" | "revoke") => {
-    if (!tool.trim()) return;
-    if (!confirm(`Propose ${action} of "${tool}" for ${role}? It queues in Approvals — you approve to apply.`)) return;
+  const propose = async (role: string, tool: string, action: "grant" | "revoke", knownTools?: string[]) => {
+    const t = tool.trim();
+    if (!t) return;
+    if (/\s/.test(t)) {
+      alert("Tool name can't contain spaces. Built-ins are exact-case (e.g. Bash, Edit, Skill); MCP tools look like mcp__server__tool.");
+      return;
+    }
+    const unknownGrant = action === "grant" && knownTools !== undefined && !knownTools.includes(t) && !t.startsWith("mcp__");
+    const msg = unknownGrant
+      ? `"${t}" isn't a known tool for ${role} — the grant will be recorded but do nothing until a tool with that exact name exists. Propose anyway?`
+      : `Propose ${action} of "${t}" for ${role}? It queues in Approvals — you approve to apply.`;
+    if (!confirm(msg)) return;
     try {
-      await api.proposePermission(role, tool.trim(), action);
+      await api.proposePermission(role, t, action);
       alert("Queued in Approvals — approve there to apply.");
     } catch (e) {
       alert((e as Error).message);
@@ -84,15 +93,22 @@ export function Permissions({ events }: { events: StoredEvent[] }) {
             onSubmit={(e) => {
               e.preventDefault();
               const input = e.currentTarget.elements.namedItem("tool") as HTMLInputElement;
-              propose(r.role, input.value, "grant");
+              propose(r.role, input.value, "grant", r.knownTools);
               input.value = "";
             }}
           >
             <input
               name="tool"
-              placeholder="tool name (e.g. Bash)"
+              list={`tools-${r.role}`}
+              autoComplete="off"
+              placeholder="tool name — pick or type (e.g. Bash)"
               className="bg-panel-2 border border-line text-fg text-[11px] px-2 py-1 flex-1"
             />
+            <datalist id={`tools-${r.role}`}>
+              {r.knownTools.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
             <button
               type="submit"
               className="border border-phosphor text-phosphor px-3 py-1 text-[10px] uppercase tracking-widest hover:bg-phosphor hover:text-void transition-colors"

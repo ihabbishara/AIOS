@@ -14,7 +14,7 @@ import type { MessageRouter } from "../router.js";
 import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
-import { buildPermissionsView } from "./permissions-view.js";
+import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -324,11 +324,15 @@ export function startWebServer(deps: WebDeps, port: number): void {
           if (!body.role || !body.tool) {
             return json(res, 400, { error: "role and tool are required" });
           }
+          const tool = body.tool.trim();
+          if (!isWellFormedToolName(tool)) {
+            return json(res, 400, { error: "tool must be a non-empty name with no spaces" });
+          }
           try {
             // Proposal-only: the gate authors the preview and (always-supervised) queues it.
             // Nothing is applied until a human approves — safe despite the unauth-localhost API.
             const row = await gate.propose(
-              { type: `permission.${body.action}`, payload: { role: body.role, tool: body.tool }, preview: "" },
+              { type: `permission.${body.action}`, payload: { role: body.role, tool }, preview: "" },
               { channel: "web", chatId: "mission-control" },
             );
             return json(res, 200, { id: row.id, status: row.status });

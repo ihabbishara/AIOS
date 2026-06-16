@@ -5,6 +5,28 @@ import { effectiveAllowedTools } from "../agents/permissions.js";
 import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
 import { FINANCE_TOOLS } from "../finance/agent.js";
 
+/** The Claude Agent SDK's built-in tool names — the universally grantable set (case-sensitive). */
+export const BUILTIN_TOOLS = [
+  "Bash",
+  "Edit",
+  "Read",
+  "Write",
+  "Glob",
+  "Grep",
+  "WebSearch",
+  "WebFetch",
+  "TodoWrite",
+  "Task",
+  "NotebookEdit",
+  "Skill",
+];
+
+/** A grantable tool name must be a non-empty, whitespace-free token. Unknown-but-well-formed
+ *  names are allowed (intentionally inert until such a tool exists — forward-compat). */
+export function isWellFormedToolName(name: string): boolean {
+  return name.length > 0 && !/\s/.test(name);
+}
+
 export interface PermissionTool {
   name: string;
   source: "default" | "granted" | "revoked";
@@ -25,6 +47,8 @@ export interface PermissionRoleView {
   /** Defaults the human revoked (shown struck-through). */
   revoked: PermissionTool[];
   denials: PermissionDenial[];
+  /** Suggestions for the grant input: built-in tools ∪ this role's own (incl. MCP) tools. */
+  knownTools: string[];
 }
 
 interface CatalogEntry {
@@ -101,6 +125,8 @@ export function buildPermissionsView(store: Store, bus: EventBus): PermissionRol
     }
     denials.sort((a, b) => b.lastTs.localeCompare(a.lastTs));
 
+    const knownTools = [...new Set([...BUILTIN_TOOLS, ...entry.base, ...effective])];
+
     return {
       role: entry.role,
       description: entry.description,
@@ -110,6 +136,7 @@ export function buildPermissionsView(store: Store, bus: EventBus): PermissionRol
       tools,
       revoked,
       denials,
+      knownTools,
     };
   });
 }

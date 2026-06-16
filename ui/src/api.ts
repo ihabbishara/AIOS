@@ -89,6 +89,7 @@ export interface PermissionInfo {
   tools: { name: string; source: "default" | "granted" | "revoked" }[];
   revoked: { name: string; source: "revoked" }[];
   denials: { tool: string; count: number; lastTs: string }[];
+  knownTools: string[];
 }
 
 export function getToken(): string {
