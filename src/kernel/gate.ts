@@ -98,6 +98,10 @@ export class ActionGate {
         return `Archive ${(p.messageIds as string[]).length} message(s) (${String(p.account)})`;
       case "email.label":
         return `Label ${(p.messageIds as string[]).length} message(s) +[${(p.add as string[]).join(",")}] -[${(p.remove as string[]).join(",")}] (${String(p.account)})`;
+      case "permission.grant":
+        return `Grant ${String(p.tool)} to ${String(p.role)}`;
+      case "permission.revoke":
+        return `Revoke ${String(p.tool)} from ${String(p.role)}`;
     }
     return undefined;
   }

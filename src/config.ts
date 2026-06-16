@@ -157,6 +157,8 @@ export function loadConfig(root = process.cwd()): Config {
       // trust.promote is ALWAYS in the ceiling set — promotions must always be human-approved.
       alwaysSupervised: new Set([
         "trust.promote",
+        "permission.grant",
+        "permission.revoke",
         ...(process.env.AIOS_ALWAYS_SUPERVISED ?? "")
           .split(",").map((s) => s.trim()).filter(Boolean),
       ]),
