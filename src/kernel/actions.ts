@@ -42,7 +42,8 @@ export interface Executor {
   type: string;
   /** Validates the payload at propose() time — invalid payloads never enter the queue. */
   schema: z.ZodTypeAny;
-  /** Performs the outward effect. Returns a short result summary for audit/chat. */
+  /** Performs the outward effect. Returns a short result summary for audit/chat.
+   * ctx is OPTIONAL only to preserve direct single-arg test call sites; the gate always passes it. Read ctx?.by. */
   execute(payload: unknown, ctx?: ExecutorContext): Promise<string>;
 }
 

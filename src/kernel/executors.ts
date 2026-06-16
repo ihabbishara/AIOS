@@ -47,3 +47,32 @@ export function trustPromoteExecutor(store: Store, bus: EventBus): Executor {
     },
   };
 }
+
+/** Approving a permission.grant action is the ONLY thing that writes a grant — the gate never auto-applies. */
+export function permissionGrantExecutor(store: Store, bus: EventBus): Executor {
+  return {
+    type: "permission.grant",
+    schema: z.object({ role: z.string(), tool: z.string() }),
+    async execute(payload, ctx) {
+      const p = payload as { role: string; tool: string };
+      const by = ctx?.by ?? "unknown";
+      store.setRolePermission(p.role, p.tool, 1, by);
+      bus.emit({ type: "permission.changed", role: p.role, tool: p.tool, allow: true, by });
+      return `Granted ${p.tool} to ${p.role}`;
+    },
+  };
+}
+
+export function permissionRevokeExecutor(store: Store, bus: EventBus): Executor {
+  return {
+    type: "permission.revoke",
+    schema: z.object({ role: z.string(), tool: z.string() }),
+    async execute(payload, ctx) {
+      const p = payload as { role: string; tool: string };
+      const by = ctx?.by ?? "unknown";
+      store.setRolePermission(p.role, p.tool, 0, by);
+      bus.emit({ type: "permission.changed", role: p.role, tool: p.tool, allow: false, by });
+      return `Revoked ${p.tool} from ${p.role}`;
+    },
+  };
+}
