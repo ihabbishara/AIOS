@@ -158,7 +158,7 @@ export class ActionGate {
     let status: "executed" | "failed";
     let result: string;
     try {
-      result = await executor.execute(JSON.parse(row.payload));
+      result = await executor.execute(JSON.parse(row.payload), { by: verdictBy, auto });
       status = "executed";
     } catch (err) {
       result = (err as Error).message;

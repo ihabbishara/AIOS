@@ -32,12 +32,18 @@ export interface ActionRow {
   expires_at: string;
 }
 
+/** Context handed to an executor at run time. `by` is the approver (verdict_by); null for autonomous runs. */
+export interface ExecutorContext {
+  by: string | null;
+  auto: boolean;
+}
+
 export interface Executor {
   type: string;
   /** Validates the payload at propose() time — invalid payloads never enter the queue. */
   schema: z.ZodTypeAny;
   /** Performs the outward effect. Returns a short result summary for audit/chat. */
-  execute(payload: unknown): Promise<string>;
+  execute(payload: unknown, ctx?: ExecutorContext): Promise<string>;
 }
 
 export class ExecutorRegistry {
