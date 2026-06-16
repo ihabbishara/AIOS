@@ -49,6 +49,17 @@ export interface TriageRuleRow {
   created_at: string;
 }
 
+export interface RolePermissionRow {
+  id: number;
+  role: string;
+  tool: string;
+  /** 1 = grant (add to allowlist), 0 = revoke (remove a code default). */
+  allow: number;
+  /** Gate verdict_by — the human who approved the grant/revoke. */
+  granted_by: string;
+  created_at: string;
+}
+
 export interface TeachingRow {
   id: number;
   text: string;
@@ -237,6 +248,17 @@ export class Store {
       );
     `);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_personal_tx_account ON personal_transactions(account_id, bunq_created DESC);`);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS role_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        allow INTEGER NOT NULL,
+        granted_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(role, tool)
+      );
+    `);
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
@@ -404,6 +426,27 @@ export class Store {
         t.actionType, t.state, t.approvals, t.rejections, t.streak,
         t.firstSeen, t.lastRejection, t.graduatedAt, new Date().toISOString(),
       );
+  }
+
+  // ---- role permissions ----
+
+  /** Upsert a per-role tool override. allow=1 grants, allow=0 revokes a default. Keyed on (role, tool). */
+  setRolePermission(role: string, tool: string, allow: 0 | 1, grantedBy: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO role_permissions (role, tool, allow, granted_by, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(role, tool) DO UPDATE SET
+           allow=excluded.allow, granted_by=excluded.granted_by, created_at=excluded.created_at`,
+      )
+      .run(role, tool, allow, grantedBy, new Date().toISOString());
+  }
+
+  /** All overrides, or just one role's. Ordered for stable output. */
+  listRolePermissions(role?: string): RolePermissionRow[] {
+    const rows = role
+      ? this.db.prepare("SELECT * FROM role_permissions WHERE role = ? ORDER BY tool").all(role)
+      : this.db.prepare("SELECT * FROM role_permissions ORDER BY role, tool").all();
+    return rows as unknown as RolePermissionRow[];
   }
 
   // ---- actions (approval queue + audit log) ----
