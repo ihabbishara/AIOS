@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
 import { EventBus } from "../src/events.js";
-import { buildPermissionsView } from "../src/web/permissions-view.js";
+import { buildPermissionsView, isWellFormedToolName, BUILTIN_TOOLS } from "../src/web/permissions-view.js";
 
 describe("buildPermissionsView", () => {
   it("includes every code role plus the moderator and finance pseudo-roles", () => {
@@ -35,5 +35,36 @@ describe("buildPermissionsView", () => {
     const denial = finance.denials.find((d) => d.tool === "Bash")!;
     expect(denial.count).toBe(2);
     expect(typeof denial.lastTs).toBe("string");
+  });
+
+  it("exposes knownTools = built-ins ∪ the role's own tools (for grant autocomplete)", () => {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    const moderator = buildPermissionsView(store, bus).find((r) => r.role === "moderator")!;
+    // built-ins the moderator does NOT have are still suggested (so you can grant them)
+    expect(moderator.knownTools).toContain("Bash");
+    expect(moderator.knownTools).toContain("Edit");
+    expect(moderator.knownTools).toContain("Skill");
+    // the role's own MCP tools are suggested too
+    expect(moderator.knownTools).toContain("mcp__aios__recall");
+    // no duplicates (Read is both a built-in and a moderator default)
+    expect(moderator.knownTools.filter((t) => t === "Read")).toHaveLength(1);
+  });
+});
+
+describe("isWellFormedToolName", () => {
+  it("accepts non-empty whitespace-free names (incl. unknown ones — forward-compat)", () => {
+    expect(isWellFormedToolName("Bash")).toBe(true);
+    expect(isWellFormedToolName("mcp__aios__recall")).toBe(true);
+    expect(isWellFormedToolName("SomeFutureTool")).toBe(true);
+  });
+  it("rejects empty or whitespace-containing names", () => {
+    expect(isWellFormedToolName("")).toBe(false);
+    expect(isWellFormedToolName("two words")).toBe(false);
+    expect(isWellFormedToolName("tab\there")).toBe(false);
+  });
+  it("BUILTIN_TOOLS are all well-formed and include the common ones", () => {
+    expect(BUILTIN_TOOLS.every(isWellFormedToolName)).toBe(true);
+    for (const t of ["Bash", "Edit", "Read", "Write", "Skill", "Task"]) expect(BUILTIN_TOOLS).toContain(t);
   });
 });

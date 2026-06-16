@@ -50,6 +50,11 @@ export function withDenialObserver<
   const seen = new Set<string>();
   const observer = async (raw: unknown) => {
     const tool = (raw as { tool_name?: string }).tool_name ?? "";
+    // Debug probe (off by default): reveals whether the PreToolUse hook actually fires for
+    // tools OUTSIDE the allowlist under dontAsk — set AIOS_DEBUG_TOOLHOOK=1 to log every hit.
+    if (process.env.AIOS_DEBUG_TOOLHOOK) {
+      console.error(`[toolhook] role=${roleName} tool=${tool || "?"} allowed=${allowed.has(tool)}`);
+    }
     if (!tool || allowed.has(tool) || tool.startsWith("mcp__")) return { continue: true };
     if (!seen.has(tool)) {
       seen.add(tool);
