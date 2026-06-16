@@ -21,6 +21,8 @@ function stubGmail(opts: {
   newHistoryId?: string;
   messages?: Record<string, ReturnType<typeof msg>>;
   historyError?: { code: number };
+  /** Per-message get() errors, keyed by id — simulates a message deleted/expunged after history.list. */
+  messageErrors?: Record<string, { code: number }>;
 }): GmailLike {
   return {
     users: {
@@ -32,7 +34,10 @@ function stubGmail(opts: {
         },
       },
       messages: {
-        get: async ({ id }: { id: string }) => ({ data: opts.messages?.[id] ?? msg(id) }),
+        get: async ({ id }: { id: string }) => {
+          if (opts.messageErrors?.[id]) throw Object.assign(new Error("message error"), opts.messageErrors[id]);
+          return { data: opts.messages?.[id] ?? msg(id) };
+        },
       },
     },
   } as unknown as GmailLike;
@@ -87,6 +92,35 @@ describe("GmailWatcher", () => {
     const mails = events.filter((e) => e.type === "mail.received");
     expect(mails).toHaveLength(1);
     expect((mails[0] as { messageId: string }).messageId).toBe("ok");
+  });
+
+  it("skips a deleted message (messages.get 404) and still advances historyId past it", async () => {
+    // A message can appear in history.messagesAdded then be deleted before we fetch it.
+    // The 404 on that message must NOT wedge the whole poll (else historyId never advances
+    // and the same poison message 404s forever — the production bug this fixes).
+    const gmail = stubGmail({
+      history: [{ messagesAdded: [{ message: { id: "gone" } }, { message: { id: "ok" } }] }],
+      newHistoryId: "700",
+      messages: { ok: msg("ok", ["INBOX"]) },
+      messageErrors: { gone: { code: 404 } },
+    });
+    const { store, events, watcher } = setup(gmail);
+    store.kvSet("gmail:personal:historyId", "500");
+    await watcher.poll();
+    const mails = events.filter((e) => e.type === "mail.received");
+    expect(mails).toHaveLength(1); // "gone" skipped, "ok" delivered
+    expect((mails[0] as { messageId: string }).messageId).toBe("ok");
+    expect(store.kvGet("gmail:personal:historyId")).toBe("700"); // advanced — no longer wedged
+  });
+
+  it("a non-404 messages.get error still propagates (caller backoff handles it)", async () => {
+    const gmail = stubGmail({
+      history: [{ messagesAdded: [{ message: { id: "boom" } }] }],
+      messageErrors: { boom: { code: 500 } },
+    });
+    const { watcher, store } = setup(gmail);
+    store.kvSet("gmail:personal:historyId", "500");
+    await expect(watcher.poll()).rejects.toThrow();
   });
 
   it("expired historyId (404) re-bootstraps silently", async () => {

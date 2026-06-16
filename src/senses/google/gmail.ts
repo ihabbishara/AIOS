@@ -101,9 +101,22 @@ export class GmailWatcher {
     }
 
     for (const id of ids) {
-      const { data } = await this.deps.gmail.users.messages.get({
-        userId: "me", id, format: "metadata", metadataHeaders: ["From", "To", "Subject"],
-      });
+      let data;
+      try {
+        ({ data } = await this.deps.gmail.users.messages.get({
+          userId: "me", id, format: "metadata", metadataHeaders: ["From", "To", "Subject"],
+        }));
+      } catch (err) {
+        // A message can appear in history.messagesAdded then be deleted/expunged before we fetch
+        // it (spam auto-purge, user delete). Skip the 404 — left unhandled it throws before the
+        // historyId is stamped below, so the same gone message 404s on every poll forever and the
+        // cursor never advances. Re-throw anything else (real API error → caller backoff).
+        if ((err as { code?: number }).code === 404) {
+          this.deps.log?.(`gmail(${this.deps.account}): message ${id} gone (404) — skipping`);
+          continue;
+        }
+        throw err;
+      }
       const labels = data.labelIds ?? [];
       if (!labels.includes("INBOX")) continue;
       const skip = this.deps.skipCategories.some((c) => labels.includes(`CATEGORY_${c.toUpperCase()}`));
