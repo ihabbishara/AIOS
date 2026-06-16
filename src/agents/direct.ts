@@ -1,8 +1,9 @@
 import { roles } from "./roles/index.js";
 import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
-import { withEffectiveTools } from "./permissions.js";
+import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import type { Store } from "../store/db.js";
+import type { EventBus } from "../events.js";
 
 const DIRECT_ADDENDUM =
   "\n\nYou are currently in a DIRECT CHAT with the user (via Telegram/Slack/terminal), " +
@@ -13,6 +14,7 @@ const DIRECT_ADDENDUM =
 
 export interface DirectChatsDeps {
   store: Store;
+  bus: EventBus;
   projectsRoot: string;
   model?: string;
   log?: (line: string) => void;
@@ -47,12 +49,13 @@ export class DirectChats {
       };
       const withPack = pack ? packRunOptions(base, pack) : base;
       const options = withEffectiveTools(withPack, role, this.deps.store);
+      const observed = withDenialObserver(options, role, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
       return await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
         prompt: userText,
         log: this.deps.log,
-        options,
+        options: observed,
       });
     } finally {
       release();

@@ -41,8 +41,8 @@ async function main(): Promise<void> {
   assertAuth();
 
   const store = new Store(config.dbPath);
-  const runSpecialist = makeRunSpecialist({ store });
   const bus = new EventBus(store);
+  const runSpecialist = makeRunSpecialist({ store, bus });
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
 
@@ -163,6 +163,7 @@ async function main(): Promise<void> {
 
   const moderator = new Moderator({
     store,
+    bus,
     jobs,
     vault,
     run: runSpecialist,
@@ -177,6 +178,7 @@ async function main(): Promise<void> {
 
   const directChats = new DirectChats({
     store,
+    bus,
     projectsRoot: config.projectsRoot,
     model: config.specialistModel,
     log,
@@ -185,6 +187,7 @@ async function main(): Promise<void> {
 
   const finance = new FinanceAgent({
     store,
+    bus,
     vault,
     company: config.financeCompany,
     members: config.financeMembers,

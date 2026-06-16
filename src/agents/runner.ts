@@ -5,7 +5,8 @@ import { roles, type RoleDef } from "./roles/index.js";
 import { guardOptions } from "./guards/index.js";
 import type { ResolvedPack } from "../packs/resolve.js";
 import type { Store } from "../store/db.js";
-import { withEffectiveTools } from "./permissions.js";
+import type { EventBus } from "../events.js";
+import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -84,7 +85,7 @@ export type SpecialistRunFn = (
   opts: RunOptions,
 ) => Promise<SpecialistResult>;
 
-export function makeRunSpecialist(deps: { store: Store }): SpecialistRunFn {
+export function makeRunSpecialist(deps: { store: Store; bus: EventBus }): SpecialistRunFn {
   return async (roleName, brief, opts) => {
     const role = roles[roleName];
     if (!role) throw new Error(`Unknown role: ${roleName}`);
@@ -97,10 +98,11 @@ export function makeRunSpecialist(deps: { store: Store }): SpecialistRunFn {
       const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
       const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
       const merged = withEffectiveTools(withPack, roleName, deps.store);
+      const observed = withDenialObserver(merged, roleName, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
       const q = query({
         prompt: brief,
         options: {
-          ...merged,
+          ...observed,
           additionalDirectories: opts.additionalDirectories,
           persistSession: false,
           abortController: abort,

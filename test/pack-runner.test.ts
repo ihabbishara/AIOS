@@ -32,7 +32,7 @@ describe("direct chat pack resolver", () => {
   it("DirectChats accepts an optional resolvePackFor dep without breaking construction", () => {
     const calls: string[] = [];
     const dc = new DirectChats({
-      store: {} as never, projectsRoot: "/tmp",
+      store: {} as never, bus: { emit() {} } as never, projectsRoot: "/tmp",
       resolvePackFor: (role) => { calls.push(role); return undefined; },
     });
     expect(dc).toBeTruthy();

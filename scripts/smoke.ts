@@ -10,13 +10,15 @@ import { loadPlaybooks } from "../src/engine/playbook.js";
 import { JobManager } from "../src/engine/jobs.js";
 import { makeRunSpecialist } from "../src/agents/runner.js";
 import { Moderator } from "../src/moderator/session.js";
+import { EventBus } from "../src/events.js";
 
 const message = process.argv.slice(2).join(" ") || "Say hello and tell me which playbooks you have.";
 
 const config = loadConfig();
 assertAuth();
 const store = new Store(config.dbPath);
-const runSpecialist = makeRunSpecialist({ store });
+const bus = new EventBus(store);
+const runSpecialist = makeRunSpecialist({ store, bus });
 const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
 vault.init();
 const playbooks = loadPlaybooks(config.playbooksDir);
@@ -46,6 +48,7 @@ const jobs = new JobManager({
 
 const moderator = new Moderator({
   store,
+  bus,
   jobs,
   vault,
   run: runSpecialist,
