@@ -33,6 +33,9 @@ import { BunqSense } from "./senses/bunq/index.js";
 import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/indexer.js";
 import { distill, curateLLM } from "./memory/distiller.js";
+import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
+import { buildMoneyServer } from "./money/server.js";
+import { computeMoneySignals } from "./money/signals.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -131,7 +134,11 @@ async function main(): Promise<void> {
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
   // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
-  const resolvePackFor = makeResolvePackFor({ packs, pillarOf, roleOf }, { store, vault, gate });
+  const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
+  const resolvePackFor = makeResolvePackFor(
+    { packs, pillarOf, roleOf },
+    { store, vault, gate, toolServers: { money: (d) => buildMoneyServer({ store: d.store, categorize }) } },
+  );
 
   const channels = new Map<string, ChannelAdapter>();
 
@@ -183,6 +190,7 @@ async function main(): Promise<void> {
     model: config.specialistModel,
     log,
     resolvePackFor: (role, origin) => resolvePackFor(role, origin, true),
+    primaryChat: config.primaryChat,
   });
 
   const finance = new FinanceAgent({
@@ -423,6 +431,17 @@ async function main(): Promise<void> {
     const bunqSync = new BunqSync({ store, fetch: bunq.fetch, log });
     stops.push(startWatcher("bunq", config.bunqPollSeconds * 1000, () => bunqSync.poll().then(() => {}),
       (r) => bunq.markDegraded(r), () => bunq.clearDegraded()));
+  }
+
+  if (config.primaryChat) {
+    stops.push(startWatcher("money", config.moneyPollSeconds * 1000, async () => {
+      const signals = await computeMoneySignals(store, categorize, new Date(), config);
+      for (const sig of signals) {
+        if (store.kvGet(sig.key)) continue;               // fire once
+        await sendVia(config.primaryChat!.channel, config.primaryChat!.chatId, sig.text);
+        store.kvSet(sig.key, new Date().toISOString());   // stamp AFTER send
+      }
+    }, () => {}, () => {}));
   }
 
   startWebServer(

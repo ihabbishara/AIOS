@@ -24,6 +24,8 @@ export interface RoleDef {
   outputSchema?: Record<string, unknown>;
   /** Skill names from skills-plugin/skills/ this role may load (progressive disclosure). */
   skills?: string[];
+  /** When true, this role is refused from any origin other than the configured primary (private) chat. */
+  privateOnly?: boolean;
   maxTurns: number;
 }
 
@@ -212,5 +214,20 @@ export const roles: Record<string, RoleDef> = {
     allowedTools: [...READ_TOOLS, "Bash"],
     permissionMode: "dontAsk",
     maxTurns: 30,
+  },
+  cfo: {
+    name: "cfo",
+    description: "Private personal CFO — your bank transactions, subscriptions, and budgets.",
+    systemPrompt:
+      "You are the user's private personal CFO. You have read-only visibility into their personal bank " +
+      "transactions (via the money tools) plus their subscriptions and budgets. You NEVER initiate or " +
+      "suggest payments or transfers — banking is strictly read-only. You discuss finances ONLY with the " +
+      "user in private; if anyone else is present or you are addressed from a shared/group context, refuse " +
+      "and say money topics are private. Be concise and concrete: amounts, categories, trends. Use " +
+      "set_category_rule when the user corrects a categorization so you learn it.",
+    allowedTools: [],
+    permissionMode: "dontAsk",
+    privateOnly: true,
+    maxTurns: 20,
   },
 };

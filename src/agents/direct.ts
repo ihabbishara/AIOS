@@ -20,6 +20,12 @@ export interface DirectChatsDeps {
   log?: (line: string) => void;
   /** Resolve a pack for a direct-addressed role (undefined = role has no/ambiguous pack). */
   resolvePackFor?: (role: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
+  /** The private primary chat — privateOnly roles are refused from any other origin. */
+  primaryChat?: { channel: string; chatId: string };
+}
+
+export function isPrivateOrigin(primary: { channel: string; chatId: string } | undefined, channel: string, chatId: string): boolean {
+  return !!primary && primary.channel === channel && primary.chatId === chatId;
 }
 
 /** Persistent one-on-one chats with individual specialists (the `@role ...` syntax). */
@@ -35,6 +41,10 @@ export class DirectChats {
   async handle(role: string, channel: string, chatId: string, userText: string): Promise<string> {
     const def = roles[role];
     if (!def) throw new Error(`Unknown specialist: ${role}`);
+
+    if (def.privateOnly && !isPrivateOrigin(this.deps.primaryChat, channel, chatId)) {
+      return "That's private — ask me from your private chat.";
+    }
 
     const key = `direct-session:${role}:${channel}:${chatId}`;
     const prev = this.locks.get(key) ?? Promise.resolve();

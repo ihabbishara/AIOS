@@ -93,6 +93,15 @@ export interface PersonalTransactionRow {
   synced_at: string;
 }
 
+export interface CategoryRuleRow { id: number; pattern: string; category: string; source: "user" | "llm"; created_at: string; }
+export interface TxCategoryRow { account_id: string; bunq_id: number; category: string; source: "rule" | "default" | "llm"; created_at: string; }
+export interface SubscriptionRow {
+  id: number; name: string; counterparty: string | null; amount_cents: number; currency: string;
+  cadence: "monthly" | "yearly" | "weekly"; next_renewal: string | null;
+  status: "detected" | "confirmed" | "dismissed"; source: "auto" | "manual"; created_at: string;
+}
+export interface BudgetRow { category: string; limit_cents: number; currency: string; created_at: string; }
+
 export class Store {
   private db: DatabaseSync;
 
@@ -248,6 +257,26 @@ export class Store {
       );
     `);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_personal_tx_account ON personal_transactions(account_id, bunq_created DESC);`);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS personal_category_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern TEXT NOT NULL, category TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(pattern)
+      );
+      CREATE TABLE IF NOT EXISTS personal_tx_category (
+        account_id TEXT NOT NULL, bunq_id INTEGER NOT NULL, category TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(account_id, bunq_id)
+      );
+      CREATE TABLE IF NOT EXISTS personal_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, counterparty TEXT, amount_cents INTEGER NOT NULL, currency TEXT NOT NULL,
+        cadence TEXT NOT NULL, next_renewal TEXT, status TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS personal_budgets (
+        category TEXT NOT NULL, limit_cents INTEGER NOT NULL, currency TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(category)
+      );
+    `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS role_permissions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -735,6 +764,51 @@ export class Store {
       ? this.db.prepare("SELECT * FROM personal_transactions WHERE account_id = ? ORDER BY bunq_created DESC, id DESC").all(accountId)
       : this.db.prepare("SELECT * FROM personal_transactions ORDER BY bunq_created DESC, id DESC").all();
     return rows as unknown as PersonalTransactionRow[];
+  }
+
+  // ---- money pack (personal CFO) ----
+  upsertCategoryRule(pattern: string, category: string, source: "user" | "llm"): void {
+    this.db.prepare(
+      `INSERT INTO personal_category_rules (pattern, category, source, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(pattern) DO UPDATE SET category=excluded.category, source=excluded.source, created_at=excluded.created_at`,
+    ).run(pattern, category, source, new Date().toISOString());
+  }
+  listCategoryRules(): CategoryRuleRow[] {
+    return this.db.prepare("SELECT * FROM personal_category_rules ORDER BY id").all() as unknown as CategoryRuleRow[];
+  }
+  setTxCategory(accountId: string, bunqId: number, category: string, source: "rule" | "default" | "llm"): void {
+    this.db.prepare(
+      `INSERT INTO personal_tx_category (account_id, bunq_id, category, source, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(account_id, bunq_id) DO UPDATE SET category=excluded.category, source=excluded.source, created_at=excluded.created_at`,
+    ).run(accountId, bunqId, category, source, new Date().toISOString());
+  }
+  getTxCategory(accountId: string, bunqId: number): TxCategoryRow | undefined {
+    return this.db.prepare("SELECT * FROM personal_tx_category WHERE account_id = ? AND bunq_id = ?").get(accountId, bunqId) as TxCategoryRow | undefined;
+  }
+  addSubscription(s: { name: string; counterparty: string | null; amount_cents: number; currency: string; cadence: SubscriptionRow["cadence"]; next_renewal: string | null; status: SubscriptionRow["status"]; source: SubscriptionRow["source"] }): number {
+    const res = this.db.prepare(
+      `INSERT INTO personal_subscriptions (name, counterparty, amount_cents, currency, cadence, next_renewal, status, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(s.name, s.counterparty, s.amount_cents, s.currency, s.cadence, s.next_renewal, s.status, s.source, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+  listSubscriptions(status?: SubscriptionRow["status"]): SubscriptionRow[] {
+    const rows = status
+      ? this.db.prepare("SELECT * FROM personal_subscriptions WHERE status = ? ORDER BY id").all(status)
+      : this.db.prepare("SELECT * FROM personal_subscriptions ORDER BY id").all();
+    return rows as unknown as SubscriptionRow[];
+  }
+  setSubscriptionStatus(id: number, status: SubscriptionRow["status"]): void {
+    this.db.prepare("UPDATE personal_subscriptions SET status = ? WHERE id = ?").run(status, id);
+  }
+  setBudget(category: string, limitCents: number, currency: string): void {
+    this.db.prepare(
+      `INSERT INTO personal_budgets (category, limit_cents, currency, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(category) DO UPDATE SET limit_cents=excluded.limit_cents, currency=excluded.currency, created_at=excluded.created_at`,
+    ).run(category, limitCents, currency, new Date().toISOString());
+  }
+  listBudgets(): BudgetRow[] {
+    return this.db.prepare("SELECT * FROM personal_budgets ORDER BY category").all() as unknown as BudgetRow[];
   }
 
   close(): void {

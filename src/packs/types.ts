@@ -5,6 +5,8 @@ export const packSchema = z.object({
   persona: z.string().min(1),
   memoDomain: z.string().min(1),
   vaultSection: z.string().optional(),
+  /** Optional pack-specific MCP tool-server name (resolved from the builder registry). */
+  toolServer: z.string().optional(),
   tools: z.array(z.string()).default([]),
   actions: z.array(z.string()).default([]),
   roles: z.array(z.string()).default([]),
