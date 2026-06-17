@@ -87,6 +87,22 @@ describe("Clock.tick", () => {
     expect(remindersFired).toHaveLength(1); // at-most-once
   });
 
+  it("fires a 'speculate' anchor once at its time", async () => {
+    const store = new Store(":memory:");
+    const fired: string[] = [];
+    const clock = new Clock({
+      store,
+      anchors: [{ name: "speculate", hhmm: "03:00" }],
+      onAnchor: async (name) => { fired.push(name); },
+      onReminderDue: () => {},
+      nowFn: () => new Date(2026, 5, 17, 3, 30), // 03:30 local, past 03:00
+    });
+    await clock.tick();
+    expect(fired).toEqual(["speculate"]);
+    await clock.tick();
+    expect(fired).toEqual(["speculate"]); // fire-once
+  });
+
   it("a throwing tick body never propagates", async () => {
     const store = new Store(":memory:");
     const clock = new Clock({

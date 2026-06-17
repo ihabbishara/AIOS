@@ -371,6 +371,9 @@ async function main(): Promise<void> {
           .catch((err) => log(`dream cycle failed: ${(err as Error).message}`));
         return;
       }
+      if (name === "speculate") {
+        return; // placeholder — speculate cycle wired in separately
+      }
       await runBrief(
         { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => [...google.degraded(), ...bunq.degraded()], log },
         name,
