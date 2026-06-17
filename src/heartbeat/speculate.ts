@@ -88,7 +88,11 @@ export async function runSpeculate(deps: SpeculateDeps): Promise<void> {
     }
   }
   if (!stored.length) return;
-  deps.store.kvSet("speculate:latest", JSON.stringify({ date: today, tasks: stored }));
+  try {
+    deps.store.kvSet("speculate:latest", JSON.stringify({ date: today, tasks: stored }));
+  } catch (err) {
+    deps.log?.(`speculate: stamp failed after enqueuing ${stored.length} job(s): ${(err as Error).message}`);
+  }
 }
 
 /** Prior night's task titles, for anti-repeat. Bad/absent value → none. */
