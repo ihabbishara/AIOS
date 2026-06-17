@@ -183,6 +183,7 @@ async function main(): Promise<void> {
     model: config.specialistModel,
     log,
     resolvePackFor: (role, origin) => resolvePackFor(role, origin, true),
+    primaryChat: config.primaryChat,
   });
 
   const finance = new FinanceAgent({
