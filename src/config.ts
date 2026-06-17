@@ -68,6 +68,12 @@ export interface Config {
   bunqSetupPath: string;
   /** Python interpreter for the bunq helper. */
   pythonBin: string;
+  /** How often the money poller runs (seconds). */
+  moneyPollSeconds: number;
+  /** Debit threshold (cents) for large-transaction signals. */
+  moneyLargeTxCents: number;
+  /** Days ahead to warn about an upcoming subscription renewal. */
+  moneyRenewalDays: number;
 }
 
 export interface FinanceMember {
@@ -185,6 +191,9 @@ export function loadConfig(root = process.cwd()): Config {
     bunqHelperPath: join(root, "scripts", "bunq_read.py"),
     bunqSetupPath: join(root, "scripts", "bunq-setup.py"),
     pythonBin: process.env.AIOS_PYTHON_BIN ?? "python3",
+    moneyPollSeconds: Number(process.env.AIOS_MONEY_POLL_SECONDS ?? 86400),
+    moneyLargeTxCents: Number(process.env.AIOS_MONEY_LARGE_TX_CENTS ?? 50000),
+    moneyRenewalDays: Number(process.env.AIOS_MONEY_RENEWAL_DAYS ?? 3),
   };
 }
 
