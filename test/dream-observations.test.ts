@@ -55,4 +55,23 @@ describe("collectObservations", () => {
     expect(d).toMatch(/JOBS:/);
     expect(d).toMatch(/failed:.*timeout/);
   });
+
+  it("excludes money (personal_transactions) and email content by construction", () => {
+    const s = new Store(":memory:");
+    // money: a bank transaction the dream cycle must NEVER surface
+    s.upsertPersonalTransaction({
+      account_id: "acc1", account_label: "Main", bunq_id: 1, amount_cents: -4200, currency: "EUR",
+      description: "SecretClinicVisit", counterparty: "PrivateClinicXYZ", counterparty_iban: null,
+      type: "CARD", bunq_created: NOW.toISOString(),
+    });
+    // email: an inbound mail event the dream cycle must NEVER surface
+    s.addEvent(JSON.stringify({
+      type: "mail.received", account: "personal", messageId: "m1", threadId: "t1",
+      from: "spy@x.com", to: "me", subject: "SecretSubjectLine", snippet: "SecretBody",
+      labels: ["INBOX"], receivedAt: NOW.toISOString(),
+    }));
+    const d = collectObservations(s, NOW);
+    expect(d).not.toMatch(/PrivateClinicXYZ|SecretClinicVisit/); // no money data
+    expect(d).not.toMatch(/SecretSubjectLine|SecretBody|spy@x\.com/); // no email content
+  });
 });
