@@ -18,6 +18,8 @@ export interface BriefData {
   /** Google accounts whose watcher is failing (revoked token etc.) — filled by runBrief, not assembleBrief. */
   sensesNeedingReauth: Array<{ name: string; reason: string }>;
   sinceLastBrief: string | null;
+  /** Ranked initiatives from the nightly dream cycle — morning brief only. */
+  dreamInitiatives?: Array<{ title: string; why: string; suggestion: string }>;
 }
 
 const TWELVE_H = 12 * 60 * 60 * 1000;
@@ -107,6 +109,17 @@ export function assembleBrief(
   }
   meetings.sort((a, b) => a.start.localeCompare(b.start));
 
+  let dreamInitiatives: BriefData["dreamInitiatives"];
+  if (anchor === "morning") {
+    try {
+      const raw = store.kvGet("dream:latest");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { date?: string; initiatives?: BriefData["dreamInitiatives"] };
+        if (parsed.date === localDateOf(nowIso) && parsed.initiatives?.length) dreamInitiatives = parsed.initiatives;
+      }
+    } catch { /* stale/bad value → omit the section */ }
+  }
+
   return {
     anchor,
     pendingApprovals,
@@ -126,6 +139,7 @@ export function assembleBrief(
     meetings,
     sensesNeedingReauth: [], // assembleBrief stays pure — runBrief injects live degraded state
     sinceLastBrief: sinceTs,
+    dreamInitiatives,
   };
 }
 
@@ -140,7 +154,8 @@ export function isEmptyBrief(d: BriefData): boolean {
     d.remindersToday.length === 0 &&
     d.mailDigest.length === 0 &&
     d.meetings.length === 0 &&
-    d.sensesNeedingReauth.length === 0
+    d.sensesNeedingReauth.length === 0 &&
+    (d.dreamInitiatives?.length ?? 0) === 0
   );
 }
 
@@ -168,6 +183,7 @@ export function renderBriefNote(d: BriefData, narration: string): string {
     d.meetings.map((mt) => `${mt.start.slice(11, 16)} ${mt.summary} (${mt.account})${mt.link ? ` — ${mt.link}` : ""}`));
   section(d.anchor === "morning" ? "Reminders today" : "Reminders tomorrow",
     d.remindersToday.map((r) => `#${r.id} ${r.text} (${r.due_at})`));
+  section("Dream — worth considering", (d.dreamInitiatives ?? []).map((i) => `${i.title} — ${i.suggestion}`));
   return lines.join("\n");
 }
 
