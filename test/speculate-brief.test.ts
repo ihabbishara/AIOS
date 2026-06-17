@@ -74,4 +74,11 @@ describe("speculate section in the morning brief", () => {
     const data = assembleBrief(s, "morning", NOW, null);
     expect(data.speculateResults).toBeUndefined();
   });
+
+  it("treats a task whose job row is missing as still running", () => {
+    const s = new Store(":memory:");
+    seedSpeculate(s, TODAY, [{ title: "Ghost", slug: "ghost", id: "id-missing" }]); // never inserted
+    const data = assembleBrief(s, "morning", NOW, null);
+    expect(data.speculateResults).toEqual([{ title: "Ghost", status: "running", ref: null }]);
+  });
 });

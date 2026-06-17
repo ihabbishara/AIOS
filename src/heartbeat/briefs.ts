@@ -129,11 +129,13 @@ export function assembleBrief(
       if (raw) {
         const parsed = JSON.parse(raw) as { date?: string; tasks?: Array<{ title: string; slug: string; id: string }> };
         if (parsed.date === localDateOf(nowIso) && parsed.tasks?.length) {
+          const reportDate = parsed.date; // string (checked above) — narrows for use inside the map closure
           speculateResults = parsed.tasks.map((t) => {
             const job = store.getJob(t.id);
+            // queued, running, or job not yet written → "running" (brief shows in-progress)
             const status: "done" | "failed" | "running" =
               job?.status === "done" ? "done" : job?.status === "failed" ? "failed" : "running";
-            const ref = status === "done" ? `jobs/${parsed.date}-${t.slug}/report.md` : null;
+            const ref = status === "done" ? `jobs/${reportDate}-${t.slug}/report.md` : null;
             return { title: t.title, status, ref };
           });
         }
