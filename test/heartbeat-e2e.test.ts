@@ -40,7 +40,7 @@ describe("heartbeat end-to-end (no LLM)", () => {
       store,
       anchors: [{ name: "morning", hhmm: "07:30" }, { name: "evening", hhmm: "21:00" }],
       onAnchor: (name) =>
-        runBrief({ store, bus, vault, narrate: async () => "Narrated.", send, primary, nowFn: () => fakeNow }, name),
+        runBrief({ store, bus, vault, narrate: async () => "Narrated.", send, primary, nowFn: () => fakeNow }, name as "morning" | "evening"),
       onReminderDue: (r) =>
         bus.emit({ type: "reminder.due", id: r.id, text: r.text, channel: r.origin_channel, chatId: r.origin_chat_id }),
       nowFn: () => fakeNow,

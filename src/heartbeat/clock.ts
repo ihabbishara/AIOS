@@ -2,7 +2,7 @@
 import type { Store, ReminderRow } from "../store/db.js";
 
 export interface AnchorConfig {
-  name: "morning" | "evening";
+  name: "morning" | "evening" | "dream";
   /** Local time "HH:MM". */
   hhmm: string;
 }
@@ -11,7 +11,7 @@ export interface ClockDeps {
   store: Store;
   /** Checked in order — keep morning before evening for the double-catch-up case. */
   anchors: AnchorConfig[];
-  onAnchor: (name: "morning" | "evening") => Promise<void>;
+  onAnchor: (name: "morning" | "evening" | "dream") => Promise<void>;
   onReminderDue: (reminder: ReminderRow) => void;
   log?: (line: string) => void;
   /** Injectable clock for tests. */

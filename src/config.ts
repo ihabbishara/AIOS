@@ -40,6 +40,12 @@ export interface Config {
   /** Local times, "HH:MM". */
   anchorMorning: string;
   anchorEvening: string;
+  /** Local time "HH:MM" for the nightly dream cycle. */
+  anchorDream: string;
+  /** Max initiatives the dream cycle surfaces in the morning brief. */
+  dreamTopN: number;
+  /** Model for the dream-cycle ranker one-shot (defaults to specialistModel). */
+  dreamModel?: string;
   /** Model for the triage classifier one-shot. */
   triageModel: string;
   /** Voice kill-switch (AIOS_VOICE_ENABLED=false disables STT/TTS everywhere). */
@@ -173,6 +179,9 @@ export function loadConfig(root = process.cwd()): Config {
     primaryChat: parsePrimaryChat(process.env.AIOS_PRIMARY_CHAT),
     anchorMorning: process.env.AIOS_ANCHOR_MORNING ?? "07:30",
     anchorEvening: process.env.AIOS_ANCHOR_EVENING ?? "21:00",
+    anchorDream: process.env.AIOS_ANCHOR_DREAM ?? "02:00",
+    dreamTopN: Number(process.env.AIOS_DREAM_TOP_N ?? 3),
+    dreamModel: process.env.AIOS_DREAM_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     triageModel: process.env.AIOS_TRIAGE_MODEL ?? "claude-haiku-4-5-20251001",
     voiceEnabled: process.env.AIOS_VOICE_ENABLED !== "false",
     whisperModel: process.env.AIOS_WHISPER_MODEL ?? "base",
