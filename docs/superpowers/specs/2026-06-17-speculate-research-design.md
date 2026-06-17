@@ -42,7 +42,7 @@ A new **03:00 "speculate" heartbeat anchor** runs after the 02:00 dream-propose 
    │        → ≤K research tasks [{ title, question }]   (or none)
    ├─ for each task: jobs.createJob({ playbook:"research-report",
    │        title, request: question, channel:"system", chatId:"speculate" })   (serial, read-only)
-   └─ store kv speculate:latest = { date, tasks:[{title, slug}] }
+   └─ store kv speculate:latest = { date, tasks:[{title, slug, id}] }
 
 …jobs run (concurrency 1) → reviewed note jobs/<date>-<slug>/report.md, fire job.status done…
 
@@ -62,7 +62,7 @@ A new **03:00 "speculate" heartbeat anchor** runs after the 02:00 dream-propose 
 1. Read `dream:latest`; parse; if absent, not from the current night, or no initiatives → log + return (no work).
 2. Read the prior `speculate:latest` for anti-repeat context (its task titles).
 3. Run the injected `plan(initiatives, recentTitles)` → `ResearchTask[]` (`{title, question}`), already capped at `maxJobs` by the planner prompt; defensively `slice(0, maxJobs)`. Empty → store nothing, return.
-4. For each task: `const job = jobs.createJob({ playbook: "research-report", title: task.title, request: task.question, channel: "system", chatId: "speculate" })`. Collect `{title: task.title, slug: job.slug}`.
+4. For each task: `const job = jobs.createJob({ playbook: "research-report", title: task.title, request: task.question, channel: "system", chatId: "speculate" })`. Collect `{title: task.title, slug: job.slug, id: job.id}` (the `id` is the jobs-table PK, used by the brief to resolve status via the existing `getJob(id)` — no new Store method, and robust against same-title slug collisions).
 5. Store `store.kvSet("speculate:latest", JSON.stringify({ date: localParts(now).date, tasks }))`.
 6. Read-only: it NEVER calls `gate.propose`, NEVER writes the vault directly (the jobs do that under `jobs/`), NEVER emits an event beyond what `createJob` does. Each `createJob` is wrapped so one failure doesn't abort the rest. `plan` failure → log + return (no jobs, no kv write).
 
@@ -75,10 +75,10 @@ A new **03:00 "speculate" heartbeat anchor** runs after the 02:00 dream-propose 
 ### 4. Morning-brief "Speculate" section
 
 - `BriefData` gains `speculateResults?: Array<{ title: string; status: "done" | "failed" | "running"; ref: string | null }>` (`ref` = the artifact path when done).
-- `assembleBrief` (morning only): read `speculate:latest`; if from the current night, for each task look up the job by slug (`store.getJobBySlug` or scan `store.listJobs` — see note) to resolve `status` + the artifact path (`jobs/<dir>/report.md`); set `speculateResults`. Stale/absent → omit.
+- `assembleBrief` (morning only): read `speculate:latest`; if from the current night, for each task resolve the job via the **existing** `store.getJob(task.id)` to read `status`, and build the artifact ref from the slug (`jobs/<localDate>-<slug>/report.md`, matching `vault.jobDirName` = `${today()}-${slug}`); set `speculateResults`. Stale/absent → omit.
 - `renderBriefNote` adds a "Speculate — researched overnight" section: done → `${title} — ${ref}`, failed → `${title} — failed`, running → `${title} — still running`. Evening never shows it. Counted in `isEmptyBrief` so a morning carrying only speculate results still narrates. The narrator gets `speculateResults` for free via the `BriefData` JSON.
 
-> Note: a `getJobBySlug`/job-lookup helper may need adding to `Store` if one doesn't exist; the plan pins the exact lookup (the jobs table already stores `slug`).
+> Note (resolved): no new Store method. `runSpeculate` stores each job's `id` in `speculate:latest`, and the brief resolves status via the existing `store.getJob(id)`. This is preferred over a `getJobBySlug` because `slug = slugify(title)` is non-unique — two same-title tasks would collide on a slug lookup, but the `id` PK is exact.
 
 ## Safety & budget
 
