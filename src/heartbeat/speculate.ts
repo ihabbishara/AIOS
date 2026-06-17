@@ -119,6 +119,7 @@ export function speculatePlanLLM(
   maxJobs: number,
 ): (initiatives: Initiative[], recentTitles: string[]) => Promise<ResearchTask[]> {
   return async (initiatives, recentTitles) => {
+    if (!initiatives.length) return [];
     const inits = initiatives.map((i) => `- ${i.title}: ${i.why} (suggested: ${i.suggestion})`).join("\n");
     const antiRepeat = recentTitles.map((t) => `- ${t}`).join("\n") || "(none)";
     const q = query({
@@ -163,7 +164,7 @@ export function speculatePlanLLM(
       if (msg.type === "result") {
         if (msg.subtype === "success") {
           const out = (msg.structured_output as { tasks?: ResearchTask[] } | undefined)?.tasks;
-          if (Array.isArray(out)) return out;
+          if (Array.isArray(out)) return out.slice(0, maxJobs);
         }
         break;
       }

@@ -134,6 +134,8 @@ describe("runSpeculate", () => {
 
 describe("speculatePlanLLM", () => {
   it("returns a callable planner for the given model + cap", () => {
-    expect(typeof speculatePlanLLM(undefined, 2)).toBe("function");
+    const planner = speculatePlanLLM(undefined, 2);
+    expect(typeof planner).toBe("function");
+    expect(planner.length).toBe(2); // (initiatives, recentTitles)
   });
 });
