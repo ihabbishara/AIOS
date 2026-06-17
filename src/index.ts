@@ -33,6 +33,8 @@ import { BunqSense } from "./senses/bunq/index.js";
 import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/indexer.js";
 import { distill, curateLLM } from "./memory/distiller.js";
+import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
+import { buildMoneyServer } from "./money/server.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -131,7 +133,11 @@ async function main(): Promise<void> {
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
   // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
-  const resolvePackFor = makeResolvePackFor({ packs, pillarOf, roleOf }, { store, vault, gate });
+  const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
+  const resolvePackFor = makeResolvePackFor(
+    { packs, pillarOf, roleOf },
+    { store, vault, gate, toolServers: { money: (d) => buildMoneyServer({ store: d.store, categorize }) } },
+  );
 
   const channels = new Map<string, ChannelAdapter>();
 
