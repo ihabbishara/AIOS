@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
-import { runSpeculate, type ResearchTask, type SpeculateJobs } from "../src/heartbeat/speculate.js";
+import { runSpeculate, speculatePlanLLM, type ResearchTask, type SpeculateJobs } from "../src/heartbeat/speculate.js";
 import { localParts } from "../src/heartbeat/clock.js";
 
 const NOW = new Date("2026-06-17T03:00:00.000Z");
@@ -129,5 +129,11 @@ describe("runSpeculate", () => {
     await runSpeculate({ store: s, jobs, plan: async () => THREE_TASKS, maxJobs: 2, nowFn: () => NOW });
     const saved = JSON.parse(s.kvGet("speculate:latest")!);
     expect(saved.tasks).toEqual([{ title: "T1", slug: "slug-2", id: "id-2" }]); // T0 dropped, T1 kept
+  });
+});
+
+describe("speculatePlanLLM", () => {
+  it("returns a callable planner for the given model + cap", () => {
+    expect(typeof speculatePlanLLM(undefined, 2)).toBe("function");
   });
 });

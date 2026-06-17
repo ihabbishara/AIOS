@@ -1,3 +1,4 @@
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Store } from "../store/db.js";
 import type { Initiative } from "./dream.js";
 import { localParts } from "./clock.js";
@@ -105,4 +106,68 @@ function readRecentTitles(store: Store): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Real one-shot LLM planner (chief-of-staff researcher, JSON-schema output). Mirrors dreamRankLLM.
+ * Picks ONLY initiatives that genuinely benefit from web/literature research, writes one focused
+ * research question each, returns at most `maxJobs`, avoids anything in `recentTitles`.
+ * Returns [] on any failure (fail-silent).
+ */
+export function speculatePlanLLM(
+  model: string | undefined,
+  maxJobs: number,
+): (initiatives: Initiative[], recentTitles: string[]) => Promise<ResearchTask[]> {
+  return async (initiatives, recentTitles) => {
+    const inits = initiatives.map((i) => `- ${i.title}: ${i.why} (suggested: ${i.suggestion})`).join("\n");
+    const antiRepeat = recentTitles.map((t) => `- ${t}`).join("\n") || "(none)";
+    const q = query({
+      prompt:
+        `Tonight's initiatives:\n${inits}\n\n` +
+        `You already researched these recently — do NOT repeat:\n${antiRepeat}\n\n` +
+        `Select the initiatives that genuinely benefit from overnight web/literature research and write a focused research question for each.`,
+      options: {
+        systemPrompt:
+          "You are the operator's chief-of-staff researcher. From tonight's initiatives, pick ONLY the ones that " +
+          "would genuinely benefit from web or literature research — skip pure reminders, scheduling, and anything " +
+          `actionable without research. Write one focused, self-contained research question for each. Return AT MOST ${maxJobs}. ` +
+          "Do not repeat anything already researched recently. If nothing warrants research, return an empty list.",
+        allowedTools: [],
+        permissionMode: "dontAsk",
+        settingSources: [],
+        persistSession: false,
+        maxTurns: 1,
+        ...(model ? { model } : {}),
+        outputFormat: {
+          type: "json_schema" as const,
+          schema: {
+            type: "object",
+            properties: {
+              tasks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { title: { type: "string" }, question: { type: "string" } },
+                  required: ["title", "question"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["tasks"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+    for await (const msg of q) {
+      if (msg.type === "result") {
+        if (msg.subtype === "success") {
+          const out = (msg.structured_output as { tasks?: ResearchTask[] } | undefined)?.tasks;
+          if (Array.isArray(out)) return out;
+        }
+        break;
+      }
+    }
+    return [];
+  };
 }
