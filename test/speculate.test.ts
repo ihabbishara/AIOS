@@ -47,4 +47,87 @@ describe("runSpeculate", () => {
       { title: "T1", slug: "slug-2", id: "id-2" },
     ]);
   });
+
+  it("does nothing when there is no dream:latest (no jobs, no kv)", async () => {
+    const s = new Store(":memory:");
+    const jobs = stubJobs();
+    await runSpeculate({ store: s, jobs, plan: async () => THREE_TASKS, maxJobs: 2, nowFn: () => NOW });
+    expect(jobs.calls).toHaveLength(0);
+    expect(s.kvGet("speculate:latest")).toBeUndefined();
+  });
+
+  it("ignores a stale-dated dream:latest", async () => {
+    const s = new Store(":memory:");
+    seedDream(s, "2020-01-01");
+    const jobs = stubJobs();
+    await runSpeculate({ store: s, jobs, plan: async () => THREE_TASKS, maxJobs: 2, nowFn: () => NOW });
+    expect(jobs.calls).toHaveLength(0);
+    expect(s.kvGet("speculate:latest")).toBeUndefined();
+  });
+
+  it("does nothing when initiatives are empty", async () => {
+    const s = new Store(":memory:");
+    s.kvSet("dream:latest", JSON.stringify({ date: TODAY, initiatives: [] }));
+    const jobs = stubJobs();
+    await runSpeculate({ store: s, jobs, plan: async () => THREE_TASKS, maxJobs: 2, nowFn: () => NOW });
+    expect(jobs.calls).toHaveLength(0);
+    expect(s.kvGet("speculate:latest")).toBeUndefined();
+  });
+
+  it("writes nothing when the planner returns an empty list", async () => {
+    const s = new Store(":memory:");
+    seedDream(s, TODAY);
+    const jobs = stubJobs();
+    await runSpeculate({ store: s, jobs, plan: async () => [], maxJobs: 2, nowFn: () => NOW });
+    expect(jobs.calls).toHaveLength(0);
+    expect(s.kvGet("speculate:latest")).toBeUndefined();
+  });
+
+  it("is fail-silent: a throwing planner enqueues nothing and writes nothing", async () => {
+    const s = new Store(":memory:");
+    seedDream(s, TODAY);
+    const jobs = stubJobs();
+    await runSpeculate({ store: s, jobs, plan: async () => { throw new Error("llm down"); }, maxJobs: 2, nowFn: () => NOW });
+    expect(jobs.calls).toHaveLength(0);
+    expect(s.kvGet("speculate:latest")).toBeUndefined();
+  });
+
+  it("ignores a malformed dream:latest (no throw, no work)", async () => {
+    const s = new Store(":memory:");
+    s.kvSet("dream:latest", "not json {");
+    const jobs = stubJobs();
+    await expect(
+      runSpeculate({ store: s, jobs, plan: async () => THREE_TASKS, maxJobs: 2, nowFn: () => NOW }),
+    ).resolves.toBeUndefined();
+    expect(jobs.calls).toHaveLength(0);
+    expect(s.kvGet("speculate:latest")).toBeUndefined();
+  });
+
+  it("passes the prior night's task titles to the planner as anti-repeat context", async () => {
+    const s = new Store(":memory:");
+    seedDream(s, TODAY);
+    s.kvSet("speculate:latest", JSON.stringify({ date: "2026-06-16", tasks: [{ title: "yesterday", slug: "y", id: "yid" }] }));
+    let seen: string[] = [];
+    await runSpeculate({
+      store: s, jobs: stubJobs(), maxJobs: 2, nowFn: () => NOW,
+      plan: async (_inits, recent) => { seen = recent; return THREE_TASKS; },
+    });
+    expect(seen).toEqual(["yesterday"]);
+  });
+
+  it("isolates a failing createJob: remaining tasks still enqueue and only successes are stamped", async () => {
+    const s = new Store(":memory:");
+    seedDream(s, TODAY);
+    let n = 0;
+    const jobs: SpeculateJobs = {
+      createJob() { // params intentionally unused here — fewer params still satisfies the interface
+        n++;
+        if (n === 1) throw new Error("boom"); // first task fails
+        return { id: `id-${n}`, slug: `slug-${n}` };
+      },
+    };
+    await runSpeculate({ store: s, jobs, plan: async () => THREE_TASKS, maxJobs: 2, nowFn: () => NOW });
+    const saved = JSON.parse(s.kvGet("speculate:latest")!);
+    expect(saved.tasks).toEqual([{ title: "T1", slug: "slug-2", id: "id-2" }]); // T0 dropped, T1 kept
+  });
 });

@@ -48,27 +48,44 @@ export async function runSpeculate(deps: SpeculateDeps): Promise<void> {
 
   const raw = deps.store.kvGet("dream:latest");
   if (!raw) { deps.log?.("speculate: no dream:latest"); return; }
-  const parsed = JSON.parse(raw) as { date?: string; initiatives?: Initiative[] };
+
+  let parsed: { date?: string; initiatives?: Initiative[] };
+  try {
+    parsed = JSON.parse(raw) as { date?: string; initiatives?: Initiative[] };
+  } catch {
+    deps.log?.("speculate: malformed dream:latest");
+    return;
+  }
   if (parsed.date !== today || !parsed.initiatives?.length) {
     deps.log?.("speculate: no fresh initiatives");
     return;
   }
 
   const recentTitles = readRecentTitles(deps.store);
-  const planned = await deps.plan(parsed.initiatives, recentTitles);
+  let planned: ResearchTask[];
+  try {
+    planned = await deps.plan(parsed.initiatives, recentTitles);
+  } catch (err) {
+    deps.log?.(`speculate: planner failed: ${(err as Error).message}`);
+    return; // fail-silent
+  }
   const tasks = (Array.isArray(planned) ? planned : []).slice(0, deps.maxJobs);
   if (!tasks.length) { deps.log?.("speculate: planner returned nothing"); return; }
 
   const stored: SpeculateTask[] = [];
   for (const t of tasks) {
-    const job = deps.jobs.createJob({
-      playbook: "research-report",
-      title: t.title,
-      request: t.question,
-      channel: "system",
-      chatId: "speculate",
-    });
-    stored.push({ title: t.title, slug: job.slug, id: job.id });
+    try {
+      const job = deps.jobs.createJob({
+        playbook: "research-report",
+        title: t.title,
+        request: t.question,
+        channel: "system",
+        chatId: "speculate",
+      });
+      stored.push({ title: t.title, slug: job.slug, id: job.id });
+    } catch (err) {
+      deps.log?.(`speculate: createJob failed for "${t.title}": ${(err as Error).message}`);
+    }
   }
   if (!stored.length) return;
   deps.store.kvSet("speculate:latest", JSON.stringify({ date: today, tasks: stored }));
