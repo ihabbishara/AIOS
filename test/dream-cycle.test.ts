@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
 import { runDreamCycle, type Initiative } from "../src/heartbeat/dream.js";
+import { localParts } from "../src/heartbeat/clock.js";
 
 const NOW = new Date("2026-06-17T02:00:00.000Z");
 function seedReminder(s: Store) {
@@ -18,7 +19,7 @@ describe("runDreamCycle", () => {
     const s = new Store(":memory:"); seedReminder(s);
     await runDreamCycle({ store: s, rank: async () => RANKED, topN: 3, nowFn: () => NOW });
     const saved = JSON.parse(s.kvGet("dream:latest")!);
-    expect(saved.date).toBe("2026-06-17");
+    expect(saved.date).toBe(localParts(NOW).date);
     expect(saved.initiatives).toHaveLength(3); // capped
     expect(saved.initiatives[0].title).toBe("Overdue: dentist");
   });
