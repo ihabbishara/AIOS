@@ -16,11 +16,21 @@ export interface ResolvedPack {
   mcpServers: Record<string, unknown>;
 }
 
+/** Builds a pack-specific MCP server instance for a resolve. */
+export type PackToolServerBuilder = (deps: {
+  store: Store;
+  vault: VaultWriter;
+  gate: ActionGate;
+  origin: { channel: string; chatId: string };
+}) => unknown;
+
 export interface ResolveDeps {
   store: Store;
   vault: VaultWriter;
   gate: ActionGate;
   origin: { channel: string; chatId: string };
+  /** Registry of pack-specific tool-server builders, keyed by manifest `toolServer`. */
+  toolServers?: Record<string, PackToolServerBuilder>;
 }
 
 export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
@@ -42,7 +52,16 @@ export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
     origin: deps.origin,
   });
 
-  return { pillar: pack.pillar, contextBlock, tools, mcpServers: { [SERVER_NAME]: server } };
+  const mcpServers: Record<string, unknown> = { [SERVER_NAME]: server };
+  if (pack.toolServer) {
+    const builder = deps.toolServers?.[pack.toolServer];
+    if (builder) {
+      mcpServers[pack.toolServer] = builder({ store: deps.store, vault: deps.vault, gate: deps.gate, origin: deps.origin });
+    }
+    // unknown toolServer → fail-soft: omit it; the pack still loads with the shared server.
+  }
+
+  return { pillar: pack.pillar, contextBlock, tools, mcpServers };
 }
 
 export interface PackResolverReg {
@@ -54,12 +73,14 @@ export interface PackResolverReg {
 /** Closure over the pack registry + shared deps: routes a playbook (or role) to its ResolvedPack. */
 export function makeResolvePackFor(
   reg: PackResolverReg,
-  deps: { store: Store; vault: VaultWriter; gate: ActionGate },
+  deps: { store: Store; vault: VaultWriter; gate: ActionGate; toolServers?: Record<string, PackToolServerBuilder> },
 ) {
   return (key: string, origin: { channel: string; chatId: string }, byRole = false): ResolvedPack | undefined => {
     const pillar = byRole ? reg.roleOf.get(key) : reg.pillarOf.get(key);
     if (!pillar) return undefined;
     const pack = reg.packs.get(pillar);
-    return pack ? resolvePack(pack, { store: deps.store, vault: deps.vault, gate: deps.gate, origin }) : undefined;
+    return pack
+      ? resolvePack(pack, { store: deps.store, vault: deps.vault, gate: deps.gate, origin, toolServers: deps.toolServers })
+      : undefined;
   };
 }
