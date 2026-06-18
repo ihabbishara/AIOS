@@ -20,6 +20,8 @@ export interface BriefData {
   sinceLastBrief: string | null;
   /** Ranked initiatives from the nightly dream cycle — morning brief only. */
   dreamInitiatives?: Array<{ title: string; why: string; suggestion: string }>;
+  /** Overnight research tasks from the speculate pass — morning brief only. */
+  speculateResults?: Array<{ title: string; status: "done" | "failed" | "running"; ref: string | null }>;
 }
 
 const TWELVE_H = 12 * 60 * 60 * 1000;
@@ -120,6 +122,27 @@ export function assembleBrief(
     } catch { /* stale/bad value → omit the section */ }
   }
 
+  let speculateResults: BriefData["speculateResults"];
+  if (anchor === "morning") {
+    try {
+      const raw = store.kvGet("speculate:latest");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { date?: string; tasks?: Array<{ title: string; slug: string; id: string }> };
+        if (parsed.date === localDateOf(nowIso) && parsed.tasks?.length) {
+          const reportDate = parsed.date; // string (checked above) — narrows for use inside the map closure
+          speculateResults = parsed.tasks.map((t) => {
+            const job = store.getJob(t.id);
+            // queued, running, or job not yet written → "running" (brief shows in-progress)
+            const status: "done" | "failed" | "running" =
+              job?.status === "done" ? "done" : job?.status === "failed" ? "failed" : "running";
+            const ref = status === "done" ? `jobs/${reportDate}-${t.slug}/report.md` : null;
+            return { title: t.title, status, ref };
+          });
+        }
+      }
+    } catch { /* stale/bad value → omit the section */ }
+  }
+
   return {
     anchor,
     pendingApprovals,
@@ -140,6 +163,7 @@ export function assembleBrief(
     sensesNeedingReauth: [], // assembleBrief stays pure — runBrief injects live degraded state
     sinceLastBrief: sinceTs,
     dreamInitiatives,
+    speculateResults,
   };
 }
 
@@ -155,7 +179,8 @@ export function isEmptyBrief(d: BriefData): boolean {
     d.mailDigest.length === 0 &&
     d.meetings.length === 0 &&
     d.sensesNeedingReauth.length === 0 &&
-    (d.dreamInitiatives?.length ?? 0) === 0
+    (d.dreamInitiatives?.length ?? 0) === 0 &&
+    (d.speculateResults?.length ?? 0) === 0
   );
 }
 
@@ -184,6 +209,9 @@ export function renderBriefNote(d: BriefData, narration: string): string {
   section(d.anchor === "morning" ? "Reminders today" : "Reminders tomorrow",
     d.remindersToday.map((r) => `#${r.id} ${r.text} (${r.due_at})`));
   section("Dream — worth considering", (d.dreamInitiatives ?? []).map((i) => `${i.title} — ${i.suggestion}`));
+  section("Speculate — researched overnight", (d.speculateResults ?? []).map((r) =>
+    r.status === "done" ? `${r.title} — ${r.ref}` : r.status === "failed" ? `${r.title} — failed` : `${r.title} — still running`,
+  ));
   return lines.join("\n");
 }
 

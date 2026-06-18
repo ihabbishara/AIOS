@@ -34,6 +34,7 @@ import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/indexer.js";
 import { distill, curateLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
+import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
 import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
 import { buildMoneyServer } from "./money/server.js";
 import { computeMoneySignals } from "./money/signals.js";
@@ -361,6 +362,7 @@ async function main(): Promise<void> {
     store,
     anchors: [
       { name: "dream", hhmm: config.anchorDream },
+      { name: "speculate", hhmm: config.anchorSpeculate },
       { name: "morning", hhmm: config.anchorMorning },
       { name: "evening", hhmm: config.anchorEvening },
     ],
@@ -369,6 +371,17 @@ async function main(): Promise<void> {
         // fire-and-forget: the ranker's LLM call must not block the clock tick / reminders.
         void runDreamCycle({ store, rank: dreamRankLLM(config.dreamModel), topN: config.dreamTopN, log })
           .catch((err) => log(`dream cycle failed: ${(err as Error).message}`));
+        return;
+      }
+      if (name === "speculate") {
+        // fire-and-forget: the planner's LLM call + enqueue must not block the clock tick / reminders.
+        void runSpeculate({
+          store,
+          jobs,
+          plan: speculatePlanLLM(config.speculateModel, config.speculateMaxJobs),
+          maxJobs: config.speculateMaxJobs,
+          log,
+        }).catch((err) => log(`speculate failed: ${(err as Error).message}`));
         return;
       }
       await runBrief(
