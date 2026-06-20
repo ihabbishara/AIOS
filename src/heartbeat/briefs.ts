@@ -22,6 +22,8 @@ export interface BriefData {
   dreamInitiatives?: Array<{ title: string; why: string; suggestion: string }>;
   /** Overnight research tasks from the speculate pass — morning brief only. */
   speculateResults?: Array<{ title: string; status: "done" | "failed" | "running"; ref: string | null }>;
+  /** Generic count of pending email drafts — morning brief only; detail goes via a private send, never here. */
+  emailDraftsPending?: number;
 }
 
 const TWELVE_H = 12 * 60 * 60 * 1000;
@@ -42,7 +44,7 @@ export function assembleBrief(
 
   const pending = store.listActions("proposed");
   const pendingApprovals = pending
-    .filter((a) => a.type !== "trust.promote")
+    .filter((a) => a.type !== "trust.promote" && !a.type.startsWith("email."))
     .map((a) => ({
       id: a.id, type: a.type, preview: a.preview, expires_at: a.expires_at,
       expiringSoon: Date.parse(a.expires_at) - nowMs < TWELVE_H,
@@ -143,6 +145,9 @@ export function assembleBrief(
     } catch { /* stale/bad value → omit the section */ }
   }
 
+  let emailDraftsPending = 0;
+  if (anchor === "morning") emailDraftsPending = pending.filter((a) => a.type.startsWith("email.")).length;
+
   return {
     anchor,
     pendingApprovals,
@@ -164,6 +169,7 @@ export function assembleBrief(
     sinceLastBrief: sinceTs,
     dreamInitiatives,
     speculateResults,
+    emailDraftsPending,
   };
 }
 
@@ -180,7 +186,8 @@ export function isEmptyBrief(d: BriefData): boolean {
     d.meetings.length === 0 &&
     d.sensesNeedingReauth.length === 0 &&
     (d.dreamInitiatives?.length ?? 0) === 0 &&
-    (d.speculateResults?.length ?? 0) === 0
+    (d.speculateResults?.length ?? 0) === 0 &&
+    (d.emailDraftsPending ?? 0) === 0
   );
 }
 
@@ -212,6 +219,8 @@ export function renderBriefNote(d: BriefData, narration: string): string {
   section("Speculate — researched overnight", (d.speculateResults ?? []).map((r) =>
     r.status === "done" ? `${r.title} — ${r.ref}` : r.status === "failed" ? `${r.title} — failed` : `${r.title} — still running`,
   ));
+  section("Speculate — email drafts", (d.emailDraftsPending ?? 0) > 0
+    ? [`${d.emailDraftsPending} reply draft(s) await approval (details sent privately)`] : []);
   return lines.join("\n");
 }
 
