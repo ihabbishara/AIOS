@@ -48,6 +48,8 @@ export function indexEvent(store: Store, e: StoredEvent): void {
 export function indexDecision(store: Store, actionId: string): void {
   const a = store.getAction(actionId);
   if (!a) return;
+  // Privacy wall: email decisions carry recipient/subject in their preview — never index them.
+  if (a.type.startsWith("email.")) return;
   if (!RESOLVED_STATUSES.includes(a.status)) return;
   const body = `${a.preview}${a.reject_reason ? ` ${a.reject_reason}` : ""}`;
   indexDoc(store, {
