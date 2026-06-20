@@ -35,6 +35,7 @@ import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/ind
 import { distill, curateLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
+import { runSpeculateEmail, scanInboxFor, readMessageFor, triageLLM, composeLLM } from "./heartbeat/speculate-email.js";
 import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
 import { buildMoneyServer } from "./money/server.js";
 import { computeMoneySignals } from "./money/signals.js";
@@ -382,6 +383,24 @@ async function main(): Promise<void> {
           maxJobs: config.speculateMaxJobs,
           log,
         }).catch((err) => log(`speculate failed: ${(err as Error).message}`));
+        if (!config.speculateEmailDisabled && google.enabled()) {
+          const acct = config.speculateEmailAccount ?? google.accounts()[0]?.name;
+          if (acct) {
+            // fire-and-forget: gmail reads + LLM calls must not block the clock tick / reminders.
+            void runSpeculateEmail({
+              store,
+              gate,
+              account: acct,
+              maxJobs: config.speculateEmailMaxJobs,
+              origin: config.primaryChat ?? { channel: "system", chatId: "speculate-email" },
+              scan: scanInboxFor(google, acct, config.gmailSkipCategories),
+              read: readMessageFor(google, acct),
+              triage: triageLLM(config.speculateEmailModel, config.speculateEmailMaxJobs),
+              compose: composeLLM(config.speculateEmailModel),
+              log,
+            }).catch((err) => log(`speculate-email failed: ${(err as Error).message}`));
+          }
+        }
         return;
       }
       await runBrief(
