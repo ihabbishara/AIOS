@@ -52,6 +52,14 @@ export interface Config {
   speculateMaxJobs: number;
   /** Model for the speculate planner one-shot (defaults to specialistModel). */
   speculateModel?: string;
+  /** Kill-switch for the overnight email-drafts pass (AIOS_SPECULATE_EMAIL_DISABLED=1). Feature is on by default. */
+  speculateEmailDisabled: boolean;
+  /** Google account the email-drafts pass scans (default: first enabled account). */
+  speculateEmailAccount?: string;
+  /** Hard cap on email drafts the pass queues per night. */
+  speculateEmailMaxJobs: number;
+  /** Model for the email triage/compose one-shots (defaults to specialistModel). */
+  speculateEmailModel?: string;
   /** Model for the triage classifier one-shot. */
   triageModel: string;
   /** Voice kill-switch (AIOS_VOICE_ENABLED=false disables STT/TTS everywhere). */
@@ -191,6 +199,10 @@ export function loadConfig(root = process.cwd()): Config {
     anchorSpeculate: process.env.AIOS_ANCHOR_SPECULATE ?? "03:00",
     speculateMaxJobs: Number(process.env.AIOS_SPECULATE_MAX_JOBS ?? 2),
     speculateModel: process.env.AIOS_SPECULATE_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
+    speculateEmailDisabled: process.env.AIOS_SPECULATE_EMAIL_DISABLED === "1",
+    speculateEmailAccount: process.env.AIOS_SPECULATE_EMAIL_ACCOUNT,
+    speculateEmailMaxJobs: Number(process.env.AIOS_SPECULATE_EMAIL_MAX_JOBS ?? 2),
+    speculateEmailModel: process.env.AIOS_SPECULATE_EMAIL_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     triageModel: process.env.AIOS_TRIAGE_MODEL ?? "claude-haiku-4-5-20251001",
     voiceEnabled: process.env.AIOS_VOICE_ENABLED !== "false",
     whisperModel: process.env.AIOS_WHISPER_MODEL ?? "base",

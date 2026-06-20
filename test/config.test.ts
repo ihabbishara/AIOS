@@ -126,3 +126,28 @@ describe("senses config", () => {
     }
   });
 });
+
+describe("speculate-email config", () => {
+  it("defaults: feature on, no account override, maxJobs 2", () => {
+    delete process.env.AIOS_SPECULATE_EMAIL_DISABLED;
+    delete process.env.AIOS_SPECULATE_EMAIL_ACCOUNT;
+    delete process.env.AIOS_SPECULATE_EMAIL_MAX_JOBS;
+    const c = loadConfig();
+    expect(c.speculateEmailDisabled).toBe(false);
+    expect(c.speculateEmailAccount).toBeUndefined();
+    expect(c.speculateEmailMaxJobs).toBe(2);
+  });
+
+  it("honors env overrides", () => {
+    process.env.AIOS_SPECULATE_EMAIL_DISABLED = "1";
+    process.env.AIOS_SPECULATE_EMAIL_ACCOUNT = "personal";
+    process.env.AIOS_SPECULATE_EMAIL_MAX_JOBS = "3";
+    const c = loadConfig();
+    expect(c.speculateEmailDisabled).toBe(true);
+    expect(c.speculateEmailAccount).toBe("personal");
+    expect(c.speculateEmailMaxJobs).toBe(3);
+    delete process.env.AIOS_SPECULATE_EMAIL_DISABLED;
+    delete process.env.AIOS_SPECULATE_EMAIL_ACCOUNT;
+    delete process.env.AIOS_SPECULATE_EMAIL_MAX_JOBS;
+  });
+});
