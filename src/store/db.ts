@@ -14,6 +14,8 @@ export interface JobRow {
   playbook: string;
   request: string;
   project_dir: string | null;
+  /** The vault directory `<UTC-date>-<slug>` where this job's artifacts live; stamped at run time. */
+  job_dir: string | null;
   channel: string;
   chat_id: string;
   status: JobStatus;
@@ -149,6 +151,12 @@ export class Store {
     // Migration: receipt evidence path (added after initial release).
     try {
       this.db.exec("ALTER TABLE expenses ADD COLUMN receipt_path TEXT");
+    } catch {
+      /* column already exists */
+    }
+    // Migration: persist the run-time job directory so links don't reconstruct from a date.
+    try {
+      this.db.exec("ALTER TABLE jobs ADD COLUMN job_dir TEXT");
     } catch {
       /* column already exists */
     }
@@ -290,7 +298,7 @@ export class Store {
     `);
   }
 
-  insertJob(job: Omit<JobRow, "created_at" | "updated_at">): void {
+  insertJob(job: Omit<JobRow, "created_at" | "updated_at" | "job_dir">): void {
     const now = new Date().toISOString();
     this.db
       .prepare(
@@ -308,6 +316,12 @@ export class Store {
     this.db
       .prepare("UPDATE jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?")
       .run(status, error ?? null, new Date().toISOString(), id);
+  }
+
+  setJobDir(id: string, dir: string): void {
+    this.db
+      .prepare("UPDATE jobs SET job_dir = ?, updated_at = ? WHERE id = ?")
+      .run(dir, new Date().toISOString(), id);
   }
 
   getJob(id: string): JobRow | undefined {

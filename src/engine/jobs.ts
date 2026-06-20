@@ -56,7 +56,7 @@ export class JobManager {
       throw new Error(`Playbook ${pb.name} needs a project directory (project_dir).`);
     }
     const id = randomUUID();
-    const job: Omit<JobRow, "created_at" | "updated_at"> = {
+    const job: Omit<JobRow, "created_at" | "updated_at" | "job_dir"> = {
       id,
       slug: slugify(params.title),
       title: params.title,
@@ -104,6 +104,7 @@ export class JobManager {
     const { store, vault, log = () => {} } = this.deps;
     const pb = this.deps.playbooks.get(job.playbook)!;
     const jobDirName = vault.jobDirName(job.slug);
+    store.setJobDir(job.id, jobDirName);
     store.updateJobStatus(job.id, "running");
     this.deps.onEvent?.({ type: "job.status", jobId: job.id, status: "running" });
     vault.writeJobArtifact(jobDirName, "job.md",

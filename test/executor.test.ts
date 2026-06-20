@@ -18,6 +18,7 @@ function makeJob(): JobRow {
     playbook: "pb",
     request: "Build the thing",
     project_dir: null,
+    job_dir: null,
     channel: "cli",
     chat_id: "local",
     status: "running",
