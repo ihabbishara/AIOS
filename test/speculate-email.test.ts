@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseFrom, reSubject, runSpeculateEmail, type EmailCandidate, type EmailMessage, type SpeculateEmailDeps } from "../src/heartbeat/speculate-email.js";
+import { scanInboxFor, readMessageFor } from "../src/heartbeat/speculate-email.js";
+import type { GoogleAccounts } from "../src/senses/google/auth.js";
 import { Store } from "../src/store/db.js";
 import type { ActionInput } from "../src/kernel/actions.js";
 
@@ -116,5 +118,45 @@ describe("runSpeculateEmail", () => {
       read: async (id) => ({ id, threadId: id === "m1" ? "t1" : "t2", from: "a@x.com", subject: "S", body: "b" }) });
     await runSpeculateEmail(deps);
     expect(calls).toHaveLength(1); // second succeeded despite the first throwing
+  });
+});
+
+function fakeGoogle(gmail: unknown): GoogleAccounts {
+  return { get: (_n: string) => ({ gmail }) } as unknown as GoogleAccounts;
+}
+
+describe("gmail providers", () => {
+  it("scanInboxFor builds the conservative query and maps candidates", async () => {
+    let usedQuery = "";
+    const gmail = {
+      users: { messages: {
+        list: async (p: { q?: string }) => { usedQuery = p.q ?? ""; return { data: { messages: [{ id: "m1" }] } }; },
+        get: async () => ({ data: { threadId: "t1", snippet: "snip",
+          payload: { headers: [{ name: "From", value: "Eve <eve@x.com>" }, { name: "Subject", value: "Hi" }] } } }),
+      } },
+    };
+    const scan = scanInboxFor(fakeGoogle(gmail), "personal", ["promotions", "social"]);
+    const out = await scan();
+    expect(usedQuery).toBe("in:inbox is:unread -category:promotions -category:social");
+    expect(out).toEqual([{ id: "m1", threadId: "t1", from: "Eve <eve@x.com>", subject: "Hi", snippet: "snip" }]);
+  });
+
+  it("readMessageFor returns structured fields with extracted body", async () => {
+    const gmail = {
+      users: { messages: {
+        list: async () => ({ data: { messages: [] } }),
+        get: async () => ({ data: { threadId: "t1",
+          payload: { mimeType: "text/plain", body: { data: Buffer.from("the body", "utf8").toString("base64url") },
+            headers: [{ name: "From", value: "a@x.com" }, { name: "Subject", value: "S" }] } } }),
+      } },
+    };
+    const read = readMessageFor(fakeGoogle(gmail), "personal");
+    const msg = await read("m1");
+    expect(msg).toEqual({ id: "m1", threadId: "t1", from: "a@x.com", subject: "S", body: "the body" });
+  });
+
+  it("scan returns [] when the account is unknown", async () => {
+    const g = { get: () => undefined } as unknown as GoogleAccounts;
+    expect(await scanInboxFor(g, "nope", [])()).toEqual([]);
   });
 });
