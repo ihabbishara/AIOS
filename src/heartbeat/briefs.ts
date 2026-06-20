@@ -277,6 +277,19 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
     }
   }
 
+  // Vector C: email-draft detail goes out privately (transport-only, never vaulted/indexed).
+  if (anchor === "morning" && deps.primary) {
+    const drafts = deps.store.listActions("proposed").filter((a) => a.type.startsWith("email."));
+    if (drafts.length) {
+      const detail = ["📧 Email drafts to review:", ...drafts.map((a) => `[${a.id}] ${a.preview} → /approve ${a.id}`)].join("\n");
+      try {
+        await deps.send(deps.primary.channel, deps.primary.chatId, detail);
+      } catch (err) {
+        deps.log?.(`email-draft detail send failed: ${(err as Error).message}`);
+      }
+    }
+  }
+
   deps.bus.emit({
     type: "brief.sent",
     anchor,
