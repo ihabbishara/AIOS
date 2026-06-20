@@ -8,11 +8,12 @@ const NOW = "2026-06-17T07:30:00.000Z"; // morning; same local date as the specu
 const TODAY = localParts(new Date(NOW)).date;
 
 /** Insert a job row directly so the brief's getJob(id) can resolve status. */
-function insertJob(s: Store, id: string, slug: string, status: JobRow["status"]) {
+function insertJob(s: Store, id: string, slug: string, status: JobRow["status"], jobDir?: string) {
   s.insertJob({
-    id, slug, title: slug, playbook: "research-report", request: "q",
+    id, slug, title: slug[0].toUpperCase() + slug.slice(1), playbook: "research-report", request: "q",
     project_dir: null, channel: "system", chat_id: "speculate", status, error: null,
   });
+  if (jobDir) s.setJobDir(id, jobDir);
 }
 
 function seedSpeculate(s: Store, date: string, tasks: Array<{ title: string; slug: string; id: string }>) {
@@ -22,7 +23,7 @@ function seedSpeculate(s: Store, date: string, tasks: Array<{ title: string; slu
 describe("speculate section in the morning brief", () => {
   it("resolves done/failed/running status + a report ref and renders the section", () => {
     const s = new Store(":memory:");
-    insertJob(s, "id-done", "alpha", "done");
+    insertJob(s, "id-done", "alpha", "done", `${TODAY}-alpha`);
     insertJob(s, "id-fail", "beta", "failed");
     insertJob(s, "id-run", "gamma", "running");
     seedSpeculate(s, TODAY, [
@@ -80,5 +81,25 @@ describe("speculate section in the morning brief", () => {
     seedSpeculate(s, TODAY, [{ title: "Ghost", slug: "ghost", id: "id-missing" }]); // never inserted
     const data = assembleBrief(s, "morning", NOW, null);
     expect(data.speculateResults).toEqual([{ title: "Ghost", status: "running", ref: null }]);
+  });
+
+  it("builds the report ref from job_dir, not the brief's local date (decoupled)", () => {
+    const s = new Store(":memory:");
+    insertJob(s, "id-done", "alpha", "done", "2099-01-01-alpha"); // job_dir date != TODAY
+    s.kvSet("speculate:latest", JSON.stringify({ date: TODAY, tasks: [{ title: "Alpha", slug: "alpha", id: "id-done" }] }));
+    const data = assembleBrief(s, "morning", new Date(`${TODAY}T07:30:00.000Z`).toISOString(), null);
+    expect(data.speculateResults![0].ref).toBe("jobs/2099-01-01-alpha/report.md");
+  });
+
+  it("a done job with no job_dir renders title-only — no dead link", () => {
+    const s = new Store(":memory:");
+    insertJob(s, "id-done", "alpha", "done"); // no job_dir stamped
+    s.kvSet("speculate:latest", JSON.stringify({ date: TODAY, tasks: [{ title: "Alpha", slug: "alpha", id: "id-done" }] }));
+    const data = assembleBrief(s, "morning", new Date(`${TODAY}T07:30:00.000Z`).toISOString(), null);
+    expect(data.speculateResults![0].ref).toBeNull();
+    const note = renderBriefNote(data, "n");
+    expect(note).toContain("Alpha");
+    expect(note).not.toContain("report.md");
+    expect(note).not.toContain("Alpha — null");
   });
 });

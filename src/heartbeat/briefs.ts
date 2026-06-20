@@ -131,13 +131,13 @@ export function assembleBrief(
       if (raw) {
         const parsed = JSON.parse(raw) as { date?: string; tasks?: Array<{ title: string; slug: string; id: string }> };
         if (parsed.date === localDateOf(nowIso) && parsed.tasks?.length) {
-          const reportDate = parsed.date; // string (checked above) — narrows for use inside the map closure
           speculateResults = parsed.tasks.map((t) => {
             const job = store.getJob(t.id);
             // queued, running, or job not yet written → "running" (brief shows in-progress)
             const status: "done" | "failed" | "running" =
               job?.status === "done" ? "done" : job?.status === "failed" ? "failed" : "running";
-            const ref = status === "done" ? `jobs/${reportDate}-${t.slug}/report.md` : null;
+            // Use the job's real persisted dir — never reconstruct from a date (UTC vs local drift).
+            const ref = status === "done" && job?.job_dir ? `jobs/${job.job_dir}/report.md` : null;
             return { title: t.title, status, ref };
           });
         }
@@ -217,7 +217,8 @@ export function renderBriefNote(d: BriefData, narration: string): string {
     d.remindersToday.map((r) => `#${r.id} ${r.text} (${r.due_at})`));
   section("Dream — worth considering", (d.dreamInitiatives ?? []).map((i) => `${i.title} — ${i.suggestion}`));
   section("Speculate — researched overnight", (d.speculateResults ?? []).map((r) =>
-    r.status === "done" ? `${r.title} — ${r.ref}` : r.status === "failed" ? `${r.title} — failed` : `${r.title} — still running`,
+    r.status === "done" ? (r.ref ? `${r.title} — ${r.ref}` : r.title)
+      : r.status === "failed" ? `${r.title} — failed` : `${r.title} — still running`,
   ));
   section("Speculate — email drafts", (d.emailDraftsPending ?? 0) > 0
     ? [`${d.emailDraftsPending} reply draft(s) await approval (details sent privately)`] : []);
