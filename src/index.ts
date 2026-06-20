@@ -392,7 +392,11 @@ async function main(): Promise<void> {
               gate,
               account: acct,
               maxJobs: config.speculateEmailMaxJobs,
-              origin: config.primaryChat ?? { channel: "system", chatId: "speculate-email" },
+              // System origin (not primaryChat): overnight drafts must NOT ping at 03:00.
+              // The action.proposed handler only pings real channels, so a "system" origin
+              // stays silent; the drafts surface at 07:30 via the brief's private detail send
+              // (and the Mission Control approval inbox). /approve <id> resolves origin-independently.
+              origin: { channel: "system", chatId: "speculate-email" },
               scan: scanInboxFor(google, acct, config.gmailSkipCategories),
               read: readMessageFor(google, acct),
               triage: triageLLM(config.speculateEmailModel, config.speculateEmailMaxJobs),
