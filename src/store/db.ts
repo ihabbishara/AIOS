@@ -324,6 +324,12 @@ export class Store {
       .run(dir, new Date().toISOString(), id);
   }
 
+  setProjectDir(id: string, dir: string): void {
+    this.db
+      .prepare("UPDATE jobs SET project_dir = ?, updated_at = ? WHERE id = ?")
+      .run(dir, new Date().toISOString(), id);
+  }
+
   getJob(id: string): JobRow | undefined {
     return this.db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRow | undefined;
   }

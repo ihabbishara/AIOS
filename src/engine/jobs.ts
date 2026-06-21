@@ -25,7 +25,13 @@ export interface JobManagerDeps {
   log?: (line: string) => void;
   onEvent?: (event: import("../events.js").AiosEvent) => void;
   /** Resolve the pack for a playbook, given gate-attribution origin. Undefined for packless. */
-  resolvePackFor?: (playbookName: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
+  resolvePackFor?: (
+    playbookName: string,
+    origin: { channel: string; chatId: string },
+    sandbox?: { taskDir: string; mode: "build" | "analyze" },
+  ) => import("../packs/resolve.js").ResolvedPack | undefined;
+  /** Allocate a workspace sandbox before resolving the pack. Optional; undefined → no-op. */
+  prepareSandbox?: (job: JobRow, playbook: Playbook) => Promise<{ taskDir: string; mode: "build" | "analyze" } | undefined>;
   /** playbook name -> pillar (from the pack loader); packless playbooks are absent. */
   pillarOf?: Map<string, string>;
 }
@@ -112,7 +118,20 @@ export class JobManager {
       { job: job.id, playbook: job.playbook });
     vault.appendDaily(`job started: [[jobs/${jobDirName}/job|${job.title}]]`);
 
-    const pack = this.deps.resolvePackFor?.(job.playbook, { channel: job.channel, chatId: job.chat_id });
+    let sandbox: { taskDir: string; mode: "build" | "analyze" } | undefined;
+    try {
+      sandbox = await this.deps.prepareSandbox?.(job, pb);
+    } catch (err) {
+      store.updateJobStatus(job.id, "failed", `workspace setup failed: ${(err as Error).message}`);
+      this.deps.onEvent?.({ type: "job.status", jobId: job.id, status: "failed", error: (err as Error).message });
+      await this.deps.onComplete({ job, ok: false, error: (err as Error).message, jobDirName, artifactFiles: [] });
+      return;
+    }
+    if (sandbox) {
+      store.setProjectDir(job.id, sandbox.taskDir);
+      job.project_dir = sandbox.taskDir;
+    }
+    const pack = this.deps.resolvePackFor?.(job.playbook, { channel: job.channel, chatId: job.chat_id }, sandbox);
     const executor = new PlaybookExecutor({
       run: this.deps.run,
       store,
