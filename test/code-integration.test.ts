@@ -1,0 +1,82 @@
+// test/code-integration.test.ts
+import { describe, it, expect, vi } from "vitest";
+import { mkdtempSync, mkdirSync, readdirSync, writeFileSync, realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { Store } from "../src/store/db.js";
+import { VaultWriter } from "../src/vault/writer.js";
+import { JobManager } from "../src/engine/jobs.js";
+import { loadPacks } from "../src/packs/loader.js";
+import { allocateWorkspace } from "../src/code/workspace.js";
+import { makeResolvePackFor } from "../src/packs/resolve.js";
+import { ActionGate } from "../src/kernel/gate.js";
+import { ExecutorRegistry } from "../src/kernel/actions.js";
+import { EventBus } from "../src/events.js";
+import { DEFAULT_POLICY } from "../src/kernel/trust.js";
+
+describe("code-analyze end-to-end (stubbed model)", () => {
+  it("allocates analyze workspace = source, writes a vault report, never writes the repo", async () => {
+    const home = mkdtempSync(join(tmpdir(), "e2e-"));
+    const projects = join(home, "projects");
+    const repo = join(projects, "target");
+    mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "i"], { cwd: repo });
+    writeFileSync(join(repo, "main.ts"), "export const x = 1;\n");
+    // realRepo: macOS /var is a symlink to /private/var; resolveReal() inside allocateWorkspace
+    // calls realpathSync, so taskDir is the canonical /private/var/... path. Resolve here
+    // so our assertions compare the same canonical path.
+    const realRepo = realpathSync(repo);
+    const repoFilesBefore = readdirSync(realRepo).sort();
+
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "vault-")), "AIOS");
+    vault.init();
+    const { playbooks, packs, pillarOf, roleOf } = loadPacks(join(process.cwd(), "playbooks"));
+
+    const bus = new EventBus(store);
+    const registry = new ExecutorRegistry();
+    const gate = new ActionGate({
+      store, registry, policy: DEFAULT_POLICY, bus, expiryMs: 60_000,
+    });
+
+    // stub specialist: returns canned text, asserts cwd is the analyzed repo (canonical path)
+    const run = vi.fn(async (_role: string, _brief: string, opts: any) => {
+      expect(opts.cwd).toBe(realRepo); // analyze → taskDir = resolveReal(source)
+      expect(opts.pack?.confinement?.guard).toBeTruthy();
+      return { text: "assessment ok", costUsd: 0, numTurns: 1 };
+    });
+
+    const resolvePackFor = makeResolvePackFor(
+      { packs, pillarOf, roleOf },
+      { store, vault, gate },
+    );
+
+    const jobs = new JobManager({
+      store, vault, run, playbooks, wallTimeMs: 60_000, maxConcurrent: 1,
+      onComplete: async () => {},
+      pillarOf,
+      prepareSandbox: async (job) => {
+        if (pillarOf.get(job.playbook) !== "code") return undefined;
+        const { taskDir } = allocateWorkspace(
+          { mode: "analyze", source: job.project_dir ?? undefined, slug: job.slug },
+          { workspaceRoot: join(home, "ws"), readRoots: [projects], now: "2026-06-21", id: "deadbeef" },
+        );
+        return { taskDir, mode: "analyze" };
+      },
+      resolvePackFor: (playbook, origin, sandbox) => resolvePackFor(playbook, origin, false, sandbox),
+    });
+
+    const job = jobs.createJob({
+      playbook: "code-analyze", title: "audit target", request: "assess this repo",
+      projectDir: repo, channel: "system", chatId: "test",
+    });
+
+    await vi.waitFor(() => expect(store.getJob(job.id)!.status).toBe("done"), { timeout: 10_000 });
+
+    expect(store.getJob(job.id)!.project_dir).toBe(realRepo); // rewritten to analyze taskDir = resolveReal(source)
+    expect(run).toHaveBeenCalled();
+    expect(readdirSync(realRepo).sort()).toEqual(repoFilesBefore); // analyzed repo untouched
+  }, 15_000);
+});
