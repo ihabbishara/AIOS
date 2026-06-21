@@ -4,7 +4,7 @@ import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { sandboxProfile } from "../src/code/exec.js";
+import { sandboxProfile, jailEnv } from "../src/code/exec.js";
 
 const hasSandbox = (() => {
   try { execFileSync("which", ["sandbox-exec"]); return true; } catch { return false; }
@@ -28,6 +28,18 @@ describe("sandboxProfile (pure)", () => {
     expect(() => sandboxProfile('/ws/ta"sk', "build")).toThrow();
     expect(() => sandboxProfile("/ws/ta\\sk", "build")).toThrow();
     expect(() => sandboxProfile("/ws/ta\nsk", "build")).toThrow();
+  });
+});
+
+describe("jailEnv scrubs secrets", () => {
+  it("drops the daemon's secrets, keeps PATH, points HOME+TMPDIR into the jail", () => {
+    const base = { PATH: "/usr/bin", CLAUDE_CODE_OAUTH_TOKEN: "sk-secret", AWS_SECRET_ACCESS_KEY: "x", AIOS_BUNQ_ENV: "production" } as any;
+    const e = jailEnv("/ws/task", base);
+    expect(e.PATH).toBe("/usr/bin");
+    expect(e.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(e.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(e.HOME).toBe("/ws/task");
+    expect(e.TMPDIR).toBe("/ws/task/.aios-tmp");
   });
 });
 

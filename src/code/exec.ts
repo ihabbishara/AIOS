@@ -9,6 +9,17 @@ function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
 }
 
+/** Minimal, secret-free environment for a jailed command. Allowlist, not the daemon's full env. */
+export function jailEnv(taskDir: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const jailTmp = join(taskDir, ".aios-tmp");
+  const KEEP = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "SHELL", "TZ"];
+  const env: NodeJS.ProcessEnv = {};
+  for (const k of KEEP) if (base[k] !== undefined) env[k] = base[k];
+  env.HOME = taskDir;               // tools resolve ~ into the jail, not the real home (no real ~/.npmrc etc.)
+  env.TMPDIR = jailTmp; env.TMP = jailTmp; env.TEMP = jailTmp;
+  return env;
+}
+
 /** macOS sandbox profile (SBPL). Deny-default; broad read minus the secret denylist;
  *  write only under the task dir (build), none (analyze). Later rules override earlier
  *  for the same operation, so the secret denies must come AFTER the broad read allow. */
@@ -63,7 +74,9 @@ export function buildCodeServer(ctx: { taskDir: string; mode: "build" | "analyze
             cwd: ctx.taskDir,
             timeout: ctx.timeoutMs ?? 120_000,
             maxBuffer: 8 * 1024 * 1024,
-            env: { ...process.env, TMPDIR: jailTmp, TMP: jailTmp, TEMP: jailTmp },
+            // Curated allowlist env — the daemon's secrets (e.g. CLAUDE_CODE_OAUTH_TOKEN) never
+            // reach the jailed shell, so a build can't read them from the environment and exfil.
+            env: jailEnv(ctx.taskDir),
           },
           (err, stdout, stderr) => {
             const out = `${stdout ?? ""}${stderr ? `\n[stderr]\n${stderr}` : ""}`.trim();
