@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { allocateWorkspace, validateSource } from "../src/code/workspace.js";
+import { resolveReal } from "../src/code/paths.js";
 
 function gitInit(dir: string) {
   mkdirSync(dir, { recursive: true });
@@ -47,5 +48,18 @@ describe("workspace allocator", () => {
   it("validateSource refuses the workspace root itself", () => {
     mkdirSync(wsRoot, { recursive: true });
     expect(() => validateSource(wsRoot, { ...deps, readRoots: [home] })).toThrow(/workspace|AIOS/i);
+  });
+
+  it("validateSource refuses an AIOS repo (secret denylist)", () => {
+    const aios = join(projects, "AIOS");
+    gitInit(aios);
+    expect(() => validateSource(aios, deps)).toThrow(/secret|denylist/i);
+  });
+
+  it("analyze mode returns the validated source, no allocation", () => {
+    const repo = join(projects, "to-audit");
+    gitInit(repo);
+    const { taskDir } = allocateWorkspace({ mode: "analyze", source: repo, slug: "audit" }, deps);
+    expect(taskDir).toBe(resolveReal(repo)); // analyze returns resolveReal(source), no alloc
   });
 });
