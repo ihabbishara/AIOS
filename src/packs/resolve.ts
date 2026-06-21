@@ -1,9 +1,12 @@
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
+import type { ToolCheck } from "../agents/guards/halalo-readonly.js";
 import type { Pack } from "./types.js";
 import { buildPackServer } from "./server.js";
 import { memoContextForDomain } from "../memory/memos.js";
+import { codeGuard, advisoryGuard } from "../code/guard.js";
+import { buildCodeServer } from "../code/exec.js";
 
 /** Manifest `tools` entries that map to the scoped pack MCP server (everything else is built-in). */
 export const MCP_TOOL_NAMES = ["recall", "vault_read", "vault_write", "propose_action"];
@@ -14,6 +17,7 @@ export interface ResolvedPack {
   contextBlock: string;
   tools: string[];
   mcpServers: Record<string, unknown>;
+  confinement?: { permissionMode: "default"; guard: Record<string, ToolCheck>; fallback: "deny" };
 }
 
 /** Builds a pack-specific MCP server instance for a resolve. */
@@ -31,6 +35,7 @@ export interface ResolveDeps {
   origin: { channel: string; chatId: string };
   /** Registry of pack-specific tool-server builders, keyed by manifest `toolServer`. */
   toolServers?: Record<string, PackToolServerBuilder>;
+  workspace?: { taskDir: string; mode: "build" | "analyze" };
 }
 
 export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
@@ -61,7 +66,17 @@ export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
     // unknown toolServer → fail-soft: omit it; the pack still loads with the shared server.
   }
 
-  return { pillar: pack.pillar, contextBlock, tools, mcpServers };
+  let confinement: ResolvedPack["confinement"];
+  if (pack.sandbox) {
+    if (deps.workspace) {
+      mcpServers.code = buildCodeServer(deps.workspace);
+      confinement = { permissionMode: "default", guard: codeGuard(deps.workspace.taskDir, deps.workspace.mode), fallback: "deny" };
+    } else {
+      confinement = { permissionMode: "default", guard: advisoryGuard(), fallback: "deny" };
+    }
+  }
+
+  return { pillar: pack.pillar, contextBlock, tools, mcpServers, confinement };
 }
 
 export interface PackResolverReg {
@@ -75,12 +90,12 @@ export function makeResolvePackFor(
   reg: PackResolverReg,
   deps: { store: Store; vault: VaultWriter; gate: ActionGate; toolServers?: Record<string, PackToolServerBuilder> },
 ) {
-  return (key: string, origin: { channel: string; chatId: string }, byRole = false): ResolvedPack | undefined => {
+  return (key: string, origin: { channel: string; chatId: string }, byRole = false, workspace?: { taskDir: string; mode: "build" | "analyze" }): ResolvedPack | undefined => {
     const pillar = byRole ? reg.roleOf.get(key) : reg.pillarOf.get(key);
     if (!pillar) return undefined;
     const pack = reg.packs.get(pillar);
     return pack
-      ? resolvePack(pack, { store: deps.store, vault: deps.vault, gate: deps.gate, origin, toolServers: deps.toolServers })
+      ? resolvePack(pack, { store: deps.store, vault: deps.vault, gate: deps.gate, origin, toolServers: deps.toolServers, workspace })
       : undefined;
   };
 }
