@@ -10,6 +10,9 @@ export interface Config {
   dbPath: string;
   playbooksDir: string;
   projectsRoot: string;
+  workspaceRoot: string;
+  codeReadRoots: string[];
+  codeDisabled: boolean;
   telegramToken?: string;
   slackBotToken?: string;
   slackAppToken?: string;
@@ -153,16 +156,21 @@ export function parseBindings(raw: string | undefined): Map<string, ChatBinding>
   return map;
 }
 
-export function loadConfig(root = process.cwd()): Config {
+export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process.cwd()): Config {
   const home = homedir();
   const dataDir = process.env.AIOS_DATA_DIR ?? join(root, "data");
+  const projectsRoot = process.env.AIOS_PROJECTS_ROOT ?? join(home, "projects");
   return {
     vaultPath: process.env.AIOS_VAULT_PATH ?? join(home, "Desktop", "AI-Vault"),
     vaultSubdir: process.env.AIOS_VAULT_SUBDIR ?? "AIOS",
     dataDir,
     dbPath: join(dataDir, "aios.sqlite"),
     playbooksDir: process.env.AIOS_PLAYBOOKS_DIR ?? join(root, "playbooks"),
-    projectsRoot: process.env.AIOS_PROJECTS_ROOT ?? join(home, "projects"),
+    projectsRoot,
+    workspaceRoot: env.AIOS_WORKSPACE_ROOT ?? join(home, "projects", "AIOS-Workspace"),
+    codeReadRoots: (env.AIOS_CODE_READ_ROOTS ?? projectsRoot)
+      .split(",").map((s) => s.trim()).filter(Boolean),
+    codeDisabled: env.AIOS_CODE_DISABLED === "1",
     telegramToken: process.env.TELEGRAM_BOT_TOKEN,
     slackBotToken: process.env.SLACK_BOT_TOKEN,
     slackAppToken: process.env.SLACK_APP_TOKEN,
@@ -225,6 +233,10 @@ export function loadConfig(root = process.cwd()): Config {
     moneyLargeTxCents: Number(process.env.AIOS_MONEY_LARGE_TX_CENTS ?? 50000),
     moneyRenewalDays: Number(process.env.AIOS_MONEY_RENEWAL_DAYS ?? 3),
   };
+}
+
+export function loadConfig(root = process.cwd()): Config {
+  return buildConfig(process.env, root);
 }
 
 export function assertAuth(): void {
