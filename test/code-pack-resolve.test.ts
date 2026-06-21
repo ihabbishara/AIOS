@@ -44,5 +44,6 @@ describe("resolvePack confinement", () => {
     const money = packSchema.parse({ pillar: "money", persona: "p", memoDomain: "money", roles: ["cfo"] });
     const r = resolvePack(money, deps() as any);
     expect(r.confinement).toBeUndefined();
+    expect(Object.keys(r.mcpServers)).not.toContain("code");
   });
 });
