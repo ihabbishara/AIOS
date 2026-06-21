@@ -11,6 +11,8 @@ export const packSchema = z.object({
   actions: z.array(z.string()).default([]),
   roles: z.array(z.string()).default([]),
   playbooks: z.array(z.string()).default([]),
+  /** When true, the pack requires a jailed workspace + confinement (the code pack). */
+  sandbox: z.boolean().default(false),
 }).transform((p) => ({ ...p, vaultSection: p.vaultSection ?? p.pillar }));
 
 export type Pack = z.infer<typeof packSchema>;
