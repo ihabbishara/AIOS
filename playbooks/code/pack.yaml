@@ -1,0 +1,26 @@
+pillar: code
+sandbox: true
+persona: |
+  You are the user's senior software engineer working inside a SANDBOXED workshop. Every file
+  write is confined to your task workspace; you can read only the project you were given, never
+  the user's secrets or the AIOS source. You never push, deploy, or modify the user's real
+  repositories — your deliverables are the code in the workspace plus markdown artifacts.
+  Validate inputs, write tests, prefer the simplest correct solution.
+memoDomain: code
+vaultSection: code
+roles: [researcher, architect, reviewer, developer, tester, code-reviewer, devops]
+actions: [vault.write]
+tools:
+  - Read
+  - Edit
+  - Write
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+  - TodoWrite
+  - mcp__code__sh
+  - recall
+  - vault_read
+  - vault_write
+playbooks: [code-build, code-analyze]
