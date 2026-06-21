@@ -26,6 +26,12 @@ describe("code path safety", () => {
     expect(isUnder(join(link, "x.txt"), jail)).toBe(false);
   });
 
+  it("isUnder false for a sibling sharing a name prefix", () => {
+    const evil = join(root, "jail-evil");
+    mkdirSync(evil, { recursive: true });
+    expect(isUnder(join(evil, "x.txt"), jail)).toBe(false);
+  });
+
   it("isSecretPath flags AIOS, ssh, env, tokens", () => {
     expect(isSecretPath("/Users/me/projects/AIOS/.env")).toBe(true);
     expect(isSecretPath("/Users/me/.ssh/id_rsa")).toBe(true);
