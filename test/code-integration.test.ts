@@ -41,10 +41,13 @@ describe("code-analyze end-to-end (stubbed model)", () => {
       store, registry, policy: DEFAULT_POLICY, bus, expiryMs: 60_000,
     });
 
-    // stub specialist: returns canned text, asserts cwd is the analyzed repo (canonical path)
+    // stub specialist: capture opts, but assert AFTER the job is done (below). An inline
+    // expect() here would throw → the executor catches it → the job goes "failed" → the
+    // vi.waitFor(status==="done") times out with a confusing message instead of a precise
+    // "expected X to be Y". Capturing keeps the wiring-regression failure legible.
+    let capturedOpts: any;
     const run = vi.fn(async (_role: string, _brief: string, opts: any) => {
-      expect(opts.cwd).toBe(realRepo); // analyze → taskDir = resolveReal(source)
-      expect(opts.pack?.confinement?.guard).toBeTruthy();
+      capturedOpts = opts;
       return { text: "assessment ok", costUsd: 0, numTurns: 1 };
     });
 
@@ -75,8 +78,11 @@ describe("code-analyze end-to-end (stubbed model)", () => {
 
     await vi.waitFor(() => expect(store.getJob(job.id)!.status).toBe("done"), { timeout: 10_000 });
 
-    expect(store.getJob(job.id)!.project_dir).toBe(realRepo); // rewritten to analyze taskDir = resolveReal(source)
+    // Wiring asserts surfaced after the job is done → clear messages, no timeout-masking.
     expect(run).toHaveBeenCalled();
+    expect(capturedOpts.cwd).toBe(realRepo); // analyze → taskDir = resolveReal(source)
+    expect(capturedOpts.pack?.confinement?.guard).toBeTruthy(); // pack resolved WITH confinement
+    expect(store.getJob(job.id)!.project_dir).toBe(realRepo); // rewritten to analyze taskDir = resolveReal(source)
     expect(readdirSync(realRepo).sort()).toEqual(repoFilesBefore); // analyzed repo untouched
   }, 15_000);
 });
