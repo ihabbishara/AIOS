@@ -51,15 +51,31 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
   };
 }
 
+/** Built-in tools narrow to the role's own allowlist; pack-provided MCP tools pass through. */
+export function clampTools(roleTools: string[] | undefined, packTools: string[]): string[] {
+  const owned = new Set(roleTools ?? []);
+  return packTools.filter((t) => t.startsWith("mcp__") || owned.has(t));
+}
+
 /** Apply a resolved pack to base SDK options: persona+memo appended to the prompt,
- *  tool allowlist replaced, scoped MCP server added. Pure — returns a new object. */
+ *  tool allowlist clamped to role's built-ins + all pack MCP tools, scoped MCP server added.
+ *  When pack.confinement is present, overrides permissionMode, drops allowDangerouslySkipPermissions,
+ *  and installs the confinement guard (canUseTool + PreToolUse hook). Pure — returns a new object. */
 export function packRunOptions(base: Options, pack: ResolvedPack): Options {
-  return {
+  const merged: Options = {
     ...base,
     systemPrompt: `${base.systemPrompt}\n\n${pack.contextBlock}`,
-    allowedTools: pack.tools,
+    allowedTools: clampTools(base.allowedTools, pack.tools),
     mcpServers: { ...(base.mcpServers ?? {}), ...(pack.mcpServers as Options["mcpServers"]) },
   };
+  if (pack.confinement) {
+    merged.permissionMode = pack.confinement.permissionMode;
+    delete (merged as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
+    const g = guardOptions(pack.confinement.guard, pack.confinement.fallback);
+    merged.canUseTool = g.canUseTool;
+    merged.hooks = { ...(merged.hooks ?? {}), ...(g.hooks ?? {}) };
+  }
+  return merged;
 }
 
 export interface SpecialistResult {
