@@ -8,6 +8,15 @@ export interface LoadedPacks extends PackRegistry {
   playbooks: Map<string, Playbook>;
 }
 
+/** Kill-switch: strip the code pack (and its playbooks/roles) from a loaded registry. */
+export function dropCodePack(reg: LoadedPacks): void {
+  const pack = reg.packs.get("code");
+  if (!pack) return;
+  for (const pb of pack.playbooks) { reg.playbooks.delete(pb); reg.pillarOf.delete(pb); }
+  for (const role of pack.roles) { if (reg.roleOf.get(role) === "code") reg.roleOf.delete(role); }
+  reg.packs.delete("code");
+}
+
 /** Scans <dir>: top-level *.yaml = packless playbooks; each subdir with pack.yaml = a pack. */
 export function loadPacks(dir: string, log: (line: string) => void = () => {}): LoadedPacks {
   const playbooks = new Map<string, Playbook>();

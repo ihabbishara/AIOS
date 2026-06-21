@@ -2,8 +2,12 @@ import { join } from "node:path";
 import { loadConfig, assertAuth } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { loadPacks } from "./packs/loader.js";
+import { loadPacks, dropCodePack } from "./packs/loader.js";
 import { makeResolvePackFor } from "./packs/resolve.js";
+import { allocateWorkspace } from "./code/workspace.js";
+import { randomUUID } from "node:crypto";
+import type { LoadedPacks } from "./packs/loader.js";
+import { localParts } from "./heartbeat/clock.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { makeRunSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
@@ -66,6 +70,7 @@ async function main(): Promise<void> {
     }
   });
   const { playbooks, packs, pillarOf, roleOf } = loadPacks(config.playbooksDir, log);
+  if (config.codeDisabled) dropCodePack({ playbooks, packs, pillarOf, roleOf } as LoadedPacks);
   log(`playbooks: ${[...playbooks.keys()].join(", ")}`);
   log(`packs: ${[...packs.keys()].join(", ") || "(none)"}`);
 
@@ -74,6 +79,7 @@ async function main(): Promise<void> {
   // stay in sync — the old flat reload only refreshed top-level playbooks.
   const reloadPacks = () => {
     const fresh = loadPacks(config.playbooksDir, log);
+    if (config.codeDisabled) dropCodePack(fresh);
     playbooks.clear(); for (const [k, v] of fresh.playbooks) playbooks.set(k, v);
     packs.clear();     for (const [k, v] of fresh.packs) packs.set(k, v);
     pillarOf.clear();  for (const [k, v] of fresh.pillarOf) pillarOf.set(k, v);
@@ -136,6 +142,17 @@ async function main(): Promise<void> {
   if (bunq.enabled()) log(`bunq sense: enabled (${config.bunqEnv})`);
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
+  const prepareSandbox = async (job: import("./store/db.js").JobRow, _pb: unknown) => {
+    if (pillarOf.get(job.playbook) !== "code") return undefined;
+    const mode: "build" | "analyze" = job.playbook === "code-analyze" ? "analyze" : "build";
+    const wsMode = mode === "analyze" ? "analyze" : (job.project_dir ? "worktree" : "greenfield");
+    const { taskDir } = allocateWorkspace(
+      { mode: wsMode, source: job.project_dir ?? undefined, slug: job.slug },
+      { workspaceRoot: config.workspaceRoot, readRoots: config.codeReadRoots, now: localParts(new Date()).date, id: randomUUID().slice(0, 8) },
+    );
+    return { taskDir, mode };
+  };
+
   // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
   const resolvePackFor = makeResolvePackFor(
@@ -168,7 +185,8 @@ async function main(): Promise<void> {
     onEvent: (e) => bus.emit(e),
     log,
     pillarOf,
-    resolvePackFor: (playbook, origin) => resolvePackFor(playbook, origin, false),
+    prepareSandbox,
+    resolvePackFor: (playbook, origin, sandbox) => resolvePackFor(playbook, origin, false, sandbox),
   });
 
   const moderator = new Moderator({
