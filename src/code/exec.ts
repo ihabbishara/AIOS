@@ -45,9 +45,14 @@ export function sandboxProfile(taskDir: string, mode: "build" | "analyze"): stri
     "(allow signal (target self))",
     "(allow network*)", // egress restriction is a Docker-tier follow-up
     "(allow file-read*)",
-    // secrets win (last-match): never readable inside the sandbox
-    '(deny file-read* (regex #"/\\.ssh/") (regex #"/\\.aws/") (regex #"/\\.gnupg/"))',
+    // secrets win (last-match): never readable inside the sandbox.
+    // This deny set is a superset of guard.isSecretPath's families (.ssh/.aws/.gnupg/.config/
+    // projects-AIOS/.env/token|credential|secret) PLUS common credential stores the shell could
+    // otherwise `cat` by absolute path (.npmrc/.netrc/.docker/.kube/Keychains). Scoped to those
+    // path families, so toolchain reads under /usr, /opt/homebrew, the jail, etc. stay allowed.
+    '(deny file-read* (regex #"/\\.ssh/") (regex #"/\\.aws/") (regex #"/\\.gnupg/") (regex #"/\\.config/"))',
     '(deny file-read* (regex #"/projects/AIOS/") (regex #"\\.env($|\\.)") (regex #"(token|credential|secret)"))',
+    '(deny file-read* (regex #"/\\.npmrc$") (regex #"/\\.netrc$") (regex #"/\\.docker/") (regex #"/\\.kube/") (regex #"/Library/Keychains/"))',
     writeAllow,
   ].filter(Boolean).join("\n");
 }

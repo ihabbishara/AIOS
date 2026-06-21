@@ -1,6 +1,6 @@
 // test/code-exec.test.ts
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -70,5 +70,16 @@ describe.runIf(hasSandbox && process.platform === "darwin")("sandbox-exec enforc
     writeFileSync(secret, "SUPERSECRET");
     // The `secret` regex deny fires AFTER the broad read-allow (last-match wins), so cat fails.
     expect(() => run(`cat ${secret}`)).toThrow();
+  });
+  it("denies reading credential stores (.npmrc / .docker/config.json) by absolute path", () => {
+    const npmrc = join(outside, ".npmrc");
+    writeFileSync(npmrc, "//registry.npmjs.org/:_authToken=NPM_TOKEN");
+    expect(() => run(`cat ${npmrc}`)).toThrow();
+
+    const dockerDir = join(outside, ".docker");
+    mkdirSync(dockerDir, { recursive: true });
+    const dockerCfg = join(dockerDir, "config.json");
+    writeFileSync(dockerCfg, '{"auths":{"registry":{"auth":"BASE64CREDS"}}}');
+    expect(() => run(`cat ${dockerCfg}`)).toThrow();
   });
 });
