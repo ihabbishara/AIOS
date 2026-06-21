@@ -1,6 +1,6 @@
 // test/code-guard.test.ts
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { codeGuard, advisoryGuard } from "../src/code/guard.js";
@@ -29,6 +29,19 @@ describe("codeGuard build mode", () => {
   it("denies raw Bash", () => {
     expect(g.Bash({ command: "ls" }).ok).toBe(false);
   });
+  it("denies NotebookEdit outside the jail via notebook_path", () => {
+    expect(codeGuard(jail, "build").NotebookEdit({ notebook_path: join(home, "x.ipynb") }).ok).toBe(false);
+    expect(codeGuard(jail, "build").NotebookEdit({ notebook_path: join(jail, "ok.ipynb") }).ok).toBe(true);
+  });
+  it("read-scope reads the `path` arg (Grep/Glob), not just file_path", () => {
+    expect(codeGuard(jail, "build").Grep({ path: join(jail, "a") }).ok).toBe(true);
+    expect(codeGuard(jail, "build").Grep({ path: join(home, "a") }).ok).toBe(false);
+  });
+  it("denies a write through a symlink that escapes the jail", () => {
+    const link = join(jail, "out");
+    symlinkSync(home, link); // jail/out -> home (parent)
+    expect(codeGuard(jail, "build").Write({ file_path: join(link, "x.ts") }).ok).toBe(false);
+  });
 });
 
 describe("codeGuard analyze mode", () => {
@@ -44,7 +57,7 @@ describe("codeGuard analyze mode", () => {
 describe("advisoryGuard", () => {
   const g = advisoryGuard();
   it("denies every filesystem tool", () => {
-    for (const t of ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]) {
+    for (const t of ["Read", "Write", "Edit", "NotebookEdit", "Grep", "Glob", "Bash"]) {
       expect(g[t]({ file_path: "/anything", command: "x" }).ok).toBe(false);
     }
   });
