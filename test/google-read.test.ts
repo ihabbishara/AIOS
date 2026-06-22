@@ -56,6 +56,9 @@ function fakeAccounts(): GoogleAccounts {
             },
           },
         }),
+        attachments: {
+          get: async () => ({ data: { data: null } }),
+        },
       },
     },
   };

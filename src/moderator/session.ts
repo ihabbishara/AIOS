@@ -2,6 +2,7 @@ import { moderatorPrompt } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn } from "../agents/resumable.js";
+import { processAttachments } from "../attachments.js";
 import type { Store } from "../store/db.js";
 import type { JobManager } from "../engine/jobs.js";
 import type { VaultWriter } from "../vault/writer.js";
@@ -64,22 +65,53 @@ export class Moderator {
 
   constructor(private deps: ModeratorDeps) {}
 
-  async handle(channel: string, chatId: string, userText: string): Promise<string> {
+  async handle(
+    channel: string,
+    chatId: string,
+    userText: string,
+    attachments?: Array<{ path: string; fileName: string }>,
+  ): Promise<string> {
     const chatKey = `${channel}:${chatId}`;
     const prev = this.locks.get(chatKey) ?? Promise.resolve();
     let release!: () => void;
     this.locks.set(chatKey, new Promise((r) => (release = r)));
     await prev;
     try {
-      return await this.turn(chatKey, channel, chatId, userText);
+      return await this.turn(chatKey, channel, chatId, userText, attachments);
     } finally {
       release();
     }
   }
 
-  private async turn(chatKey: string, channel: string, chatId: string, userText: string): Promise<string> {
+  resetSession(channel: string, chatId: string): void {
+    // Intentionally bypasses the per-chat lock: clearing the session key is a
+    // single atomic KV write. However, if a turn is in-flight when this is called,
+    // the completing turn will write the old session_id back, silently undoing the
+    // reset. If that happens the user may need to issue /reset a second time once
+    // the in-flight turn finishes.
+    this.deps.store.kvSet(`moderator-session:${channel}:${chatId}`, "");
+  }
+
+  private async turn(
+    chatKey: string,
+    channel: string,
+    chatId: string,
+    userText: string,
+    attachments?: Array<{ path: string; fileName: string }>,
+  ): Promise<string> {
     const { store, jobs, vault, projectsRoot } = this.deps;
     this.origin = { channel, chatId };
+
+    // Process attachments before the agent turn so vault copies exist even if
+    // the turn fails. The annotation block is prepended to the user message.
+    const attachmentBlock = attachments?.length
+      ? await processAttachments(attachments, vault, this.deps.log)
+      : "";
+
+    const prompt = attachmentBlock
+      ? `${attachmentBlock}\n${userText || "(no caption — analyze the attached files)"}`
+      : userText || "(empty message)";
+
     const server = buildModeratorServer({
       jobs,
       store,
@@ -91,6 +123,7 @@ export class Moderator {
       gate: this.deps.gate,
       actionTypes: this.deps.actionTypes,
       google: this.deps.google,
+      log: this.deps.log,
     });
 
     const moderatorOptions = {
@@ -108,7 +141,7 @@ export class Moderator {
     return resumableTurn({
       store,
       sessionKey: `moderator-session:${chatKey}`,
-      prompt: userText,
+      prompt,
       log: this.deps.log,
       options: withDenialObserver(moderatorOptions, "moderator", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
     });

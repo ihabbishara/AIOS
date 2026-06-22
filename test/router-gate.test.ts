@@ -22,7 +22,7 @@ function setup() {
   // Stubs: gate commands must short-circuit before any agent is consulted.
   const router = new MessageRouter({
     moderator: { handle: async () => "moderator-reply" } as never,
-    directChats: { handle: async () => "direct-reply" } as never,
+    directChats: { handle: async () => ({ text: "direct-reply", attachments: [] }) } as never,
     finance: { handle: async () => "finance-reply" } as never,
     chatBindings: new Map(),
     gate,
@@ -38,8 +38,8 @@ describe("router gate commands", () => {
       { channel: "cli", chatId: "local" },
     );
     const reply = await router.handle({ channel: "cli", chatId: "local", text: `/approve ${row.id}` });
-    expect(reply).toContain("Executed");
-    expect(reply).toContain("echo: hi");
+    expect(reply?.text).toContain("Executed");
+    expect(reply?.text).toContain("echo: hi");
     expect(store.getAction(row.id)?.status).toBe("executed");
   });
 
@@ -50,19 +50,19 @@ describe("router gate commands", () => {
       { channel: "cli", chatId: "local" },
     );
     const reply = await router.handle({ channel: "cli", chatId: "local", text: `/reject ${row.id} too noisy` });
-    expect(reply).toContain("Rejected");
+    expect(reply?.text).toContain("Rejected");
     expect(store.getAction(row.id)?.reject_reason).toBe("too noisy");
   });
 
   it("unknown id returns a gate error, not a crash", async () => {
     const { router } = setup();
     const reply = await router.handle({ channel: "cli", chatId: "local", text: "/approve zzzzzzzz" });
-    expect(reply).toContain("no action");
+    expect(reply?.text).toContain("no action");
   });
 
   it("normal messages still reach the moderator", async () => {
     const { router } = setup();
     const reply = await router.handle({ channel: "cli", chatId: "local", text: "hello there" });
-    expect(reply).toBe("moderator-reply");
+    expect(reply?.text).toBe("moderator-reply");
   });
 });

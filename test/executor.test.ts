@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PlaybookExecutor } from "../src/engine/executor.js";
+import { PlaybookExecutor, SessionLimitError } from "../src/engine/executor.js";
 import { playbookSchema, type Playbook } from "../src/engine/playbook.js";
 import { Store, type JobRow } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
@@ -202,5 +202,94 @@ describe("PlaybookExecutor", () => {
       wallTimeMs: -1,
     });
     await expect(exec.execute(makeJob(), pb, "dir")).rejects.toThrow(/wall-time/i);
+  });
+
+  // ── Session-limit detection tests ─────────────────────────────────────────
+
+  it("rejects with SessionLimitError when agent returns session-limit text", async () => {
+    const pb: Playbook = playbookSchema.parse({
+      name: "pb",
+      description: "d",
+      stages: [{ type: "single", id: "a", role: "researcher" }],
+    });
+    await expect(
+      executor(async () =>
+        ok("You've hit your session limit · resets 10pm (Europe/Paris)"),
+      ).execute(makeJob(), pb, "dir"),
+    ).rejects.toThrow(/session limit/i);
+  });
+
+  it("thrown error is an instance of SessionLimitError", async () => {
+    const pb: Playbook = playbookSchema.parse({
+      name: "pb",
+      description: "d",
+      stages: [{ type: "single", id: "a", role: "researcher" }],
+    });
+    let caught: unknown;
+    try {
+      await executor(async () =>
+        ok("You've hit your session limit · resets 10pm (Europe/Paris)"),
+      ).execute(makeJob(), pb, "dir");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SessionLimitError);
+  });
+
+  it("does not retry when agent returns session-limit text (exactly 1 call)", async () => {
+    const pb: Playbook = playbookSchema.parse({
+      name: "pb",
+      description: "d",
+      stages: [{ type: "single", id: "a", role: "researcher" }],
+    });
+    let attempts = 0;
+    await expect(
+      executor(async () => {
+        attempts++;
+        return ok("You've hit your session limit · resets 10pm (Europe/Paris)");
+      }).execute(makeJob(), pb, "dir"),
+    ).rejects.toThrow(/session limit/i);
+    expect(attempts).toBe(1); // no retry — unlike ordinary errors which get 2 attempts
+  });
+
+  it("detects session limit with leading whitespace and mixed case", async () => {
+    const pb: Playbook = playbookSchema.parse({
+      name: "pb",
+      description: "d",
+      stages: [{ type: "single", id: "a", role: "researcher" }],
+    });
+    await expect(
+      executor(async () =>
+        ok("  \n  YOU'VE HIT YOUR SESSION LIMIT · resets tomorrow"),
+      ).execute(makeJob(), pb, "dir"),
+    ).rejects.toThrow(/session limit/i);
+  });
+
+  it("does not treat normal output as a session limit", async () => {
+    const pb: Playbook = playbookSchema.parse({
+      name: "pb",
+      description: "d",
+      stages: [{ type: "single", id: "a", role: "researcher" }],
+    });
+    const ctx = await executor(async () =>
+      ok("Here is an explanation of session limits and how they work in web apps."),
+    ).execute(makeJob(), pb, "dir");
+    expect(ctx.artifacts[0].content).toContain("explanation of session limits");
+  });
+
+  it("ordinary errors still retry once (regression guard)", async () => {
+    const pb: Playbook = playbookSchema.parse({
+      name: "pb",
+      description: "d",
+      stages: [{ type: "single", id: "a", role: "researcher" }],
+    });
+    let attempts = 0;
+    await expect(
+      executor(async () => {
+        attempts++;
+        throw new Error("transient");
+      }).execute(makeJob(), pb, "dir"),
+    ).rejects.toThrow("transient");
+    expect(attempts).toBe(2);
   });
 });

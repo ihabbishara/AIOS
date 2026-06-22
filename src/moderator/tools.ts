@@ -37,6 +37,8 @@ export interface ModeratorToolsDeps {
   /** Registered executor types, for the tool description. */
   actionTypes: string[];
   google: GoogleAccounts;
+  /** Optional structured log sink (same as ModeratorDeps.log). */
+  log?: (line: string) => void;
 }
 
 export function buildModeratorServer(deps: ModeratorToolsDeps) {
@@ -249,12 +251,22 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
 
   const readEmailTool = tool(
     "read_email",
-    "Read one email's full body (read-only). Use the [id] from list_inbox. Returns headers + ThreadId (pass threadId to email.send/email.draft for proper reply threading).",
+    "Read one email's full body and any attachments (read-only). Use the [id] from list_inbox. " +
+      "Returns headers + ThreadId (pass threadId to email.send/email.draft for proper reply threading). " +
+      "Images are stored to the vault — use the Read tool to view them. PDF text is extracted inline.",
     {
       account: z.string(),
       message_id: z.string(),
     },
-    async (args) => text(await readEmail(deps.google, { account: args.account, messageId: args.message_id })),
+    async (args) =>
+      text(
+        await readEmail(
+          deps.google,
+          { account: args.account, messageId: args.message_id },
+          deps.vault,
+          deps.log,
+        ),
+      ),
   );
 
   const recallTool = tool(

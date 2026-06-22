@@ -86,6 +86,9 @@ export class TelegramChannel implements ChannelAdapter {
     this.bot.on(["message:document", "message:photo"], async (ctx) => {
       console.log(`[telegram] file from user id ${ctx.from.id} in chat ${ctx.chat.id}`);
       if (!(await this.authorized(ctx))) return;
+      const typing = setInterval(() => {
+        ctx.replyWithChatAction("typing").catch(() => {});
+      }, 4500);
       try {
         const file = await ctx.getFile();
         if (!file.file_path) throw new Error("no file_path from Telegram");
@@ -94,7 +97,7 @@ export class TelegramChannel implements ChannelAdapter {
         const fileName =
           ctx.message.document?.file_name ??
           `photo-${Date.now()}.${file.file_path.split(".").pop() ?? "jpg"}`;
-        const local = join(this.downloadsDir, `${Date.now()}-${fileName}`);
+        const local = join(this.downloadsDir, `${randomUUID()}-${fileName}`);
         writeFileSync(local, Buffer.from(await res.arrayBuffer()));
         await onMessage({
           channel: this.name,
@@ -106,6 +109,40 @@ export class TelegramChannel implements ChannelAdapter {
       } catch (err) {
         console.log(`[telegram] file handling failed: ${(err as Error).message}`);
         await ctx.reply("Couldn't download that file — try again?");
+      } finally {
+        clearInterval(typing);
+      }
+    });
+    // Video messages — download and forward as an attachment.
+    this.bot.on("message:video", async (ctx) => {
+      console.log(`[telegram] video from user id ${ctx.from.id} in chat ${ctx.chat.id}`);
+      if (!(await this.authorized(ctx))) return;
+      // m5: typing indicator during download + agent turn, matching document/text handlers.
+      const typing = setInterval(() => {
+        this.bot.api.sendChatAction(ctx.chat.id, "typing").catch(() => {});
+      }, 4500);
+      this.bot.api.sendChatAction(ctx.chat.id, "typing").catch(() => {});
+      try {
+        const file = await ctx.getFile();
+        if (!file.file_path) throw new Error("no file_path from Telegram");
+        const res = await fetch(`https://api.telegram.org/file/bot${this.token}/${file.file_path}`);
+        if (!res.ok) throw new Error(`download failed: ${res.status}`);
+        const fileName =
+          ctx.message.video.file_name ?? `video-${Date.now()}.mp4`;
+        const local = join(this.downloadsDir, `${randomUUID()}-${fileName}`);
+        writeFileSync(local, Buffer.from(await res.arrayBuffer()));
+        await onMessage({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: ctx.message.caption ?? "",
+          sender: this.sender(ctx),
+          attachments: [{ path: local, fileName }],
+        });
+      } catch (err) {
+        console.log(`[telegram] video handling failed: ${(err as Error).message}`);
+        await ctx.reply("Couldn't download that video — try again?");
+      } finally {
+        clearInterval(typing);
       }
     });
     // Voice notes: download OGG → transcribe → echo transcript → route as text.

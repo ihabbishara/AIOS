@@ -5,6 +5,24 @@ import type { VaultWriter } from "../vault/writer.js";
 
 const ARTIFACT_CHAR_LIMIT = 12_000;
 
+/** Thrown when an agent returns a session/quota-limit message instead of real output. */
+export class SessionLimitError extends Error {
+  readonly name = "SessionLimitError";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+const SESSION_LIMIT_PATTERNS = [
+  "you've hit your session limit",
+  "hit your session limit",
+] as const;
+
+function isSessionLimitOutput(text: string): boolean {
+  const lower = text.toLowerCase().trimStart();
+  return SESSION_LIMIT_PATTERNS.some((p) => lower.includes(p));
+}
+
 export interface Artifact {
   stageId: string;
   role: string;
@@ -105,6 +123,9 @@ export class PlaybookExecutor {
     try {
       await this.runStage(stage, ctx);
     } catch (err) {
+      // Quota errors must not be retried — the limit is still active and a
+      // second attempt would produce the same message and waste time.
+      if (err instanceof SessionLimitError) throw err;
       this.deps.log?.(`stage ${stage.id}: failed (${(err as Error).message}), retrying once`);
       await this.runStage(stage, ctx);
     }
@@ -124,12 +145,24 @@ export class PlaybookExecutor {
     this.deps.onEvent?.({ type: "agent.start", agent: role, context });
     try {
       const res = await this.deps.run(role, brief, this.runOpts(ctx));
+
+      // Guard: the SDK delivers quota-exhaustion as a "success" with the limit
+      // message in res.text. Detect it here and convert to a hard failure so the
+      // job is never marked "done" with empty/garbage output.
+      if (isSessionLimitOutput(res.text)) {
+        this.deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
+        throw new SessionLimitError(
+          "Agent hit session limit — re-run after quota resets",
+        );
+      }
+
       this.deps.onEvent?.({
         type: "agent.end", agent: role, context, ok: true,
         costUsd: res.costUsd, turns: res.numTurns,
       });
       return res;
     } catch (err) {
+      if (err instanceof SessionLimitError) throw err; // agent.end already emitted above
       this.deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
       throw err;
     }

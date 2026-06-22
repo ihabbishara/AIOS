@@ -10,6 +10,8 @@ export interface ResumableTurnParams {
   log?: (line: string) => void;
 }
 
+export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
+
 /**
  * Runs one turn of a persistent conversation: resumes the stored session if any,
  * persists the session id only on success, and heals automatically when the
@@ -20,13 +22,21 @@ export async function resumableTurn(params: ResumableTurnParams): Promise<string
   try {
     return await runOnce(params, existing || undefined);
   } catch (err) {
-    if ((err as Error).message.includes("No conversation found")) {
-      params.log?.(`stale session for ${params.sessionKey}, starting fresh`);
+    if (err instanceof Error && LOCKDOWN_RE.test(err.message)) {
+      params.log?.(`stale/locked session for ${params.sessionKey}, starting fresh`);
       params.store.kvSet(params.sessionKey, "");
       return await runOnce(params, undefined);
     }
     throw err;
   }
+}
+
+/**
+ * Clears a stored session id so the next turn begins a fresh SDK session.
+ * Intended for future callers: admin API, CLI commands, scheduled cleanup jobs.
+ */
+export function clearSession(store: Store, sessionKey: string): void {
+  store.kvSet(sessionKey, "");
 }
 
 async function runOnce(params: ResumableTurnParams, resume: string | undefined): Promise<string> {

@@ -1,7 +1,10 @@
+import { resolve } from "node:path";
 import { roles } from "./roles/index.js";
 import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
+import { buildAttachmentServer } from "./attachment-server.js";
+import type { Attachment } from "./attachment.js";
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 
@@ -38,12 +41,17 @@ export class DirectChats {
     return Object.keys(roles);
   }
 
-  async handle(role: string, channel: string, chatId: string, userText: string): Promise<string> {
+  async handle(
+    role: string,
+    channel: string,
+    chatId: string,
+    userText: string,
+  ): Promise<{ text: string; attachments: Attachment[] }> {
     const def = roles[role];
     if (!def) throw new Error(`Unknown specialist: ${role}`);
 
     if (def.privateOnly && !isPrivateOrigin(this.deps.primaryChat, channel, chatId)) {
-      return "That's private — ask me from your private chat.";
+      return { text: "That's private — ask me from your private chat.", attachments: [] };
     }
 
     const key = `direct-session:${role}:${channel}:${chatId}`;
@@ -60,16 +68,40 @@ export class DirectChats {
       const withPack = pack ? packRunOptions(base, pack) : base;
       const options = withEffectiveTools(withPack, role, this.deps.store);
       const observed = withDenialObserver(options, role, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
-      return await resumableTurn({
+
+      // Attachment server: turn-scoped collector + in-process MCP server.
+      const attachments: Attachment[] = [];
+      const safeDirs = [
+        resolve(def.cwd ?? this.deps.projectsRoot),
+        resolve("data/downloads"),
+        "/tmp/aios-",       // prefix match — any /tmp/aios-* path is permitted
+      ];
+      const attachmentServer = buildAttachmentServer(attachments, safeDirs);
+
+      const text = await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
         prompt: userText,
         log: this.deps.log,
-        options: observed,
+        options: {
+          ...observed,
+          mcpServers: { ...(observed.mcpServers ?? {}), aios_attachments: attachmentServer },
+        },
       });
+
+      return { text, attachments };
     } finally {
       release();
     }
+  }
+
+  resetSession(role: string, channel: string, chatId: string): void {
+    // Intentionally bypasses the per-key lock: clearing the session key is a
+    // single atomic KV write. However, if a turn is in-flight when this is called,
+    // the completing turn will write the old session_id back, silently undoing the
+    // reset. If that happens the user may need to issue /reset a second time once
+    // the in-flight turn finishes.
+    this.deps.store.kvSet(`direct-session:${role}:${channel}:${chatId}`, "");
   }
 }
 

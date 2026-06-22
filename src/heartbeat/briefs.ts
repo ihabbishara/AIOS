@@ -75,6 +75,10 @@ export function assembleBrief(
       } else if (event.type === "trust.changed") {
         trustChanges.push({ type: event.actionType, state: event.state });
       } else if (event.type === "mail.received") {
+        // Only count emails actually received after the last brief window.
+        // The DB event ts reflects when the watcher processed the message (which
+        // may lag after a backlog catch-up), so we use receivedAt from the payload.
+        if (sinceTs && event.receivedAt < sinceTs) continue;
         const domain = event.from.match(/@([^>\s]+)/)?.[1] ?? event.from;
         const acc = mailByAccount.get(event.account) ?? new Map<string, number>();
         acc.set(domain, (acc.get(domain) ?? 0) + 1);

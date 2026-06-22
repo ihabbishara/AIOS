@@ -96,7 +96,7 @@ export const roles: Record<string, RoleDef> = {
       "Root-cause analysis: trace controller → function → hooks → database, citing file:line from the repo. " +
       "Correlate code reading with live evidence (logs, DB state, deploy status). Present findings with " +
       "evidence; recommend fixes as descriptions for the developers — never apply them yourself.",
-    allowedTools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "TodoWrite"],
+    allowedTools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "TodoWrite", "mcp__aios_attachments__attach_file"],
     permissionMode: "default",
     cwd: HALALO_DIR,
     contextFiles: [`${HALALO_DIR}/CLAUDE.md`],

@@ -247,8 +247,18 @@ async function main(): Promise<void> {
   const onMessage = async (msg: import("./channels/types.js").InboundMessage): Promise<void> => {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
-      const reply = await router.handle(msg);
-      if (reply !== null) await deliverReply({ voice, log }, channels.get(msg.channel), msg, reply);
+      const result = await router.handle(msg);
+      if (result !== null) {
+        await deliverReply({ voice, log }, channels.get(msg.channel), msg, result.text);
+        for (const att of result.attachments) {
+          await channels
+            .get(msg.channel)
+            ?.sendFile(msg.chatId, att.path, att.caption)
+            .catch((err) =>
+              log(`sendFile failed (${att.path}): ${(err as Error).message}`),
+            );
+        }
+      }
     } catch (err) {
       log(`handler error: ${(err as Error).stack}`);
       await channels.get(msg.channel)?.send(msg.chatId, `Error: ${(err as Error).message}`);

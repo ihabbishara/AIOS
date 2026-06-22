@@ -1,11 +1,14 @@
 // src/senses/google/read.ts
 import type { GoogleAccounts } from "./auth.js";
+import { processAttachment } from "../../attachments.js";
+import type { VaultWriter } from "../../vault/writer.js";
 
 export interface GmailPayload {
   mimeType?: string | null;
-  body?: { data?: string | null } | null;
+  body?: { data?: string | null; attachmentId?: string | null } | null;
   parts?: GmailPayload[] | null;
   headers?: Array<{ name?: string | null; value?: string | null }> | null;
+  filename?: string | null;
 }
 
 export interface GmailReadLike {
@@ -13,6 +16,9 @@ export interface GmailReadLike {
     messages: {
       list(p: { userId: string; q?: string; maxResults?: number; labelIds?: string[] }): Promise<{ data: { messages?: Array<{ id?: string | null }> | null } }>;
       get(p: { userId: string; id: string; format?: string }): Promise<{ data: { id?: string | null; threadId?: string | null; snippet?: string | null; labelIds?: string[] | null; payload?: GmailPayload | null } }>;
+      attachments: {
+        get(p: { userId: string; messageId: string; id: string }): Promise<{ data: { data?: string | null } }>;
+      };
     };
   };
 }
@@ -62,6 +68,83 @@ function gmailOf(accounts: GoogleAccounts, name: string): GmailReadLike | string
   return acc.gmail as unknown as GmailReadLike;
 }
 
+// ── Attachment extraction ────────────────────────────────────────────────────
+
+interface AttachmentPart {
+  fileName: string;
+  mimeType: string;
+  attachmentId: string;
+}
+
+/**
+ * Recursively walk a MIME payload tree and collect parts that represent
+ * file attachments (non-empty attachmentId + non-empty filename).
+ */
+function collectAttachmentParts(payload: GmailPayload | null | undefined): AttachmentPart[] {
+  if (!payload) return [];
+  const results: AttachmentPart[] = [];
+
+  const walk = (p: GmailPayload) => {
+    const attachmentId = p.body?.attachmentId;
+    const fileName = p.filename?.trim();
+    if (attachmentId && fileName) {
+      // m4: skip inline parts (logos, tracking pixels in HTML emails).
+      // Only explicit attachments (Content-Disposition: attachment) are stored to vault.
+      const disposition = header(p.headers ?? [], "Content-Disposition");
+      if (!disposition.toLowerCase().startsWith("inline")) {
+        results.push({
+          fileName,
+          mimeType: p.mimeType ?? "application/octet-stream",
+          attachmentId,
+        });
+      }
+    }
+    for (const child of p.parts ?? []) {
+      walk(child);
+    }
+  };
+
+  walk(payload);
+  return results;
+}
+
+/**
+ * Fetch one Gmail attachment part's data, decode from base64url, and run it
+ * through the shared processAttachment() pipeline (image → vault, PDF → text,
+ * etc.).
+ */
+async function fetchAndProcessAttachment(
+  gmail: GmailReadLike,
+  messageId: string,
+  part: AttachmentPart,
+  vault: VaultWriter,
+  log?: (line: string) => void,
+): Promise<string> {
+  const safeName = part.fileName.replace(/[\r\n\[\]]/g, "_");
+  try {
+    const { data } = await gmail.users.messages.attachments.get({
+      userId: "me",
+      messageId,
+      id: part.attachmentId,
+    });
+    if (!data.data) {
+      return `[Attachment: ${safeName} — empty data from Gmail API]`;
+    }
+    const buf = Buffer.from(data.data, "base64url");
+    return processAttachment(
+      { kind: "buffer", buf, fileName: part.fileName, mimeType: part.mimeType },
+      vault,
+      log,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log?.(`[attachments] failed to fetch Gmail attachment ${safeName}: ${msg}`);
+    return `[Attachment: ${safeName} — fetch failed: ${msg}]`;
+  }
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
 export async function listInbox(
   accounts: GoogleAccounts,
   opts: { account: string; query?: string; limit?: number },
@@ -88,12 +171,15 @@ export async function listInbox(
 export async function readEmail(
   accounts: GoogleAccounts,
   opts: { account: string; messageId: string },
+  vault?: VaultWriter,
+  log?: (line: string) => void,
 ): Promise<string> {
   const gmail = gmailOf(accounts, opts.account);
   if (typeof gmail === "string") return gmail;
   const { data } = await gmail.users.messages.get({ userId: "me", id: opts.messageId, format: "full" });
   const h = data.payload?.headers ?? [];
-  return [
+
+  const bodyLines = [
     `From: ${header(h, "From")}`,
     `To: ${header(h, "To")}`,
     `Date: ${header(h, "Date")}`,
@@ -101,5 +187,22 @@ export async function readEmail(
     `ThreadId: ${data.threadId ?? ""}`,
     "",
     extractBody(data.payload) || "(no readable body)",
-  ].join("\n");
+  ];
+
+  // Attachment processing — only when vault is provided.
+  // Skipped gracefully when called from contexts without vault access.
+  if (vault) {
+    const parts = collectAttachmentParts(data.payload);
+    if (parts.length) {
+      // M4: sequential processing avoids Gmail quota exhaustion (250 units/s;
+      // 5 units per attachments.get call — 20+ attachments would saturate quota).
+      const notes: string[] = [];
+      for (const p of parts) {
+        notes.push(await fetchAndProcessAttachment(gmail, opts.messageId, p, vault, log));
+      }
+      bodyLines.push("", ...notes);
+    }
+  }
+
+  return bodyLines.join("\n");
 }
