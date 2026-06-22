@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { loadConfig, assertAuth } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { loadPacks, dropCodePack } from "./packs/loader.js";
+import { loadPacks, dropPack } from "./packs/loader.js";
 import { makeResolvePackFor } from "./packs/resolve.js";
 import { allocateWorkspace } from "./code/workspace.js";
 import { randomUUID } from "node:crypto";
@@ -70,7 +70,11 @@ async function main(): Promise<void> {
     }
   });
   const { playbooks, packs, pillarOf, roleOf } = loadPacks(config.playbooksDir, log);
-  if (config.codeDisabled) dropCodePack({ playbooks, packs, pillarOf, roleOf } as LoadedPacks);
+  for (const pillar of [...packs.keys()]) {
+    if (process.env[`AIOS_${pillar.toUpperCase()}_DISABLED`] === "1") {
+      dropPack({ playbooks, packs, pillarOf, roleOf } as LoadedPacks, pillar);
+    }
+  }
   log(`playbooks: ${[...playbooks.keys()].join(", ")}`);
   log(`packs: ${[...packs.keys()].join(", ") || "(none)"}`);
 
@@ -79,7 +83,11 @@ async function main(): Promise<void> {
   // stay in sync — the old flat reload only refreshed top-level playbooks.
   const reloadPacks = () => {
     const fresh = loadPacks(config.playbooksDir, log);
-    if (config.codeDisabled) dropCodePack(fresh);
+    for (const pillar of [...fresh.packs.keys()]) {
+      if (process.env[`AIOS_${pillar.toUpperCase()}_DISABLED`] === "1") {
+        dropPack(fresh, pillar);
+      }
+    }
     playbooks.clear(); for (const [k, v] of fresh.playbooks) playbooks.set(k, v);
     packs.clear();     for (const [k, v] of fresh.packs) packs.set(k, v);
     pillarOf.clear();  for (const [k, v] of fresh.pillarOf) pillarOf.set(k, v);
