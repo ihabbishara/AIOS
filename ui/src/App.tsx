@@ -10,8 +10,9 @@ import { EventFeed } from "./views/EventFeed.js";
 import { Approvals } from "./views/Approvals.js";
 import { Trust } from "./views/Trust.js";
 import { Permissions } from "./views/Permissions.js";
+import { Packs } from "./views/Packs.js";
 
-const TABS = ["board", "approvals", "trust", "permissions", "agents", "chat", "config", "costs"] as const;
+const TABS = ["board", "approvals", "trust", "permissions", "agents", "packs", "chat", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
@@ -80,6 +81,7 @@ export function App() {
           <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
           <div className={tab === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
           <div className={tab === "agents" ? "" : "hidden"}><Agents state={state} events={events} /></div>
+          <div className={tab === "packs" ? "" : "hidden"}><Packs events={events} /></div>
           <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} /></div>
           <div className={tab === "config" ? "h-full" : "hidden"}><Config /></div>
           <div className={tab === "costs" ? "" : "hidden"}><Costs events={events} /></div>

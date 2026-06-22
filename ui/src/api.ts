@@ -92,6 +92,16 @@ export interface PermissionInfo {
   knownTools: string[];
 }
 
+export interface PackRoleView { name: string; description: string; privateOnly: boolean; advisoryInDirect: boolean; permissionMode: string; allowedTools: string[]; }
+export interface PackPlaybookView { name: string; description: string; needsProjectDir: boolean; stages: Array<{ id: string; type: string; role: string }>; }
+export interface PackJobView { id: string; title: string; playbook: string; status: string; created_at: string; projectDir: string | null; }
+export interface PackWorkspaceView { taskDir: string; exists: boolean; jobId: string; title: string; status: string; }
+export interface PackView {
+  pillar: string; persona: string; memoDomain: string; vaultSection: string; sandbox: boolean; enabled: boolean;
+  toolServer?: string; tools: string[]; actions: string[];
+  roles: PackRoleView[]; playbooks: PackPlaybookView[]; recentJobs: PackJobView[]; workspaces: PackWorkspaceView[]; memoCount: number;
+}
+
 export function getToken(): string {
   return localStorage.getItem("aios_token") ?? "";
 }
@@ -136,6 +146,7 @@ export const api = {
   demoteTrust: (type: string) =>
     request<{ ok: boolean }>(`/api/trust/${type}/demote`, { method: "POST" }),
   permissions: () => request<PermissionInfo[]>("/api/permissions"),
+  packs: () => request<PackView[]>("/api/packs"),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",
