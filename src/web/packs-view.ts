@@ -58,7 +58,7 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
   let entries: string[];
   try { entries = readdirSync(config.playbooksDir); } catch { return out; }
 
-  const recentJobs = store.listJobs(100);
+  const recentJobs = store.listJobs(500);
 
   for (const entry of entries) {
     const manifestPath = join(config.playbooksDir, entry, "pack.yaml");
@@ -107,7 +107,7 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
       const seen = new Set<string>();
       for (const j of myJobs) {
         const dir = j.project_dir;
-        if (!dir || seen.has(dir) || !dir.startsWith(config.workspaceRoot)) continue;
+        if (!dir || seen.has(dir) || !dir.startsWith(config.workspaceRoot + "/")) continue;
         seen.add(dir);
         let exists = false;
         try { exists = statSync(dir).isDirectory(); } catch { exists = false; }
