@@ -5,7 +5,7 @@ import { parse as parseYaml } from "yaml";
 import type { Config } from "../config.js";
 import type { Store } from "../store/db.js";
 import { packSchema } from "../packs/types.js";
-import { loadPlaybook } from "../engine/playbook.js";
+import { loadPlaybook, playbookSchema } from "../engine/playbook.js";
 import { roles } from "../agents/roles/index.js";
 
 export interface PackRoleView {
@@ -141,6 +141,20 @@ export function packDisableKey(pillar: string): string {
 }
 
 export interface RunValidation { ok: boolean; error?: string; projectDir?: string; }
+
+export interface FileValidation { ok: boolean; error?: string; }
+
+/** Validate a pillar file before write: pack.yaml→packSchema, *.yaml→playbookSchema. Rejects traversal/non-yaml. */
+export function validatePackFile(name: string, yaml: string): FileValidation {
+  if (name.includes("/") || name.includes("\\") || name.includes("..")) return { ok: false, error: "illegal filename" };
+  if (!/^[\w.-]+\.ya?ml$/.test(name)) return { ok: false, error: "must be a .yaml file" };
+  try {
+    const parsed = parseYaml(yaml);
+    if (name === "pack.yaml") packSchema.parse(parsed);
+    else playbookSchema.parse(parsed);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: (e as Error).message }; }
+}
 
 /** Validate a pack-run request against the on-disk manifest + the projects-root guard. */
 export function validateRunRequest(config: Config, pillar: string, playbook: string, projectDir?: string): RunValidation {

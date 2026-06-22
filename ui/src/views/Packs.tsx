@@ -1,5 +1,5 @@
 // ui/src/views/Packs.tsx
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type PackView, type PackPlaybookView, type StoredEvent } from "../api.js";
 import { usePoll } from "../hooks.js";
 
@@ -24,6 +24,7 @@ function PackCard({ pack, i }: { pack: PackView; i: number }) {
   const dim = pack.enabled ? "" : "opacity-50";
   const [openPb, setOpenPb] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const handleToggle = useCallback(async () => {
     const action = pack.enabled ? "disable" : "enable";
@@ -117,7 +118,92 @@ function PackCard({ pack, i }: { pack: PackView; i: number }) {
           ))}
         </div>
       )}
+      <div className="mt-2">
+        <button
+          className="text-[9px] border border-line px-1 hover:border-phosphor hover:text-phosphor disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!pack.enabled}
+          onClick={() => setEditOpen((v) => !v)}
+        >
+          {editOpen ? "[Edit YAML ▴]" : "[Edit YAML ▾]"}
+        </button>
+        {editOpen && <EditYamlPanel pack={pack} onClose={() => setEditOpen(false)} />}
+      </div>
     </section>
+  );
+}
+
+function EditYamlPanel({ pack, onClose }: { pack: PackView; onClose: () => void }) {
+  const [files, setFiles] = useState<Array<{ file: string; yaml: string }> | null>(null);
+  const [chosen, setChosen] = useState<string>("");
+  const [draft, setDraft] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.packFiles(pack.pillar).then((f) => {
+      setFiles(f);
+      if (f.length > 0) {
+        setChosen(f[0].file);
+        setDraft(f[0].yaml);
+      }
+    }).catch((e: Error) => setErr(e.message));
+  }, [pack.pillar]);
+
+  function handleSelect(file: string) {
+    setChosen(file);
+    setDraft(files?.find((f) => f.file === file)?.yaml ?? "");
+    setErr(null);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api.savePackFile(pack.pillar, chosen, draft);
+      onClose();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!files) return <div className="text-[10px] text-dim mt-1">{err ? `Error: ${err}` : "loading…"}</div>;
+
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      {files.length > 0 ? (
+        <>
+          <select
+            className="text-[10px] bg-transparent border border-line text-fg px-1 py-0.5"
+            value={chosen}
+            onChange={(e) => handleSelect(e.target.value)}
+          >
+            {files.map((f) => <option key={f.file} value={f.file}>{f.file}</option>)}
+          </select>
+          <textarea
+            className="text-[10px] font-mono bg-transparent border border-line text-fg p-1 w-full resize-y"
+            rows={12}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={saving}
+          />
+          {err && <div className="text-[10px] text-alert">{err}</div>}
+          <div className="flex gap-2">
+            <button
+              className="text-[9px] border border-phosphor text-phosphor px-2 py-0.5 hover:bg-phosphor hover:text-bg disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={saving}
+              onClick={handleSave}
+            >
+              {saving ? "…" : "Save"}
+            </button>
+            <button type="button" className="text-[9px] text-dim" onClick={onClose}>cancel</button>
+          </div>
+        </>
+      ) : (
+        <div className="text-[10px] text-dim">no yaml files found</div>
+      )}
+    </div>
   );
 }
 

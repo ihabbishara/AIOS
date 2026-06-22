@@ -15,7 +15,7 @@ import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
-import { buildPacksView, validateRunRequest, packDisableKey } from "./packs-view.js";
+import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile } from "./packs-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -349,6 +349,27 @@ export function startWebServer(deps: WebDeps, port: number): void {
           log(`pack ${pillar} ${body.enabled === false ? "disabled" : "enabled"} from UI — restarting`);
           setTimeout(() => process.exit(0), 300);
           return;
+        }
+
+        const filesMatch = /^\/api\/packs\/([\w-]+)\/files$/.exec(path);
+        if (filesMatch && req.method === "GET") {
+          const dir = join(config.playbooksDir, filesMatch[1]);
+          if (!existsSync(join(dir, "pack.yaml"))) return json(res, 404, { error: "unknown pillar" });
+          const out = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))
+            .map((f) => ({ file: f, yaml: readFileSync(join(dir, f), "utf8") }));
+          return json(res, 200, out);
+        }
+        const fileMatch = /^\/api\/packs\/([\w-]+)\/files\/([\w.-]+\.ya?ml)$/.exec(path);
+        if (fileMatch && req.method === "PUT") {
+          const [, pillar, file] = fileMatch;
+          const dir = join(config.playbooksDir, pillar);
+          if (!existsSync(join(dir, "pack.yaml"))) return json(res, 404, { error: "unknown pillar" });
+          const body = JSON.parse(await readBody(req)) as { yaml: string };
+          const v = validatePackFile(file, body.yaml);
+          if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
+          writeFileSync(join(dir, file), body.yaml);
+          reloadPacks();
+          return json(res, 200, { ok: true, reloaded: true });
         }
 
         if (path === "/api/permissions" && req.method === "GET") {
