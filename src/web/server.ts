@@ -15,7 +15,7 @@ import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
-import { buildPacksView } from "./packs-view.js";
+import { buildPacksView, validateRunRequest } from "./packs-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -315,6 +315,26 @@ export function startWebServer(deps: WebDeps, port: number): void {
 
         if (path === "/api/packs" && req.method === "GET") {
           return json(res, 200, buildPacksView(config, store));
+        }
+
+        const runMatch = /^\/api\/packs\/([\w-]+)\/run$/.exec(path);
+        if (runMatch && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { playbook?: string; project_dir?: string };
+          if (!body.playbook) return json(res, 400, { error: "playbook required" });
+          const v = validateRunRequest(config, runMatch[1], body.playbook, body.project_dir);
+          if (!v.ok) return json(res, 400, { error: v.error });
+          try {
+            const job = jobs.createJob({
+              playbook: body.playbook,
+              title: `${body.playbook}: ${v.projectDir ?? "new workspace"}`,
+              request: `Run ${body.playbook} from the Packs view${v.projectDir ? ` on ${v.projectDir}` : ""}.`,
+              projectDir: v.projectDir,
+              channel: "web", chatId: "packs-view",
+            });
+            return json(res, 200, { id: job.id });
+          } catch (e) {
+            return json(res, 400, { error: (e as Error).message });
+          }
         }
 
         if (path === "/api/permissions" && req.method === "GET") {

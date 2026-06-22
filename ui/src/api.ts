@@ -147,6 +147,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/trust/${type}/demote`, { method: "POST" }),
   permissions: () => request<PermissionInfo[]>("/api/permissions"),
   packs: () => request<PackView[]>("/api/packs"),
+  runPack: (pillar: string, playbook: string, projectDir?: string) =>
+    request<{ id: string }>(`/api/packs/${pillar}/run`, { method: "POST", body: JSON.stringify({ playbook, project_dir: projectDir }) }),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",

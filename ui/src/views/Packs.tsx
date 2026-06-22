@@ -1,6 +1,6 @@
 // ui/src/views/Packs.tsx
-import { useMemo } from "react";
-import { api, type PackView, type StoredEvent } from "../api.js";
+import { useMemo, useState } from "react";
+import { api, type PackView, type PackPlaybookView, type StoredEvent } from "../api.js";
 import { usePoll } from "../hooks.js";
 
 export function Packs({ events }: { events: StoredEvent[] }) {
@@ -22,6 +22,8 @@ export function Packs({ events }: { events: StoredEvent[] }) {
 
 function PackCard({ pack, i }: { pack: PackView; i: number }) {
   const dim = pack.enabled ? "" : "opacity-50";
+  const [openPb, setOpenPb] = useState<string | null>(null);
+
   return (
     <section className={`boot hud p-4 ${dim}`} style={{ animationDelay: `${i * 60}ms` }}>
       <div className="flex items-center gap-2 mb-2">
@@ -50,9 +52,21 @@ function PackCard({ pack, i }: { pack: PackView; i: number }) {
         <div className="mb-2">
           <span className="label">Playbooks</span>
           {pack.playbooks.map((pb) => (
-            <div key={pb.name} className="text-[10px] text-fg mt-1">
-              <span className="text-cyan">{pb.name}</span>{" "}
-              <span className="text-dim">{pb.stages.map((s) => s.id).join("→")}{pb.needsProjectDir ? " · needs project_dir" : ""}</span>
+            <div key={pb.name} className="mt-1">
+              <div className="flex items-center gap-2 text-[10px] text-fg">
+                <span className="text-cyan">{pb.name}</span>{" "}
+                <span className="text-dim">{pb.stages.map((s) => s.id).join("→")}{pb.needsProjectDir ? " · needs project_dir" : ""}</span>
+                <button
+                  className="ml-auto text-[9px] border border-line px-1 hover:border-phosphor hover:text-phosphor disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={!pack.enabled}
+                  onClick={() => setOpenPb(openPb === pb.name ? null : pb.name)}
+                >
+                  {openPb === pb.name ? "✕" : "Run"}
+                </button>
+              </div>
+              {openPb === pb.name && (
+                <RunForm pack={pack} pb={pb} onClose={() => setOpenPb(null)} />
+              )}
             </div>
           ))}
         </div>
@@ -81,5 +95,62 @@ function PackCard({ pack, i }: { pack: PackView; i: number }) {
         </div>
       )}
     </section>
+  );
+}
+
+function RunForm({ pack, pb, onClose }: { pack: PackView; pb: PackPlaybookView; onClose: () => void }) {
+  const [dir, setDir] = useState("");
+  const [queued, setQueued] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (pb.needsProjectDir && !dir.trim()) {
+      setErr("project_dir is required for this playbook");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const result = await api.runPack(pack.pillar, pb.name, dir.trim() || undefined);
+      setQueued(result.id);
+    } catch (ex) {
+      setErr((ex as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (queued) {
+    return (
+      <div className="mt-1 text-[10px] text-phosphor">
+        queued {queued}{" "}
+        <button className="text-dim underline ml-1" onClick={onClose}>dismiss</button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-1 flex flex-col gap-1">
+      <input
+        className="text-[10px] bg-transparent border border-line px-1 py-0.5 text-fg placeholder:text-dim w-full"
+        placeholder={pb.needsProjectDir ? "project_dir (required)" : "project_dir (optional)"}
+        value={dir}
+        onChange={(e) => setDir(e.target.value)}
+        disabled={busy}
+      />
+      {err && <div className="text-[10px] text-alert">{err}</div>}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={busy}
+          className="text-[9px] border border-phosphor text-phosphor px-2 py-0.5 hover:bg-phosphor hover:text-bg disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? "…" : "Launch"}
+        </button>
+        <button type="button" className="text-[9px] text-dim" onClick={onClose}>cancel</button>
+      </div>
+    </form>
   );
 }

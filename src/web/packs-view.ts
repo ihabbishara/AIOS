@@ -1,6 +1,6 @@
 // src/web/packs-view.ts
 import { readdirSync, existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { Config } from "../config.js";
 import type { Store } from "../store/db.js";
@@ -133,4 +133,23 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
     });
   }
   return out;
+}
+
+export interface RunValidation { ok: boolean; error?: string; projectDir?: string; }
+
+/** Validate a pack-run request against the on-disk manifest + the projects-root guard. */
+export function validateRunRequest(config: Config, pillar: string, playbook: string, projectDir?: string): RunValidation {
+  const manifestPath = join(config.playbooksDir, pillar, "pack.yaml");
+  if (!existsSync(manifestPath)) return { ok: false, error: `unknown pillar: ${pillar}` };
+  let pack: ReturnType<typeof packSchema.parse>;
+  try { pack = packSchema.parse(parseYaml(readFileSync(manifestPath, "utf8"))); }
+  catch (e) { return { ok: false, error: `bad manifest: ${(e as Error).message}` }; }
+  if (!pack.playbooks.includes(playbook)) return { ok: false, error: `playbook ${playbook} not in pillar ${pillar}` };
+  if (projectDir) {
+    const dir = resolve(projectDir);
+    const root = resolve(config.projectsRoot);
+    if (dir !== root && !dir.startsWith(root + sep)) return { ok: false, error: `project_dir must be under ${root}` };
+    return { ok: true, projectDir: dir };
+  }
+  return { ok: true };
 }
