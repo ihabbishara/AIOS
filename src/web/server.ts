@@ -15,6 +15,7 @@ import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
+import { buildPacksView } from "./packs-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -310,6 +311,10 @@ export function startWebServer(deps: WebDeps, port: number): void {
           log("restart requested from UI");
           setTimeout(() => process.exit(0), 300);
           return;
+        }
+
+        if (path === "/api/packs" && req.method === "GET") {
+          return json(res, 200, buildPacksView(config, store));
         }
 
         if (path === "/api/permissions" && req.method === "GET") {
