@@ -15,7 +15,7 @@ import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
-import { buildPacksView, validateRunRequest } from "./packs-view.js";
+import { buildPacksView, validateRunRequest, packDisableKey } from "./packs-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -335,6 +335,20 @@ export function startWebServer(deps: WebDeps, port: number): void {
           } catch (e) {
             return json(res, 400, { error: (e as Error).message });
           }
+        }
+
+        const enabledMatch = /^\/api\/packs\/([\w-]+)\/enabled$/.exec(path);
+        if (enabledMatch && req.method === "POST") {
+          const pillar = enabledMatch[1];
+          if (!existsSync(join(config.playbooksDir, pillar, "pack.yaml"))) {
+            return json(res, 404, { error: `unknown pillar: ${pillar}` });
+          }
+          const body = JSON.parse(await readBody(req)) as { enabled?: boolean };
+          updateEnvFile(deps.envPath, packDisableKey(pillar), body.enabled === false ? "1" : "");
+          json(res, 200, { ok: true, restarting: true });
+          log(`pack ${pillar} ${body.enabled === false ? "disabled" : "enabled"} from UI — restarting`);
+          setTimeout(() => process.exit(0), 300);
+          return;
         }
 
         if (path === "/api/permissions" && req.method === "GET") {

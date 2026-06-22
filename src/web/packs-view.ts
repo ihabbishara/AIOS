@@ -135,6 +135,11 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
   return out;
 }
 
+/** The env var that disables a pillar's pack at boot (consumed by index.ts's kill-switch loop). */
+export function packDisableKey(pillar: string): string {
+  return `AIOS_${pillar.toUpperCase()}_DISABLED`;
+}
+
 export interface RunValidation { ok: boolean; error?: string; projectDir?: string; }
 
 /** Validate a pack-run request against the on-disk manifest + the projects-root guard. */

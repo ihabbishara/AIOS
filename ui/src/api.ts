@@ -149,6 +149,8 @@ export const api = {
   packs: () => request<PackView[]>("/api/packs"),
   runPack: (pillar: string, playbook: string, projectDir?: string) =>
     request<{ id: string }>(`/api/packs/${pillar}/run`, { method: "POST", body: JSON.stringify({ playbook, project_dir: projectDir }) }),
+  setPackEnabled: (pillar: string, enabled: boolean) =>
+    request<{ ok: boolean; restarting: boolean }>(`/api/packs/${pillar}/enabled`, { method: "POST", body: JSON.stringify({ enabled }) }),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",

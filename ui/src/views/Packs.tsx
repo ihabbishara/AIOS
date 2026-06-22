@@ -1,5 +1,5 @@
 // ui/src/views/Packs.tsx
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { api, type PackView, type PackPlaybookView, type StoredEvent } from "../api.js";
 import { usePoll } from "../hooks.js";
 
@@ -23,15 +23,38 @@ export function Packs({ events }: { events: StoredEvent[] }) {
 function PackCard({ pack, i }: { pack: PackView; i: number }) {
   const dim = pack.enabled ? "" : "opacity-50";
   const [openPb, setOpenPb] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+
+  const handleToggle = useCallback(async () => {
+    const action = pack.enabled ? "disable" : "enable";
+    if (!window.confirm(`Toggle ${pack.pillar} (${action})? This restarts the daemon (~10s).`)) return;
+    try {
+      await api.setPackEnabled(pack.pillar, !pack.enabled);
+      setRestarting(true);
+      setTimeout(() => setRestarting(false), 12_000);
+    } catch {
+      // ignore — daemon may have exited before responding
+      setRestarting(true);
+      setTimeout(() => setRestarting(false), 12_000);
+    }
+  }, [pack.pillar, pack.enabled]);
 
   return (
     <section className={`boot hud p-4 ${dim}`} style={{ animationDelay: `${i * 60}ms` }}>
       <div className="flex items-center gap-2 mb-2">
         <span className="font-display uppercase tracking-[0.2em] text-[13px] text-phosphor glow-green">{pack.pillar}</span>
         {pack.sandbox && <span className="text-[9px] text-cyan border border-cyan px-1">sandbox</span>}
-        <span className={`text-[10px] ml-auto ${pack.enabled ? "text-phosphor" : "text-dim"}`}>
-          {pack.enabled ? "● enabled" : "○ disabled"}
-        </span>
+        {restarting ? (
+          <span className="text-[10px] ml-auto text-amber">restarting…</span>
+        ) : (
+          <button
+            className={`text-[10px] ml-auto cursor-pointer hover:underline ${pack.enabled ? "text-phosphor" : "text-dim"}`}
+            onClick={handleToggle}
+            title={pack.enabled ? "Click to disable" : "Click to enable"}
+          >
+            {pack.enabled ? "● enabled" : "○ disabled"}
+          </button>
+        )}
       </div>
       <div className="text-[11px] text-dim mb-2 line-clamp-2">{pack.persona}</div>
       <div className="text-[10px] text-dim mb-2">
