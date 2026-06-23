@@ -103,6 +103,7 @@ export interface SubscriptionRow {
   status: "detected" | "confirmed" | "dismissed"; source: "auto" | "manual"; created_at: string;
 }
 export interface BudgetRow { category: string; limit_cents: number; currency: string; created_at: string; }
+export interface ResearchSourceRow { id: number; url: string; title: string; topic: string | null; note: string | null; created_at: string; }
 
 export class Store {
   private db: DatabaseSync;
@@ -283,6 +284,14 @@ export class Store {
       CREATE TABLE IF NOT EXISTS personal_budgets (
         category TEXT NOT NULL, limit_cents INTEGER NOT NULL, currency TEXT NOT NULL, created_at TEXT NOT NULL,
         UNIQUE(category)
+      );
+      CREATE TABLE IF NOT EXISTS research_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        topic TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL
       );
     `);
     this.db.exec(`
@@ -829,6 +838,34 @@ export class Store {
   }
   listBudgets(): BudgetRow[] {
     return this.db.prepare("SELECT * FROM personal_budgets ORDER BY category").all() as unknown as BudgetRow[];
+  }
+
+  addResearchSource(s: { url: string; title: string; topic?: string | null; note?: string | null }): void {
+    this.db
+      .prepare(
+        `INSERT INTO research_sources (url, title, topic, note, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(url) DO UPDATE SET title=excluded.title, topic=excluded.topic, note=excluded.note`,
+      )
+      .run(s.url, s.title, s.topic ?? null, s.note ?? null, new Date().toISOString());
+  }
+
+  listResearchSources(topic?: string): ResearchSourceRow[] {
+    return (
+      topic
+        ? this.db.prepare("SELECT * FROM research_sources WHERE topic = ? ORDER BY created_at DESC, id DESC").all(topic)
+        : this.db.prepare("SELECT * FROM research_sources ORDER BY created_at DESC, id DESC").all()
+    ) as unknown as ResearchSourceRow[];
+  }
+
+  searchResearchSources(query: string): ResearchSourceRow[] {
+    const q = `%${query.toLowerCase()}%`;
+    return this.db
+      .prepare(
+        `SELECT * FROM research_sources
+         WHERE lower(title) LIKE ? OR lower(url) LIKE ? OR lower(coalesce(topic,'')) LIKE ? OR lower(coalesce(note,'')) LIKE ?
+         ORDER BY created_at DESC, id DESC`,
+      )
+      .all(q, q, q, q) as unknown as ResearchSourceRow[];
   }
 
   close(): void {
