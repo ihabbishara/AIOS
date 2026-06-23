@@ -42,6 +42,7 @@ import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
 import { runSpeculateEmail, scanInboxFor, readMessageFor, triageLLM, composeLLM } from "./heartbeat/speculate-email.js";
 import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
 import { buildMoneyServer } from "./money/server.js";
+import { buildResearchServer } from "./research/server.js";
 import { computeMoneySignals } from "./money/signals.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
@@ -165,7 +166,7 @@ async function main(): Promise<void> {
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
   const resolvePackFor = makeResolvePackFor(
     { packs, pillarOf, roleOf },
-    { store, vault, gate, toolServers: { money: (d) => buildMoneyServer({ store: d.store, categorize }) } },
+    { store, vault, gate, toolServers: { money: (d) => buildMoneyServer({ store: d.store, categorize }), research: (d) => buildResearchServer({ store: d.store }) } },
   );
 
   const channels = new Map<string, ChannelAdapter>();
