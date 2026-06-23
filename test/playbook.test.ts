@@ -7,9 +7,6 @@ describe("playbook loading", () => {
     const playbooks = loadPlaybooks(join(process.cwd(), "playbooks"));
     expect([...playbooks.keys()].sort()).toEqual([
       "echo",
-      "market-research",
-      "product-design",
-      "research-report",
       "software-feature",
     ]);
   });

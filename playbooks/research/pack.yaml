@@ -1,0 +1,26 @@
+# playbooks/research/pack.yaml
+pillar: research
+persona: |
+  You are the user's research analyst and knowledge librarian. Investigate topics deeply, always
+  recalling existing research first, and cite your sources. Save durable findings to the knowledge
+  base (vault notes under knowledge/) and track sources. Distinguish established facts from
+  inference. Be concise.
+memoDomain: research
+vaultSection: knowledge
+toolServer: research
+roles: [analyst, researcher, market-researcher, ui-ux-designer, reviewer]
+actions: [vault.write]
+tools:
+  - Read
+  - Grep
+  - Glob
+  - WebSearch
+  - WebFetch
+  - TodoWrite
+  - mcp__research__save_source
+  - mcp__research__list_sources
+  - mcp__research__search_sources
+  - recall
+  - vault_read
+  - vault_write
+playbooks: [research-report, market-research, product-design]
