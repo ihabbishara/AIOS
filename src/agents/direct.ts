@@ -28,6 +28,9 @@ export interface DirectChatsDeps {
 }
 
 export function isPrivateOrigin(primary: { channel: string; chatId: string } | undefined, channel: string, chatId: string): boolean {
+  // The Mission Control web cockpit (web:ui) is treated as a private surface: it is bound to
+  // 127.0.0.1 and operated by the single machine user, so privateOnly roles (e.g. cfo) answer there.
+  if (channel === "web" && chatId === "ui") return true;
   return !!primary && primary.channel === channel && primary.chatId === chatId;
 }
 
