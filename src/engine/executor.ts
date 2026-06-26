@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import type { Playbook, Stage } from "./playbook.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
@@ -132,8 +133,14 @@ export class PlaybookExecutor {
   }
 
   private runOpts(ctx: JobContext) {
+    // New-workspace jobs name a project_dir that a later scaffold stage creates,
+    // but stage 1 (research) already spawns the SDK with it as cwd. A missing cwd
+    // fails spawn with ENOENT, which the SDK misreports as "native binary failed
+    // to launch". Create it up front so every stage has a real working directory.
+    const cwd = ctx.job.project_dir ?? process.cwd();
+    mkdirSync(cwd, { recursive: true });
     return {
-      cwd: ctx.job.project_dir ?? process.cwd(),
+      cwd,
       model: this.deps.model,
       pack: this.deps.pack,
     };
