@@ -185,7 +185,7 @@ describe("createJob inplace gate", () => {
 
   it("is fail-closed when projectsRoot is undefined (refuses even with inplace:true)", () => {
     const { workspaceRoot, repo } = makeRoots();
-    // No projectsRoot provided → roots.projectsRoot will be empty string → assertInplaceTarget will refuse
+    // No projectsRoot provided → explicit guard throws before assertInplaceTarget is reached
     const jm = makeManager(new Map([["code-inplace", inplacePb]]), {
       workspaceRoot,
       // projectsRoot: undefined
@@ -200,6 +200,6 @@ describe("createJob inplace gate", () => {
         chatId: "x",
         inplace: true,
       })
-    ).toThrow(/Refused/);
+    ).toThrow(/not configured/);
   });
 });

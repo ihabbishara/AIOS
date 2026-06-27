@@ -92,11 +92,16 @@ export class JobManager {
       if (!params.inplace) {
         throw new Error(`Refused: playbook "${pb.name}" is an unsandboxed write; caller must set inplace:true`);
       }
-      const selfRoot = resolveReal(process.cwd());
-      assertInplaceTarget(params.projectDir ?? "", {
-        selfRoot,
-        workspaceRoot: this.deps.workspaceRoot ?? "",
-        projectsRoot: this.deps.projectsRoot ?? "",
+      if (!params.projectDir) {
+        throw new Error(`Refused: inplace requires a project_dir.`);
+      }
+      if (!this.deps.projectsRoot || !this.deps.workspaceRoot) {
+        throw new Error("Refused: inplace is not configured (no projectsRoot/workspaceRoot).");
+      }
+      assertInplaceTarget(params.projectDir, {
+        selfRoot: resolveReal(process.cwd()),
+        workspaceRoot: this.deps.workspaceRoot,
+        projectsRoot: this.deps.projectsRoot,
       });
     }
     const id = randomUUID();
