@@ -1,5 +1,5 @@
 // src/code/paths.ts
-import { realpathSync, existsSync } from "node:fs";
+import { realpathSync, existsSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
 /** Realpath the nearest existing ancestor, then re-append the not-yet-existing tail.
@@ -38,4 +38,28 @@ const SECRET_PATTERNS: RegExp[] = [
 export function isSecretPath(p: string): boolean {
   const r = resolveReal(p);
   return SECRET_PATTERNS.some((re) => re.test(r));
+}
+
+/** Guard an in-place coding target. Refuses (fail-closed) the AIOS source tree, secret paths,
+ *  the sandbox workspace, anything outside projectsRoot, and non-directories. selfRoot is the
+ *  daemon's own source root (caller passes resolveReal(process.cwd())). */
+export function assertInplaceTarget(
+  target: string,
+  roots: { selfRoot: string; workspaceRoot: string; projectsRoot: string },
+): void {
+  let real: string;
+  try {
+    real = resolveReal(target);
+  } catch {
+    throw new Error("Refused: cannot resolve inplace target");
+  }
+  if (isUnder(real, roots.selfRoot) || isUnder(roots.selfRoot, real)) {
+    throw new Error("Refused: inplace cannot target the AIOS source tree");
+  }
+  if (isSecretPath(real)) throw new Error("Refused: inplace target is on the secret denylist");
+  if (isUnder(real, roots.workspaceRoot)) throw new Error("Refused: inplace target is inside the sandbox workspace");
+  if (!isUnder(real, roots.projectsRoot)) throw new Error(`Refused: inplace target must be under ${roots.projectsRoot}`);
+  if (!existsSync(real) || !statSync(real).isDirectory()) {
+    throw new Error(`Refused: inplace target is not an existing directory: ${target}`);
+  }
 }
