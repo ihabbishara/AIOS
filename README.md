@@ -133,9 +133,11 @@ tail -f data/aios.log
 Talk to the bot like a colleague:
 
 - *"I have an idea for a CLI tool that does X — let's discuss."* → normal conversation.
-- *"Build it in ~/projects/my-tool."* → moderator starts the `software-feature` job:
-  research → design (architect ⇄ reviewer, max 3 rounds) → implement → test-and-fix
-  (max 2 rounds) → code review → report back to your chat.
+- *"Build it in ~/projects/my-tool."* → moderator starts a `code_task` job (default
+  `build`, sandboxed): research → design (architect ⇄ reviewer, max 3 rounds) → implement →
+  test-and-fix (max 2 rounds) → code review → report back to your chat. Modes: `build`
+  (sandboxed worktree), `analyze` (read-only audit), `inplace` (edits your real checkout —
+  not sandboxed, by explicit request only).
 - *"Research the best local vector databases."* → `research-report` job.
 - Every artifact lands in Obsidian: `AI-Vault/AIOS/jobs/<date>-<slug>/`.
 

@@ -72,7 +72,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       playbook: z.string().describe("Playbook name, e.g. research-report"),
       title: z.string().describe("Short human title for the job"),
       request: z.string().describe("Full task description handed to the specialist agents — include all context they need"),
-      project_dir: z.string().optional().describe("Absolute path to the target project directory (required for software playbooks)"),
+      project_dir: z.string().optional().describe("Absolute path to the target project directory, when the playbook needs one"),
     },
     async (args) => {
       // Defense-in-depth: code playbooks must go through code_task, not run_playbook.

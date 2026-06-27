@@ -90,7 +90,7 @@ export class JobManager {
     // explicitly opted in with inplace:true AND the target must pass assertInplaceTarget.
     if (isUnsandboxedWrite(pb, this.deps.pillarOf)) {
       if (!params.inplace) {
-        throw new Error(`Refused: playbook "${pb.name}" is an unsandboxed write; caller must set inplace:true`);
+        throw new Error(`Refused: "${pb.name}" is an unsandboxed in-place coding path; run it via the code_task tool (mode:inplace).`);
       }
       if (!params.projectDir) {
         throw new Error(`Refused: inplace requires a project_dir.`);
