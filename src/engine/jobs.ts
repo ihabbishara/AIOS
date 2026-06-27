@@ -1,9 +1,28 @@
 import { randomUUID } from "node:crypto";
-import { type Playbook } from "./playbook.js";
+import { type Playbook, type Stage } from "./playbook.js";
+import { roles } from "../agents/roles/index.js";
 import { PlaybookExecutor, type JobContext } from "./executor.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
 import { VaultWriter, slugify } from "../vault/writer.js";
+
+/** All role names a stage references, across every stage shape. */
+export function stageRoles(stage: Stage): string[] {
+  switch (stage.type) {
+    case "single": return [stage.role];
+    case "loop": return [stage.producer, stage.critic];
+    case "verify": return [stage.runner, stage.fixer];
+  }
+}
+
+/** A playbook is "unsandboxed-write" iff it is packless (no pillar → no pack confinement
+ *  overrides the role's permissionMode) AND a stage uses a bypassPermissions role. Such a
+ *  playbook runs with raw role options (Bash/Write + allowDangerouslySkipPermissions) on the
+ *  real filesystem — the in-place coding path that must be gated. */
+export function isUnsandboxedWrite(pb: Playbook, pillarOf?: Map<string, string>): boolean {
+  if (pillarOf?.get(pb.name)) return false; // has a pillar → pack-confined, not raw
+  return pb.stages.some((s) => stageRoles(s).some((r) => roles[r]?.permissionMode === "bypassPermissions"));
+}
 
 export interface JobOutcome {
   job: JobRow;
