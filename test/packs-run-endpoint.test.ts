@@ -24,7 +24,7 @@ describe("validateRunRequest", () => {
     expect(validateRunRequest(cfg(), "nope", "code-build", undefined).ok).toBe(false);
   });
   it("rejects a playbook not in the pillar", () => {
-    expect(validateRunRequest(cfg(), "code", "software-feature", undefined).ok).toBe(false);
+    expect(validateRunRequest(cfg(), "code", "code-inplace", undefined).ok).toBe(false);
   });
   it("rejects a project_dir outside projectsRoot", () => {
     expect(validateRunRequest(cfg(), "code", "code-build", "/etc").ok).toBe(false);

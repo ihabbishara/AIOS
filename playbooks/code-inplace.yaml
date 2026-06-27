@@ -1,7 +1,7 @@
-name: software-feature
+name: code-inplace
 description: >-
-  Full software pipeline for building a feature or project: research, design with
-  review loop, implementation, test-and-fix loop, final code review. Requires project_dir.
+  Code changes in-place: research, design with review loop, implementation, test-and-fix
+  loop, final code review. Honest naming (builds on project dir, no sandbox). Requires project_dir.
 needsProjectDir: true
 stages:
   - type: single
@@ -23,7 +23,7 @@ stages:
     id: implement
     role: developer
     brief: >-
-      Implement the approved design in the working directory.
+      Implement the approved design in-place in the working directory (direct edits, no sandbox).
 
   - type: verify
     id: test

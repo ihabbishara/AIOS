@@ -80,7 +80,7 @@ sequenceDiagram
 
     You->>Ch: "Build feature X in ~/projects/app"
     Ch->>Mod: resume session for this chat
-    Mod->>Eng: run_playbook(software-feature, ...) → job id
+    Mod->>Eng: run_playbook(code-inplace, ...) → job id
     Mod-->>You: "Job started 🚀 — I'll report when done"
 
     loop each stage (background, full-auto)
@@ -101,7 +101,11 @@ successful turns, with automatic fresh-start recovery if a stored id goes stale.
 
 ---
 
-## The `software-feature` playbook
+## The `code-inplace` playbook
+
+Full pipeline for honest in-place code work: research, design with review loop,
+implementation (direct edits, no sandbox), test-and-fix loop, final code review. Requires
+project_dir to be under `AIOS_PROJECTS_ROOT`.
 
 ```mermaid
 flowchart LR
@@ -109,7 +113,7 @@ flowchart LR
     RES --> ARCH[📐 architect drafts design]
     ARCH --> REV{🧐 reviewer verdict}
     REV -->|revise<br/>max 3 rounds| ARCH
-    REV -->|approve| DEV[👷 developer implements]
+    REV -->|approve| DEV[👷 developer implements in-place]
     DEV --> TEST{🧪 tester runs tests}
     TEST -->|failures<br/>max 2 rounds| FIX[👷 developer fixes]
     FIX --> TEST
@@ -132,7 +136,7 @@ Workflows are YAML in `playbooks/` — no code changes to add one. Three stage t
 | `loop` | `producer` ⇄ `critic` until approve or `maxRounds` | design + review |
 | `verify` | `runner` checks, `fixer` fixes, re-check up to `maxRounds` | test + fix |
 
-Shipped playbooks: `software-feature` (full pipeline, needs project dir),
+Shipped playbooks: `code-inplace` (full in-place pipeline, needs project dir, calls inplace gate),
 `research-report` (researcher ⇄ reviewer), `market-research` (market-researcher ⇄ reviewer),
 `product-design` (market research → design brief ⇄ reviewer), `echo` (smoke test).
 
@@ -265,7 +269,7 @@ src/
   agents/             runner.ts (SDK session per task) · roles/index.ts (personas)
   store/db.ts         SQLite (node:sqlite)
   vault/writer.ts     markdown artifacts, daily log
-playbooks/            software-feature · research-report · echo
+playbooks/            code-inplace · research-report · echo
 launchd/              com.ihab.aios.plist
 scripts/smoke.ts      one-shot end-to-end test
 test/                 executor + playbook unit tests

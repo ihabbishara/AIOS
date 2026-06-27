@@ -6,14 +6,14 @@ describe("playbook loading", () => {
   it("loads all shipped playbooks", () => {
     const playbooks = loadPlaybooks(join(process.cwd(), "playbooks"));
     expect([...playbooks.keys()].sort()).toEqual([
+      "code-inplace",
       "echo",
-      "software-feature",
     ]);
   });
 
-  it("software-feature has the full pipeline and needs a project dir", () => {
+  it("code-inplace has the full pipeline and needs a project dir", () => {
     const playbooks = loadPlaybooks(join(process.cwd(), "playbooks"));
-    const pb = playbooks.get("software-feature")!;
+    const pb = playbooks.get("code-inplace")!;
     expect(pb.needsProjectDir).toBe(true);
     expect(pb.stages.map((s) => s.id)).toEqual(["research", "design", "implement", "test", "code-review"]);
     const design = pb.stages.find((s) => s.id === "design");
