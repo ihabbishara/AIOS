@@ -10,6 +10,29 @@ import { listInbox, readEmail } from "../senses/google/read.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
 import { recall, formatHits, DOMAINS, type Domain } from "../memory/recall.js";
 
+// ---------------------------------------------------------------------------
+// code_task helpers (pure, exported for tests)
+// ---------------------------------------------------------------------------
+
+export type CodeMode = "build" | "analyze" | "inplace";
+
+/** Maps a CodeMode to its playbook name and whether inplace:true must be set. */
+export function codeTaskPlan(mode: CodeMode): { playbook: string; inplace: boolean } {
+  switch (mode) {
+    case "build":   return { playbook: "code-build",   inplace: false };
+    case "analyze": return { playbook: "code-analyze", inplace: false };
+    case "inplace": return { playbook: "code-inplace", inplace: true  };
+  }
+}
+
+/** The set of playbook names that are reserved for code_task; run_playbook refuses these. */
+export const CODE_PLAYBOOKS: ReadonlySet<string> = new Set(["code-build", "code-analyze", "code-inplace"]);
+
+/** Returns true iff the playbook name is one of the three code playbooks. */
+export function isCodePlaybook(name: string): boolean {
+  return CODE_PLAYBOOKS.has(name);
+}
+
 /** Selectable memo domains for remember/forget. "profile" is reached via kind:"fact", never as a domain. */
 const MEMO_DOMAINS = DOMAINS.filter((d) => d !== "profile");
 
@@ -46,12 +69,16 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     "run_playbook",
     "Start a background job that runs a playbook (multi-agent pipeline). Returns immediately with a job id; you are notified on completion.",
     {
-      playbook: z.string().describe("Playbook name, e.g. software-feature"),
+      playbook: z.string().describe("Playbook name, e.g. research-report"),
       title: z.string().describe("Short human title for the job"),
       request: z.string().describe("Full task description handed to the specialist agents — include all context they need"),
       project_dir: z.string().optional().describe("Absolute path to the target project directory (required for software playbooks)"),
     },
     async (args) => {
+      // Defense-in-depth: code playbooks must go through code_task, not run_playbook.
+      if (isCodePlaybook(args.playbook)) {
+        return text(`Refused: "${args.playbook}" is a code playbook. Use the code_task tool instead (modes: build, analyze, inplace).`);
+      }
       if (args.project_dir) {
         const dir = resolve(args.project_dir);
         if (!dir.startsWith(resolve(deps.projectsRoot))) {
@@ -67,6 +94,39 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
         chatId: deps.origin.chatId,
       });
       return text(`Job started: ${job.id} (${job.slug}, playbook ${job.playbook}). You will be notified on completion.`);
+    },
+  );
+
+  const codeTask = tool(
+    "code_task",
+    "Start a coding job. mode: 'build' (sandboxed worktree, default) | 'analyze' (read-only audit) | 'inplace' (edits your real checkout — requires explicit user intent). " +
+      "project_dir is required for analyze and inplace modes.",
+    {
+      mode: z.enum(["build", "analyze", "inplace"]).default("build").describe("Coding mode: build (default, sandboxed), analyze (read-only), inplace (edits real checkout)"),
+      title: z.string().describe("Short human title for the job"),
+      request: z.string().describe("Full task description handed to the specialist agents — include all context they need"),
+      project_dir: z.string().optional().describe("Absolute path to the target project directory (required for analyze and inplace modes)"),
+    },
+    async (args) => {
+      const mode = (args.mode ?? "build") as CodeMode;
+      const plan = codeTaskPlan(mode);
+      if ((mode === "analyze" || mode === "inplace") && !args.project_dir) {
+        return text(`Refused: project_dir is required for mode "${mode}".`);
+      }
+      try {
+        const job = deps.jobs.createJob({
+          playbook: plan.playbook,
+          title: args.title,
+          request: args.request,
+          projectDir: args.project_dir,
+          channel: deps.origin.channel,
+          chatId: deps.origin.chatId,
+          inplace: plan.inplace,
+        });
+        return text(`Job started: ${job.id} (${job.slug}, playbook ${job.playbook}). You will be notified on completion.`);
+      } catch (err) {
+        return text(`Refused: ${(err as Error).message}`);
+      }
     },
   );
 
@@ -319,7 +379,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     name: "aios",
     version: "0.1.0",
     tools: [
-      runPlaybook, jobStatus, listPlaybooks, askSpecialist,
+      runPlaybook, codeTask, jobStatus, listPlaybooks, askSpecialist,
       vaultWrite, vaultRead, vaultList, proposeAction,
       addReminder, listReminders, cancelReminder, addTriageRule,
       listInboxTool, readEmailTool,
