@@ -194,6 +194,8 @@ async function main(): Promise<void> {
     onEvent: (e) => bus.emit(e),
     log,
     pillarOf,
+    projectsRoot: config.projectsRoot,
+    workspaceRoot: config.workspaceRoot,
     prepareSandbox,
     resolvePackFor: (playbook, origin, sandbox) => resolvePackFor(playbook, origin, false, sandbox),
   });

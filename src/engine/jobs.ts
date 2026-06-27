@@ -5,6 +5,7 @@ import { PlaybookExecutor, type JobContext } from "./executor.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
 import { VaultWriter, slugify } from "../vault/writer.js";
+import { assertInplaceTarget, resolveReal } from "../code/paths.js";
 
 /** All role names a stage references, across every stage shape. */
 export function stageRoles(stage: Stage): string[] {
@@ -53,6 +54,10 @@ export interface JobManagerDeps {
   prepareSandbox?: (job: JobRow, playbook: Playbook) => Promise<{ taskDir: string; mode: "build" | "analyze" } | undefined>;
   /** playbook name -> pillar (from the pack loader); packless playbooks are absent. */
   pillarOf?: Map<string, string>;
+  /** Root under which user project directories live. Used by the inplace gate. */
+  projectsRoot?: string;
+  /** Sandbox workspace root. In-place targets must not be inside here. */
+  workspaceRoot?: string;
 }
 
 export class JobManager {
@@ -74,11 +79,25 @@ export class JobManager {
     projectDir?: string;
     channel: string;
     chatId: string;
+    inplace?: boolean;
   }): JobRow {
     const pb = this.deps.playbooks.get(params.playbook);
     if (!pb) throw new Error(`Unknown playbook: ${params.playbook}. Available: ${[...this.deps.playbooks.keys()].join(", ")}`);
     if (pb.needsProjectDir && !params.projectDir) {
       throw new Error(`Playbook ${pb.name} needs a project directory (project_dir).`);
+    }
+    // Inplace gate: unsandboxed-write playbooks (packless + bypassPermissions role) must be
+    // explicitly opted in with inplace:true AND the target must pass assertInplaceTarget.
+    if (isUnsandboxedWrite(pb, this.deps.pillarOf)) {
+      if (!params.inplace) {
+        throw new Error(`Refused: playbook "${pb.name}" is an unsandboxed write; caller must set inplace:true`);
+      }
+      const selfRoot = resolveReal(process.cwd());
+      assertInplaceTarget(params.projectDir ?? "", {
+        selfRoot,
+        workspaceRoot: this.deps.workspaceRoot ?? "",
+        projectsRoot: this.deps.projectsRoot ?? "",
+      });
     }
     const id = randomUUID();
     const job: Omit<JobRow, "created_at" | "updated_at" | "job_dir"> = {
