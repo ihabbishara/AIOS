@@ -101,11 +101,9 @@ successful turns, with automatic fresh-start recovery if a stored id goes stale.
 
 ---
 
-## The `code-inplace` playbook
+## The coding playbooks (code_task)
 
-Full pipeline for honest in-place code work: research, design with review loop,
-implementation (direct edits, no sandbox), test-and-fix loop, final code review. Requires
-project_dir to be under `AIOS_PROJECTS_ROOT`.
+All coding flows through one `code_task(mode)` tool: `build` (sandboxed worktree, default), `analyze` (read-only audit), `inplace` (edits your real checkout — not sandboxed, reachable only by explicit request and blocked from the AIOS source tree). `run_playbook` does not run code playbooks.
 
 ```mermaid
 flowchart LR
@@ -136,7 +134,7 @@ Workflows are YAML in `playbooks/` — no code changes to add one. Three stage t
 | `loop` | `producer` ⇄ `critic` until approve or `maxRounds` | design + review |
 | `verify` | `runner` checks, `fixer` fixes, re-check up to `maxRounds` | test + fix |
 
-Shipped playbooks: `code-inplace` (full in-place pipeline, needs project dir, calls inplace gate),
+Shipped playbooks: `code-build`/`code-analyze` (sandboxed code pack), `code-inplace` (in-place pipeline, needs project dir),
 `research-report` (researcher ⇄ reviewer), `market-research` (market-researcher ⇄ reviewer),
 `product-design` (market research → design brief ⇄ reviewer), `echo` (smoke test).
 

@@ -23,7 +23,8 @@ stages:
     id: implement
     role: developer
     brief: >-
-      Implement the approved design in-place in the working directory (direct edits, no sandbox).
+      Implement the approved design directly in the project_dir working directory. This is the
+      user's REAL checkout — changes are NOT sandboxed. Match existing style; run builds to verify.
 
   - type: verify
     id: test
