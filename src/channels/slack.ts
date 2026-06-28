@@ -21,7 +21,11 @@ export class SlackChannel implements ChannelAdapter {
       if (message.subtype !== undefined) return;
       const m = message as { channel: string; text?: string; bot_id?: string; user?: string };
       if (m.bot_id || !m.text) return;
-      await onMessage({
+      // Fire-and-forget: a long turn must not delay Bolt's Socket Mode ack (≤3s),
+      // or Slack retries the event and the turn runs twice. The moderator's per-chat
+      // lock keeps same-chat order; onMessage logs+reports its own errors.
+      // ponytail: rare reorder if two same-chat msgs arrive within one tick — lock prevents corruption, not reorder; add a slack-side queue only if it bites.
+      void onMessage({
         channel: this.name,
         chatId: m.channel,
         text: m.text,

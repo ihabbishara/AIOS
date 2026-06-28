@@ -1,4 +1,5 @@
 import { Bot, InputFile, InlineKeyboard, type Context } from "grammy";
+import { run, sequentialize } from "@grammyjs/runner";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -61,6 +62,11 @@ export class TelegramChannel implements ChannelAdapter {
   async start(onMessage: MessageHandler): Promise<void> {
     this.onMessageHandler = onMessage;
     mkdirSync(this.downloadsDir, { recursive: true });
+
+    // Process updates concurrently across chats but serially within one chat —
+    // matches the moderator's per-chat session lock, so a slow turn in one chat
+    // no longer freezes every other chat. Must precede the handlers below.
+    this.bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
     this.bot.on("message:text", async (ctx) => {
       console.log(`[telegram] message from user id ${ctx.from.id} (@${ctx.from.username ?? "?"}) in chat ${ctx.chat.id}`);
@@ -215,9 +221,11 @@ export class TelegramChannel implements ChannelAdapter {
       }
     });
 
-    // Long-polling: outbound only, works behind NAT. Don't await — runs forever.
-    // Pending updates are kept so messages sent during a daemon restart are processed.
-    void this.bot.start();
+    // Concurrent long-polling via @grammyjs/runner: fetches and dispatches updates
+    // in parallel (sequentialize above keeps per-chat order). Replaces bot.start(),
+    // whose sequential loop blocked the whole bot for the duration of each turn.
+    // Outbound only, works behind NAT; returns a handle, runs forever.
+    run(this.bot);
   }
 
   async send(chatId: string, text: string): Promise<void> {
