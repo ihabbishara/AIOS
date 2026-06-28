@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { checkHalaloBash, halaloToolChecks } from "../src/agents/guards/halalo-readonly.js";
+import { checkHalaloBash, halaloToolChecks, HALALO_EXPORTS_DIR } from "../src/agents/guards/halalo-readonly.js";
+import { join } from "node:path";
 
 const ok = (cmd: string) => expect(checkHalaloBash(cmd).ok, cmd).toBe(true);
 const no = (cmd: string) => expect(checkHalaloBash(cmd).ok, cmd).toBe(false);
@@ -118,8 +119,19 @@ describe("halaloToolChecks — file confinement", () => {
     expect(checks.Glob({}).ok).toBe(true); // no path -> cwd (the repo)
   });
 
-  it("denies write tools via fallback (not present in checks)", () => {
+  it("denies Edit via fallback (no in-place repo edits)", () => {
     expect(checks.Edit).toBeUndefined();
-    expect(checks.Write).toBeUndefined();
+  });
+
+  it("confines Write to the exports dir, not the repo or anywhere else", () => {
+    // Allowed: absolute paths inside the exports dir.
+    expect(checks.Write({ file_path: join(HALALO_EXPORTS_DIR, "orders.csv") }).ok).toBe(true);
+    expect(checks.Write({ file_path: join(HALALO_EXPORTS_DIR, "sub", "report.csv") }).ok).toBe(true);
+    // Denied: the source repo, the system, traversal, relative paths, and missing path.
+    expect(checks.Write({ file_path: "/repo/halalo/app/x.php" }).ok).toBe(false);
+    expect(checks.Write({ file_path: "/etc/passwd" }).ok).toBe(false);
+    expect(checks.Write({ file_path: join(HALALO_EXPORTS_DIR, "..", "escape.csv") }).ok).toBe(false);
+    expect(checks.Write({ file_path: "orders.csv" }).ok).toBe(false);
+    expect(checks.Write({}).ok).toBe(false);
   });
 });

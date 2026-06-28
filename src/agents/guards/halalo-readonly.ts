@@ -7,12 +7,23 @@
  * validated against their own allowlist (logs, status, SELECT-only mysql).
  */
 
+import { resolve, sep } from "node:path";
+
 export interface GuardVerdict {
   ok: boolean;
   reason?: string;
 }
 
 export type ToolCheck = (input: Record<string, unknown>) => GuardVerdict;
+
+/**
+ * Outbound files (CSV/report exports) the agent generates land here. It is a real
+ * project dir (no symlink) and already an attach_file safe dir (see direct.ts), so a
+ * file written here can be uploaded to the chat. Confining Write here keeps the agent
+ * read-only against the source repo and the live instances while still letting it
+ * deliver files. Override with AIOS_HALALO_EXPORTS_DIR.
+ */
+export const HALALO_EXPORTS_DIR = resolve(process.env.AIOS_HALALO_EXPORTS_DIR ?? "data/downloads");
 
 const ALLOWED_PROFILES = ["halalo", "halalo-staging-new"];
 const ALLOWED_INSTANCES = ["i-068ed793d8ce969b5", "i-0cb9ddd83061548cb"];
@@ -179,6 +190,16 @@ export function halaloToolChecks(repoDir: string): Record<string, ToolCheck> {
       inRepo(input.file_path) ? allow : deny(`reads are confined to ${repoDir}`),
     Grep: (input) => (inRepo(input.path) ? allow : deny(`searches are confined to ${repoDir}`)),
     Glob: (input) => (inRepo(input.path) ? allow : deny(`searches are confined to ${repoDir}`)),
+    // Write is confined to the exports dir so the agent can generate a CSV/report to attach,
+    // without gaining write access to the source repo or the live instances. Absolute paths only.
+    Write: (input) => {
+      const p = input.file_path;
+      if (typeof p !== "string" || !p) return deny("Write needs a file_path");
+      const real = resolve(p);
+      return real === HALALO_EXPORTS_DIR || real.startsWith(HALALO_EXPORTS_DIR + sep)
+        ? allow
+        : deny(`writes are confined to ${HALALO_EXPORTS_DIR} — generate exports there, then attach_file them`);
+    },
     WebSearch: () => allow,
     WebFetch: () => allow,
     TodoWrite: () => allow,

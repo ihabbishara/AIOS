@@ -4,6 +4,8 @@ import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer } from "./attachment-server.js";
+import { buildCloudflareServer } from "../senses/cloudflare/server.js";
+import { HALALO_EXPORTS_DIR } from "./guards/halalo-readonly.js";
 import type { Attachment } from "./attachment.js";
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
@@ -77,9 +79,15 @@ export class DirectChats {
       const safeDirs = [
         resolve(def.cwd ?? this.deps.projectsRoot),
         resolve("data/downloads"),
+        HALALO_EXPORTS_DIR, // keep in sync with the halalo Write guard so generated exports are attachable
         "/tmp/aios-",       // prefix match — any /tmp/aios-* path is permitted
       ];
       const attachmentServer = buildAttachmentServer(attachments, safeDirs);
+
+      // Halalo gets a read-only Cloudflare analytics tool: true edge visitor counts,
+      // the source of truth its log-derived numbers undercount (CDN cache hits).
+      const roleServers: Record<string, ReturnType<typeof buildCloudflareServer>> =
+        role === "halalo" ? { halalo_analytics: buildCloudflareServer() } : {};
 
       const text = await resumableTurn({
         store: this.deps.store,
@@ -88,7 +96,7 @@ export class DirectChats {
         log: this.deps.log,
         options: {
           ...observed,
-          mcpServers: { ...(observed.mcpServers ?? {}), aios_attachments: attachmentServer },
+          mcpServers: { ...(observed.mcpServers ?? {}), ...roleServers, aios_attachments: attachmentServer },
         },
       });
 

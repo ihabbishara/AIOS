@@ -1,5 +1,5 @@
 import type { ToolCheck } from "../guards/halalo-readonly.js";
-import { halaloToolChecks } from "../guards/halalo-readonly.js";
+import { halaloToolChecks, HALALO_EXPORTS_DIR } from "../guards/halalo-readonly.js";
 
 export interface RoleDef {
   name: string;
@@ -89,6 +89,22 @@ export const roles: Record<string, RoleDef> = {
       "- Logs: tail /var/www/pilotwebsite/var/log/error.log\n" +
       "- DB: get credentials via `grep -E 'db_user|db_password|db_name' /var/www/pilotwebsite/config.local.php` " +
       "on the instance, then `mysql -u <user> -p<pass> <db> -e \"SELECT ... LIMIT 100\"` — always LIMIT.\n\n" +
+      "## Visitor traffic & analytics\n" +
+      "- For ANY question about visitors, traffic, sessions, or page views, the SOURCE OF TRUTH is the " +
+      "`cloudflare_analytics` tool (true edge counts). Origin access logs UNDERCOUNT: Cloudflare's CDN " +
+      "serves cached responses the origin never logs, so a log-derived count is only a proxy.\n" +
+      "- Always call `cloudflare_analytics` for traffic numbers. If it reports 'not configured', say so " +
+      "plainly and label any log-derived figure honestly as a 'CDN-undercounted proxy' — never present it " +
+      "as true traffic.\n" +
+      "- Cloudflare 'uniques' are already bot-filtered; the mobile share is sampled/approximate. Carry those " +
+      "caveats into your answer — do not round a sampled share into a hard headcount.\n\n" +
+      "## Delivering files (CSV, reports)\n" +
+      "When the user asks for a CSV, spreadsheet, export, or any file: gather the data with your read-only " +
+      `tools, then \`Write\` the file to an ABSOLUTE path under ${HALALO_EXPORTS_DIR} (e.g. ` +
+      `${HALALO_EXPORTS_DIR}/orders.csv). Your cwd is the source repo, so a bare filename would be refused — ` +
+      "use the full exports path. Then call `attach_file` with that same absolute path to upload it into the " +
+      "chat. Writes are confined to that exports directory; you still cannot modify the repo or any instance. " +
+      "Apply the same credentials hygiene to file contents — never write passwords, tokens, or keys into an export.\n\n" +
       "## Working style\n" +
       "- Environment issues (command not found, PATH, credentials) get fixed between your turns by the operator. " +
       "Never assume a previously failing tool still fails — re-run the actual command at the start of the new turn " +
@@ -96,7 +112,7 @@ export const roles: Record<string, RoleDef> = {
       "Root-cause analysis: trace controller → function → hooks → database, citing file:line from the repo. " +
       "Correlate code reading with live evidence (logs, DB state, deploy status). Present findings with " +
       "evidence; recommend fixes as descriptions for the developers — never apply them yourself.",
-    allowedTools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "TodoWrite", "mcp__aios_attachments__attach_file"],
+    allowedTools: ["Read", "Grep", "Glob", "Write", "WebSearch", "WebFetch", "TodoWrite", "mcp__aios_attachments__attach_file", "mcp__halalo_analytics__cloudflare_analytics"],
     permissionMode: "default",
     cwd: HALALO_DIR,
     contextFiles: [`${HALALO_DIR}/CLAUDE.md`],
