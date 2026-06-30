@@ -44,6 +44,8 @@ import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
 import { buildMoneyServer } from "./money/server.js";
 import { buildResearchServer } from "./research/server.js";
 import { computeMoneySignals } from "./money/signals.js";
+import { buildLifeopsServer } from "./lifeops/server.js";
+import { computeLifeopsSignals } from "./lifeops/ops.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -166,7 +168,11 @@ async function main(): Promise<void> {
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
   const resolvePackFor = makeResolvePackFor(
     { packs, pillarOf, roleOf },
-    { store, vault, gate, toolServers: { money: (d) => buildMoneyServer({ store: d.store, categorize }), research: (d) => buildResearchServer({ store: d.store }) } },
+    { store, vault, gate, toolServers: {
+      money: (d) => buildMoneyServer({ store: d.store, categorize }),
+      research: (d) => buildResearchServer({ store: d.store }),
+      lifeops: (d) => buildLifeopsServer({ store: d.store }),
+    } },
   );
 
   const channels = new Map<string, ChannelAdapter>();
@@ -519,6 +525,14 @@ async function main(): Promise<void> {
   if (config.primaryChat) {
     stops.push(startWatcher("money", config.moneyPollSeconds * 1000, async () => {
       const signals = await computeMoneySignals(store, categorize, new Date(), config);
+      for (const sig of signals) {
+        if (store.kvGet(sig.key)) continue;               // fire once
+        await sendVia(config.primaryChat!.channel, config.primaryChat!.chatId, sig.text);
+        store.kvSet(sig.key, new Date().toISOString());   // stamp AFTER send
+      }
+    }, () => {}, () => {}));
+    stops.push(startWatcher("lifeops", config.lifeopsPollSeconds * 1000, async () => {
+      const signals = computeLifeopsSignals(store.listTasks("open"), new Date(), config);
       for (const sig of signals) {
         if (store.kvGet(sig.key)) continue;               // fire once
         await sendVia(config.primaryChat!.channel, config.primaryChat!.chatId, sig.text);

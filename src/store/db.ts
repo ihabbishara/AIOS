@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { TrustRecord } from "../kernel/trust.js";
@@ -909,7 +909,7 @@ export class Store {
 
   listTasks(status?: PersonalTaskRow["status"], project?: string): PersonalTaskRow[] {
     const where: string[] = [];
-    const args: unknown[] = [];
+    const args: SQLInputValue[] = [];
     if (status) { where.push("status = ?"); args.push(status); }
     if (project) { where.push("project = ?"); args.push(project); }
     const sql = `SELECT * FROM personal_tasks${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
@@ -926,7 +926,7 @@ export class Store {
     const cols = Object.keys(fields);
     if (!cols.length) return;
     const set = cols.map((c) => `${c} = ?`).join(", ");
-    const args = cols.map((c) => (fields as Record<string, unknown>)[c]);
+    const args = cols.map((c) => (fields as Record<string, unknown>)[c]) as SQLInputValue[];
     this.db.prepare(`UPDATE personal_tasks SET ${set}, updated_at = ? WHERE id = ?`)
       .run(...args, new Date().toISOString(), id);
   }

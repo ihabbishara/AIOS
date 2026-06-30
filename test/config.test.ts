@@ -151,3 +151,15 @@ describe("speculate-email config", () => {
     delete process.env.AIOS_SPECULATE_EMAIL_MAX_JOBS;
   });
 });
+
+describe("lifeops config", () => {
+  it("defaults the lifeops knobs", () => {
+    delete process.env.AIOS_LIFEOPS_POLL_SECONDS;
+    delete process.env.AIOS_LIFEOPS_SOON_DAYS;
+    delete process.env.AIOS_LIFEOPS_STALE_DAYS;
+    const c = loadConfig();
+    expect(c.lifeopsPollSeconds).toBe(21600);
+    expect(c.lifeopsSoonDays).toBe(2);
+    expect(c.lifeopsStaleDays).toBe(14);
+  });
+});

@@ -97,6 +97,12 @@ export interface Config {
   moneyLargeTxCents: number;
   /** Days ahead to warn about an upcoming subscription renewal. */
   moneyRenewalDays: number;
+  /** How often the lifeops watcher runs (seconds). */
+  lifeopsPollSeconds: number;
+  /** Days ahead to flag a task as "due soon". */
+  lifeopsSoonDays: number;
+  /** Days since last update before a task is flagged as stale. */
+  lifeopsStaleDays: number;
 }
 
 export interface FinanceMember {
@@ -232,6 +238,9 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     moneyPollSeconds: Number(process.env.AIOS_MONEY_POLL_SECONDS ?? 86400),
     moneyLargeTxCents: Number(process.env.AIOS_MONEY_LARGE_TX_CENTS ?? 50000),
     moneyRenewalDays: Number(process.env.AIOS_MONEY_RENEWAL_DAYS ?? 3),
+    lifeopsPollSeconds: Number(process.env.AIOS_LIFEOPS_POLL_SECONDS ?? 21600),
+    lifeopsSoonDays: Number(process.env.AIOS_LIFEOPS_SOON_DAYS ?? 2),
+    lifeopsStaleDays: Number(process.env.AIOS_LIFEOPS_STALE_DAYS ?? 14),
   };
 }
 
