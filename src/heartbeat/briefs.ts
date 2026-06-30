@@ -3,6 +3,7 @@ import type { Store } from "../store/db.js";
 import type { AiosEvent, EventBus } from "../events.js";
 import type { VaultWriter } from "../vault/writer.js";
 import { localParts } from "./clock.js";
+import { openLoopsForBrief, type OpenLoops } from "../lifeops/ops.js";
 
 export interface BriefData {
   anchor: "morning" | "evening";
@@ -24,6 +25,8 @@ export interface BriefData {
   speculateResults?: Array<{ title: string; status: "done" | "failed" | "running"; ref: string | null }>;
   /** Generic count of pending email drafts — morning brief only; detail goes via a private send, never here. */
   emailDraftsPending?: number;
+  /** Private task list — morning brief only; overdue + due-today + open count. */
+  openLoops?: OpenLoops;
 }
 
 const TWELVE_H = 12 * 60 * 60 * 1000;
@@ -152,6 +155,12 @@ export function assembleBrief(
   let emailDraftsPending = 0;
   if (anchor === "morning") emailDraftsPending = pending.filter((a) => a.type.startsWith("email.")).length;
 
+  let openLoops: BriefData["openLoops"];
+  if (anchor === "morning") {
+    const ol = openLoopsForBrief(store.listTasks("open"), localDateOf(nowIso));
+    if (ol.openCount) openLoops = ol;
+  }
+
   return {
     anchor,
     pendingApprovals,
@@ -174,6 +183,7 @@ export function assembleBrief(
     dreamInitiatives,
     speculateResults,
     emailDraftsPending,
+    openLoops,
   };
 }
 
@@ -191,7 +201,8 @@ export function isEmptyBrief(d: BriefData): boolean {
     d.sensesNeedingReauth.length === 0 &&
     (d.dreamInitiatives?.length ?? 0) === 0 &&
     (d.speculateResults?.length ?? 0) === 0 &&
-    (d.emailDraftsPending ?? 0) === 0
+    (d.emailDraftsPending ?? 0) === 0 &&
+    ((d.openLoops?.overdue.length ?? 0) + (d.openLoops?.dueToday.length ?? 0)) === 0
   );
 }
 
@@ -226,6 +237,15 @@ export function renderBriefNote(d: BriefData, narration: string): string {
   ));
   section("Speculate — email drafts", (d.emailDraftsPending ?? 0) > 0
     ? [`${d.emailDraftsPending} reply draft(s) await approval (details sent privately)`] : []);
+  {
+    const ol = d.openLoops;
+    const rows = [
+      ...(ol?.overdue ?? []).map((t) => `⚠ overdue: ${t.title} (was due ${t.due_date})`),
+      ...(ol?.dueToday ?? []).map((t) => `due today: ${t}`),
+    ];
+    if (rows.length) rows.push(`${ol!.openCount} open loops total`);
+    section("Open loops", rows);
+  }
   return lines.join("\n");
 }
 
