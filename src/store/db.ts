@@ -105,6 +105,18 @@ export interface SubscriptionRow {
 export interface BudgetRow { category: string; limit_cents: number; currency: string; created_at: string; }
 export interface ResearchSourceRow { id: number; url: string; title: string; topic: string | null; note: string | null; created_at: string; }
 
+export interface PersonalTaskRow {
+  id: number;
+  title: string;
+  status: "open" | "waiting" | "done" | "dismissed";
+  project: string | null;
+  due_date: string | null;
+  next_action: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export class Store {
   private db: DatabaseSync;
 
@@ -293,6 +305,18 @@ export class Store {
         note TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS personal_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        project TEXT,
+        due_date TEXT,
+        next_action TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_personal_tasks_status_due ON personal_tasks(status, due_date);
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS role_permissions (
@@ -867,6 +891,48 @@ export class Store {
       )
       .all(q, q, q, q) as unknown as ResearchSourceRow[];
   }
+
+  addTask(t: {
+    title: string; status?: PersonalTaskRow["status"]; project?: string | null;
+    due_date?: string | null; next_action?: string | null; notes?: string | null;
+  }): number {
+    const now = new Date().toISOString();
+    const info = this.db
+      .prepare(
+        `INSERT INTO personal_tasks (title, status, project, due_date, next_action, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(t.title, t.status ?? "open", t.project ?? null, t.due_date ?? null,
+           t.next_action ?? null, t.notes ?? null, now, now);
+    return Number(info.lastInsertRowid);
+  }
+
+  listTasks(status?: PersonalTaskRow["status"], project?: string): PersonalTaskRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (status) { where.push("status = ?"); args.push(status); }
+    if (project) { where.push("project = ?"); args.push(project); }
+    const sql = `SELECT * FROM personal_tasks${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
+                 ORDER BY (due_date IS NULL), due_date ASC, id ASC`;
+    return this.db.prepare(sql).all(...args) as unknown as PersonalTaskRow[];
+  }
+
+  getTask(id: number): PersonalTaskRow | undefined {
+    return this.db.prepare("SELECT * FROM personal_tasks WHERE id = ?").get(id) as unknown as PersonalTaskRow | undefined;
+  }
+
+  updateTask(id: number, fields: Partial<Pick<PersonalTaskRow,
+    "title" | "status" | "project" | "due_date" | "next_action" | "notes">>): void {
+    const cols = Object.keys(fields);
+    if (!cols.length) return;
+    const set = cols.map((c) => `${c} = ?`).join(", ");
+    const args = cols.map((c) => (fields as Record<string, unknown>)[c]);
+    this.db.prepare(`UPDATE personal_tasks SET ${set}, updated_at = ? WHERE id = ?`)
+      .run(...args, new Date().toISOString(), id);
+  }
+
+  completeTask(id: number): void { this.updateTask(id, { status: "done" }); }
+  dismissTask(id: number): void { this.updateTask(id, { status: "dismissed" }); }
 
   close(): void {
     this.db.close();
