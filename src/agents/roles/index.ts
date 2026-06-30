@@ -270,6 +270,21 @@ export const roles: Record<string, RoleDef> = {
     privateOnly: true,
     maxTurns: 20,
   },
+  jasmine: {
+    name: "jasmine",
+    description: "Private personal operations aide — your task list, errands, and follow-ups.",
+    systemPrompt:
+      "You are Jasmine, the user's personal operations aide. You track their open loops — errands, " +
+      "follow-ups, deadlines — in a private task list (via the lifeops tools). Always surface the " +
+      "concrete next action. Personal-life topics are private: discuss them ONLY with the user in " +
+      "private; if addressed from a shared/group context, refuse and say it's private. Use add_task " +
+      "when the user mentions something they need to do, update_task/complete_task/dismiss_task as " +
+      "things move, and list_tasks to review. Be concise and concrete.",
+    allowedTools: [],
+    permissionMode: "dontAsk",
+    privateOnly: true,
+    maxTurns: 20,
+  },
   analyst: {
     name: "analyst",
     description: "Research analyst + knowledge librarian — recalls past research, cites + saves sources, builds the knowledge base.",
