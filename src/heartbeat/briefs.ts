@@ -243,7 +243,7 @@ export function renderBriefNote(d: BriefData, narration: string): string {
       ...(ol?.overdue ?? []).map((t) => `⚠ overdue: ${t.title} (was due ${t.due_date})`),
       ...(ol?.dueToday ?? []).map((t) => `due today: ${t}`),
     ];
-    if (rows.length) rows.push(`${ol!.openCount} open loops total`);
+    if (ol && rows.length) rows.push(`${ol.openCount} open loops total`);
     section("Open loops", rows);
   }
   return lines.join("\n");

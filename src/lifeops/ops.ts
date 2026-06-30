@@ -1,7 +1,7 @@
 import type { PersonalTaskRow } from "../store/db.js";
+import { localParts } from "../heartbeat/clock.js";
 
 const DAY = 24 * 60 * 60 * 1000;
-const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export interface OpenLoops {
   overdue: Array<{ title: string; due_date: string }>;
@@ -29,8 +29,8 @@ export function openLoopsForBrief(openTasks: PersonalTaskRow[], today: string): 
 export function computeLifeopsSignals(
   openTasks: PersonalTaskRow[], now: Date, cfg: LifeopsSignalConfig,
 ): LifeopsSignal[] {
-  const today = iso(now);
-  const soonMax = iso(new Date(now.getTime() + cfg.lifeopsSoonDays * DAY));
+  const today = localParts(now).date;
+  const soonMax = localParts(new Date(now.getTime() + cfg.lifeopsSoonDays * DAY)).date;
   const out: LifeopsSignal[] = [];
   for (const t of openTasks) {
     if (t.due_date && t.due_date < today) {

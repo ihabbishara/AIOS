@@ -923,7 +923,8 @@ export class Store {
 
   updateTask(id: number, fields: Partial<Pick<PersonalTaskRow,
     "title" | "status" | "project" | "due_date" | "next_action" | "notes">>): void {
-    const cols = Object.keys(fields);
+    const ALLOWED = new Set(["title", "status", "project", "due_date", "next_action", "notes"]);
+    const cols = Object.keys(fields).filter((c) => ALLOWED.has(c));
     if (!cols.length) return;
     const set = cols.map((c) => `${c} = ?`).join(", ");
     const args = cols.map((c) => (fields as Record<string, unknown>)[c]) as SQLInputValue[];
