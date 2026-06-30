@@ -5,26 +5,40 @@ import { fetchVisitorStats, type VisitorStats } from "./analytics.js";
 /** Server + tool names → tool id is `mcp__halalo_analytics__cloudflare_analytics`. */
 export const CLOUDFLARE_TOOL = "mcp__halalo_analytics__cloudflare_analytics";
 
-const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
+const n = (x: number): string => x.toLocaleString();
+const pct = (num: number, den: number): string => (den > 0 ? `${((num / den) * 100).toFixed(0)}%` : "n/a");
 
 /** Phone-readable, HONESTLY-LABELED rendering. Never conflated with log counts. */
 function render(s: VisitorStats): string {
   const lines = [
     `Cloudflare edge analytics — zone ${s.zoneId}, ${s.since}…${s.until} (${s.days.length}d)`,
-    `Source of truth: counted at the CDN edge, so it includes cached hits the origin never logs; uniques are bot-filtered by Cloudflare.`,
+    `Counted at the CDN edge (includes cached hits the origin never logs).`,
     ``,
-    `Total unique visitors: ${s.totalUniques.toLocaleString()}`,
-    `Total page views:      ${s.totalPageViews.toLocaleString()}`,
-    `Total requests:        ${s.totalRequests.toLocaleString()}`,
-    s.mobileShare !== undefined
-      ? `Mobile share: ~${pct(s.mobileShare)} of requests (sampled — approximate)`
-      : `Mobile/desktop split: unavailable (sampled dataset gated on this plan).`,
-    ``,
-    `Per day (uniques / pageviews):`,
-    ...s.days.map((d) => `  ${d.date}: ${d.uniques.toLocaleString()} / ${d.pageViews.toLocaleString()}`),
-    ``,
-    `NOTE: these are TRUE visitor counts. Any log-derived "visitors" figure is a CDN-undercounted proxy — present them as different metrics, never interchangeably.`,
+    `— Bot-filtered totals (whole zone) —`,
+    `Unique visitors: ${n(s.totalUniques)}`,
+    `Page views:      ${n(s.totalPageViews)}`,
+    `Requests:        ${n(s.totalRequests)}`,
   ];
+
+  if (s.uk) {
+    const u = s.uk;
+    lines.push(
+      ``,
+      `— UK traffic, by device (${u.days}d${u.truncated ? ", capped" : ""}) —`,
+      `These are BOT-INCLUSIVE (the human/bot filter needs Cloudflare Bot Management, not on this plan).`,
+      `GB total visits: ${n(u.totalVisits)}`,
+      `GB mobile:       ${n(u.mobileVisits)} visits / ${n(u.mobileRequests)} requests` +
+        ` (${pct(u.mobileVisits, u.totalVisits)} of GB visits)`,
+      ...u.byDevice.map((d) => `  ${d.device}: ${n(d.visits)} visits / ${n(d.requests)} requests`),
+    );
+  } else {
+    lines.push(``, `UK/device breakdown: unavailable this call (adaptive dataset error).`);
+  }
+
+  lines.push(
+    ``,
+    `NOTE: two different "visitor" metrics — bot-FILTERED uniques (whole-zone only) vs bot-INCLUSIVE UK/device visits. Do not add them or call either a log figure; log-derived counts are CDN-undercounted proxies.`,
+  );
   return lines.join("\n");
 }
 
@@ -38,8 +52,10 @@ export function buildCloudflareServer() {
     "cloudflare_analytics",
     "Read TRUE visitor traffic for halalo.co.uk from Cloudflare's edge analytics (read-only). " +
       "Use this as the source of truth for visitor/traffic numbers — NOT origin access logs, which " +
-      "undercount because Cloudflare's CDN serves cached hits the origin never logs. Returns daily " +
-      "unique visitors (bot-filtered), page views, requests, and a best-effort mobile share.",
+      "undercount because Cloudflare's CDN serves cached hits the origin never logs. Returns whole-zone " +
+      "unique visitors (BOT-FILTERED), page views, requests, plus a UK-by-device breakdown (mobile/desktop/" +
+      "tablet visits) which is BOT-INCLUSIVE — good for TikTok/campaign mobile-UK trends, but not a " +
+      "bot-excluded headcount (that needs Cloudflare Bot Management).",
     {
       days: z
         .number()

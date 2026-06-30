@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   isoDate,
+  dateWindow,
   parseDaily,
-  parseMobileShare,
+  parseAdaptiveRows,
+  aggregateUk,
+  fetchUkBreakdown,
   fetchVisitorStats,
 } from "../src/senses/cloudflare/analytics.js";
 
@@ -13,17 +16,19 @@ const dailyBody = {
   ] }] } },
 };
 
-const deviceBody = {
+const ukDayBody = {
   data: { viewer: { zones: [{ httpRequestsAdaptiveGroups: [
-    { count: 700, dimensions: { clientDeviceType: "mobile" } },
-    { count: 300, dimensions: { clientDeviceType: "desktop" } },
+    { count: 1000, sum: { visits: 50 }, dimensions: { clientDeviceType: "mobile" } },
+    { count: 4000, sum: { visits: 120 }, dimensions: { clientDeviceType: "desktop" } },
   ] }] } },
 };
+
+const emptyUk = { data: { viewer: { zones: [{ httpRequestsAdaptiveGroups: [] }] } } };
+const jsonRes = (body: unknown) => ({ ok: true, status: 200, statusText: "OK", json: async () => body });
 
 describe("parseDaily", () => {
   it("maps days and sums totals", () => {
     const s = parseDaily(dailyBody, "zone1", "2026-06-26", "2026-06-27");
-    expect(s.days).toHaveLength(2);
     expect(s.totalUniques).toBe(250);
     expect(s.totalPageViews).toBe(1000);
     expect(s.totalRequests).toBe(2100);
@@ -41,12 +46,37 @@ describe("parseDaily", () => {
   });
 });
 
-describe("parseMobileShare", () => {
-  it("computes the mobile fraction of sampled requests", () => {
-    expect(parseMobileShare(deviceBody)).toBeCloseTo(0.7);
+describe("dateWindow", () => {
+  it("returns N UTC dates ending at `until`, oldest first", () => {
+    expect(dateWindow("2026-06-28", 3)).toEqual(["2026-06-26", "2026-06-27", "2026-06-28"]);
   });
-  it("is undefined when no device data", () => {
-    expect(parseMobileShare({ data: { viewer: { zones: [{ httpRequestsAdaptiveGroups: [] }] } } })).toBeUndefined();
+});
+
+describe("parseAdaptiveRows", () => {
+  it("lowercases device, maps count→requests and visits", () => {
+    const rows = parseAdaptiveRows(ukDayBody);
+    expect(rows).toEqual([
+      { device: "mobile", requests: 1000, visits: 50 },
+      { device: "desktop", requests: 4000, visits: 120 },
+    ]);
+  });
+  it("throws on a GraphQL error body", () => {
+    expect(() => parseAdaptiveRows({ errors: [{ message: "range too wide" }] })).toThrow(/range too wide/);
+  });
+  it("empty groups → []", () => {
+    expect(parseAdaptiveRows(emptyUk)).toEqual([]);
+  });
+});
+
+describe("aggregateUk", () => {
+  it("folds per-day rows, surfaces mobile, sorts by requests", () => {
+    const rows = parseAdaptiveRows(ukDayBody);
+    const agg = aggregateUk([rows, rows, rows], 3, false); // 3 identical days
+    expect(agg.mobileVisits).toBe(150);
+    expect(agg.mobileRequests).toBe(3000);
+    expect(agg.totalVisits).toBe(510);
+    expect(agg.byDevice[0].device).toBe("desktop"); // most requests first
+    expect(agg.truncated).toBe(false);
   });
 });
 
@@ -56,34 +86,47 @@ describe("isoDate", () => {
   });
 });
 
+describe("fetchUkBreakdown", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("caps the per-day fan-out at 31 days and flags truncation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes(emptyUk));
+    vi.stubGlobal("fetch", fetchMock);
+    const uk = await fetchUkBreakdown({ token: "t", zoneId: "z", until: "2026-06-28", days: 40 });
+    expect(fetchMock).toHaveBeenCalledTimes(31); // one call per capped day
+    expect(uk.days).toBe(31);
+    expect(uk.truncated).toBe(true);
+  });
+});
+
 describe("fetchVisitorStats", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  const jsonRes = (body: unknown) => ({ ok: true, status: 200, statusText: "OK", json: async () => body });
-
-  it("derives the date window from `now` and merges daily + device", async () => {
+  it("derives the window, then fans out one adaptive call per day", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonRes(dailyBody))   // daily query
-      .mockResolvedValueOnce(jsonRes(deviceBody)); // device query
+      .mockResolvedValueOnce(jsonRes(dailyBody)); // daily first
+    for (let i = 0; i < 7; i++) fetchMock.mockResolvedValueOnce(jsonRes(ukDayBody)); // 7 GB-device days
     vi.stubGlobal("fetch", fetchMock);
 
     const s = await fetchVisitorStats({ token: "t", zoneId: "z", days: 7, now: new Date("2026-06-28T00:00:00Z") });
     expect(s.since).toBe("2026-06-22");
     expect(s.until).toBe("2026-06-28");
     expect(s.totalUniques).toBe(250);
-    expect(s.mobileShare).toBeCloseTo(0.7);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1 + 7);
+    expect(s.uk?.mobileVisits).toBe(7 * 50);
+    expect(s.uk?.mobileRequests).toBe(7 * 1000);
+    expect(s.uk?.totalVisits).toBe(7 * 170);
   });
 
-  it("degrades to mobileShare:undefined when the device query fails — totals survive", async () => {
+  it("degrades to uk:undefined when an adaptive day fails — totals survive", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonRes(dailyBody))
-      .mockRejectedValueOnce(new Error("adaptive dataset gated"));
+      .mockRejectedValue(new Error("adaptive blip"));
     vi.stubGlobal("fetch", fetchMock);
 
     const s = await fetchVisitorStats({ token: "t", zoneId: "z", now: new Date("2026-06-28T00:00:00Z") });
     expect(s.totalUniques).toBe(250);
-    expect(s.mobileShare).toBeUndefined();
+    expect(s.uk).toBeUndefined();
   });
 
   it("throws a status (not the body) on a non-200, so tokens never leak via errors", async () => {

@@ -96,8 +96,10 @@ export const roles: Record<string, RoleDef> = {
       "- Always call `cloudflare_analytics` for traffic numbers. If it reports 'not configured', say so " +
       "plainly and label any log-derived figure honestly as a 'CDN-undercounted proxy' — never present it " +
       "as true traffic.\n" +
-      "- Cloudflare 'uniques' are already bot-filtered; the mobile share is sampled/approximate. Carry those " +
-      "caveats into your answer — do not round a sampled share into a hard headcount.\n\n" +
+      "- Two distinct metrics come back, never conflate them: whole-zone 'uniques' are BOT-FILTERED but " +
+      "have no country/device slice; the UK-by-device visits are sliceable (good for TikTok/campaign " +
+      "mobile-UK trends) but BOT-INCLUSIVE. A bot-excluded UK-mobile headcount needs Cloudflare Bot " +
+      "Management (not on the current plan) — say so plainly rather than implying the UK numbers exclude bots.\n\n" +
       "## Delivering files (CSV, reports)\n" +
       "When the user asks for a CSV, spreadsheet, export, or any file: gather the data with your read-only " +
       `tools, then \`Write\` the file to an ABSOLUTE path under ${HALALO_EXPORTS_DIR} (e.g. ` +
