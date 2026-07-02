@@ -115,8 +115,8 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
     try {
       const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
       const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
-      const merged = withEffectiveTools(withPack, roleName, deps.store);
-      const observed = withDenialObserver(merged, roleName, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
+      const merged = withEffectiveTools(withPack, canonical, deps.store);
+      const observed = withDenialObserver(merged, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
       const q = query({
         prompt: brief,
         options: {
