@@ -3,6 +3,7 @@ import { api, setToken, getToken } from "./api.js";
 import { useEvents, usePoll } from "./hooks.js";
 import { Board } from "./views/Board.js";
 import { Org } from "./views/Org.js";
+import { RoutingTrail } from "./views/RoutingTrail.js";
 import { Chat } from "./views/Chat.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
@@ -79,7 +80,7 @@ export function App() {
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
           <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} /></div>
-          <div className={tab === "routing" ? "" : "hidden"}><div className="text-dim text-[11px]">routing trail lands in the next commit</div></div>
+          <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
           <div className={tab === "board" ? "h-full" : "hidden"}><Board events={events} /></div>
           <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
           <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
