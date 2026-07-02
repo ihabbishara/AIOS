@@ -80,6 +80,49 @@ export interface TrustInfo {
   graduatedAt: string | null;
 }
 
+export interface OrgAgentCard {
+  name: string;
+  title: string;
+  charter: string;
+  visibility: "shared" | "private";
+  guarded: boolean;
+  status: "idle" | "working" | "waiting";
+  currentTask: string | null;
+  costTodayUsd: number;
+}
+
+export interface OrgDepartmentView {
+  department: string;
+  mission: string;
+  lead: string | null;
+  memoDomain: string;
+  sandbox: boolean;
+  actions: string[];
+  agents: OrgAgentCard[];
+}
+
+export interface AgentProfileInfo {
+  name: string;
+  title: string;
+  department: string;
+  mission: string;
+  charter: string;
+  persona: string;
+  aliases: string[];
+  visibility: "shared" | "private";
+  permissionMode: string;
+  model: string | null;
+  skills: string[];
+  guarded: boolean;
+  maxTurns: number;
+  tools: Array<{ name: string; source: "default" | "granted" }>;
+  revoked: Array<{ name: string; source: "revoked" }>;
+  trust: TrustInfo[];
+  recentRuns: Array<{ ts: string; context: string; ok: boolean; costUsd: number | null }>;
+  handoffs: Array<{ ts: string; reason: string; channel: string; chatId: string }>;
+  costByDay: Record<string, number>;
+}
+
 export interface PermissionInfo {
   role: string;
   description: string;
@@ -126,6 +169,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => request<StateInfo>("/api/state"),
+  org: () => request<OrgDepartmentView[]>("/api/org"),
+  agent: (name: string) => request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}`),
+  events: (since = 0) => request<StoredEvent[]>(`/api/events?since=${since}`),
   jobs: () => request<JobInfo[]>("/api/jobs"),
   job: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   costs: () => request<{ byAgent: Record<string, number>; byDay: Record<string, number> }>("/api/costs"),
