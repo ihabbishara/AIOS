@@ -67,6 +67,39 @@ export class VaultWriter {
     return existsSync(path) ? readFileSync(path, "utf8") : undefined;
   }
 
+  goalDirName(slug: string): string {
+    return `${today()}-${slug}`;
+  }
+
+  private goalDir(goalDirName: string): string {
+    const dir = join(this.root, "goals", goalDirName);
+    this.assertContained(resolve(dir), goalDirName);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  writeGoalArtifact(
+    goalDirName: string,
+    fileName: string,
+    content: string,
+    frontmatter: Record<string, string | number | boolean> = {},
+  ): string {
+    const dir = this.goalDir(goalDirName);
+    const fm = Object.entries({ created: new Date().toISOString(), ...frontmatter })
+      .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+      .join("\n");
+    const path = join(dir, fileName);
+    this.assertContained(resolve(path), fileName);
+    writeFileSync(path, `---\n${fm}\n---\n\n${content}\n`);
+    return path;
+  }
+
+  readGoalArtifact(goalDirName: string, fileName: string): string | undefined {
+    const path = join(this.root, "goals", goalDirName, fileName);
+    this.assertContained(resolve(path), join(goalDirName, fileName));
+    return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  }
+
   writeNote(relPath: string, content: string): string {
     const path = join(this.root, relPath.endsWith(".md") ? relPath : `${relPath}.md`);
     this.assertContained(resolve(path), relPath);
