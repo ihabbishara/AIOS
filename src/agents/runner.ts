@@ -108,6 +108,25 @@ export type SpecialistRunFn = (
   opts: RunOptions,
 ) => Promise<SpecialistResult>;
 
+/**
+ * Pure option assembly for a specialist run — the capability kernel shared by both the
+ * pipeline runner (hand_off path) and direct chats (@mention path).
+ * Exported so tests can pin capability parity: if either path drops pack or skips
+ * withEffectiveTools, a parity test using this function will catch the divergence.
+ */
+export function specialistOptions(
+  role: RoleDef,
+  roleName: string,
+  canonical: string,
+  opts: RunOptions,
+  store: Store,
+): Options {
+  void roleName; // retained in signature for call-site documentation; canonical is the DB key
+  const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
+  const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
+  return withEffectiveTools(withPack, canonical, store);
+}
+
 export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry: LoadedRegistry }): SpecialistRunFn {
   return async (roleName, brief, opts) => {
     const canonical = deps.registry.agentOf.get(roleName) ?? roleName;
@@ -119,9 +138,7 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
     opts.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
-      const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
-      const merged = withEffectiveTools(withPack, canonical, deps.store);
+      const merged = specialistOptions(role, roleName, canonical, opts, deps.store);
       const observed = withDenialObserver(merged, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
       const q = query({
         prompt: brief,

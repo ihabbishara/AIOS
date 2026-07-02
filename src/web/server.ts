@@ -50,6 +50,15 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
   { key: "AIOS_GMAIL_SKIP_CATEGORIES", secret: false },
 ];
 
+/**
+ * Returns true when the web UI `target` field should be routed to the Chief of Staff (Rami).
+ * Accepts the legacy "moderator" sentinel (transition window — some UI builds may still send it)
+ * and the current "rami" name, as well as undefined/empty (default path).
+ */
+export function isChiefOfStaff(target?: string): boolean {
+  return !target || target === "moderator" || target === "rami";
+}
+
 export interface WebDeps {
   store: Store;
   bus: EventBus;
@@ -232,7 +241,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
           if (body.target === "finance") {
             reply = await deps.finance.handle("web", "ui-finance", body.text, { name: "UI" });
           } else {
-            const text = body.target && body.target !== "moderator" ? `@${body.target} ${body.text}` : body.text;
+            const text = body.target && !isChiefOfStaff(body.target) ? `@${body.target} ${body.text}` : body.text;
             reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? null;
           }
           return json(res, 200, { reply });
@@ -251,7 +260,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
             writeFileSync(audioPath, body);
             const transcript = await voice.transcribe(audioPath);
             if (!transcript.trim()) return json(res, 422, { error: "could not transcribe audio" });
-            const text = target && target !== "moderator" ? `@${target} ${transcript}` : transcript;
+            const text = target && !isChiefOfStaff(target) ? `@${target} ${transcript}` : transcript;
             const reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? "";
             let audio: string | null = null;
             try {
