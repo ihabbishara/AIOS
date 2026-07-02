@@ -40,4 +40,30 @@ describe("pack-specific tool-server", () => {
     const r = resolvePack(pack, deps({ toolServers: {} }));
     expect(Object.keys(r.mcpServers)).toEqual(["aios-pack"]);
   });
+
+  it("toolServers array (plural) adds all registered builders alongside the shared server", () => {
+    const pack = packSchema.parse({ ...base, toolServers: ["money", "ledger"] });
+    const built: string[] = [];
+    const r = resolvePack(pack, deps({
+      toolServers: {
+        money: () => { built.push("money"); return { __server: "money" }; },
+        ledger: () => { built.push("ledger"); return { __server: "ledger" }; },
+      },
+    }));
+    expect(Object.keys(r.mcpServers).sort()).toEqual(["aios-pack", "ledger", "money"]);
+    expect(built.sort()).toEqual(["ledger", "money"]);
+  });
+
+  it("singular toolServer + plural toolServers are merged without duplication", () => {
+    const pack = packSchema.parse({ ...base, toolServer: "money", toolServers: ["ledger"] });
+    const built: string[] = [];
+    const r = resolvePack(pack, deps({
+      toolServers: {
+        money: () => { built.push("money"); return { __server: "money" }; },
+        ledger: () => { built.push("ledger"); return { __server: "ledger" }; },
+      },
+    }));
+    expect(Object.keys(r.mcpServers).sort()).toEqual(["aios-pack", "ledger", "money"]);
+    expect(built.sort()).toEqual(["ledger", "money"]);
+  });
 });

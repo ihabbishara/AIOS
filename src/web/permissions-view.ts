@@ -3,7 +3,6 @@ import type { EventBus } from "../events.js";
 import { roles } from "../agents/roles/index.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
 import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
-import { FINANCE_TOOLS } from "../finance/agent.js";
 
 /** The Claude Agent SDK's built-in tool names — the universally grantable set (case-sensitive). */
 export const BUILTIN_TOOLS = [
@@ -79,14 +78,6 @@ export function permissionRoleCatalog(): CatalogEntry[] {
       toolCheckFallback: "allow",
       skills: [],
       base: MODERATOR_ALLOWED_TOOLS,
-    },
-    {
-      role: "finance",
-      description: "Standalone finance agent — expenses, settlements, receipts.",
-      permissionMode: "dontAsk",
-      toolCheckFallback: "allow",
-      skills: [],
-      base: FINANCE_TOOLS,
     },
   ];
 }

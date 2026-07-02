@@ -31,14 +31,9 @@ function setup() {
     resetSession: () => {},
   };
 
-  const finance = {
-    handle: async () => "finance-reply",
-  };
-
   const router = new MessageRouter({
     moderator: moderator as never,
     directChats: directChats as never,
-    finance: finance as never,
     chatBindings: new Map(),
     bus,
   });
@@ -50,7 +45,6 @@ function setup() {
   const routerWithMentionOnlyBinding = new MessageRouter({
     moderator: moderator as never,
     directChats: directChats as never,
-    finance: finance as never,
     chatBindings,
     bus,
   });
@@ -133,7 +127,6 @@ describe("route.decision", () => {
     const router = new MessageRouter({
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
-      finance: { handle: async () => "fin" } as never,
       chatBindings,
       bus,
     });
@@ -163,7 +156,6 @@ describe("route.decision", () => {
     const router = new MessageRouter({
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
-      finance: { handle: async () => "fin" } as never,
       chatBindings,
       bus,
     });

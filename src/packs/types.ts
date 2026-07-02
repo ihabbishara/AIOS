@@ -7,6 +7,8 @@ export const packSchema = z.object({
   vaultSection: z.string().optional(),
   /** Optional pack-specific MCP tool-server name (resolved from the builder registry). */
   toolServer: z.string().optional(),
+  /** Additional pack-specific tool-server names (merged with singular toolServer, back-compat). */
+  toolServers: z.array(z.string()).default([]),
   tools: z.array(z.string()).default([]),
   actions: z.array(z.string()).default([]),
   roles: z.array(z.string()).default([]),

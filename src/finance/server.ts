@@ -1,0 +1,159 @@
+import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { computeSettlement, renderSettlement, toCents, formatCents } from "./ledger.js";
+import type { Store } from "../store/db.js";
+import type { VaultWriter } from "../vault/writer.js";
+import type { ActionGate } from "../kernel/gate.js";
+import type { FinanceMember } from "../config.js";
+
+const EXPORTS_DIR = "/tmp/aios-exports";
+
+function csvEscape(v: string): string {
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+function text(s: string) {
+  return { content: [{ type: "text" as const, text: s }] };
+}
+
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function slugify(s: string): string {
+  return s.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "ledger";
+}
+
+export function buildLedgerServer(
+  deps: { store: Store; vault: VaultWriter; gate: ActionGate; origin: { channel: string; chatId: string } },
+  cfg: { company: string; members: FinanceMember[] },
+) {
+  const { store, vault, origin } = deps;
+  const { company } = cfg;
+  const members = cfg.members.map((m) => m.name);
+  const ledger = `${origin.channel}:${origin.chatId}`;
+  const ledgerSlug = slugify(ledger);
+
+  const addExpense = tool(
+    "add_expense",
+    "Record an expense/invoice in the ledger. Returns the entry id.",
+    {
+      payer: z.string().describe(`Who paid — one of: ${members.join(", ")}`),
+      amount: z.number().positive().describe("Amount in major units, e.g. 42.50"),
+      currency: z.string().default("EUR"),
+      description: z.string().describe("What it was for"),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+        .describe("YYYY-MM-DD; omit for today"),
+      receipt_path: z.string().optional()
+        .describe("Absolute path of the stored invoice/receipt file, when the expense came from an attachment"),
+    },
+    async (a) => {
+      const date = a.date ?? new Date().toISOString().slice(0, 10);
+      const cents = toCents(a.amount);
+      const id = store.addExpense({
+        ledger,
+        payer: a.payer.trim(),
+        amountCents: cents,
+        currency: a.currency.toUpperCase(),
+        description: a.description,
+        date,
+        receiptPath: a.receipt_path,
+      });
+      vault.appendDaily(
+        `${company} expense #${id}: ${a.payer} paid ${formatCents(cents, a.currency.toUpperCase())} — ${a.description}`,
+      );
+      return text(`Recorded #${id}: ${a.payer} paid ${formatCents(cents, a.currency.toUpperCase())} for "${a.description}" on ${date}.`);
+    },
+  );
+
+  const removeExpense = tool(
+    "remove_expense",
+    "Delete a wrongly recorded expense by id.",
+    { id: z.number().int() },
+    async (a) =>
+      text(store.deleteExpense(ledger, a.id) ? `Removed expense #${a.id}.` : `No expense #${a.id} in this ledger.`),
+  );
+
+  const listExpenses = tool(
+    "list_expenses",
+    "List recorded expenses, optionally for one month (YYYY-MM). The ledger is the source of truth.",
+    { month: z.string().regex(/^\d{4}-\d{2}$/).optional() },
+    async (a) => {
+      const rows = store.listExpenses(ledger, a.month);
+      if (!rows.length) return text(a.month ? `No expenses recorded for ${a.month}.` : "Ledger is empty.");
+      const lines = rows.map(
+        (r) =>
+          `#${r.id} ${r.date} ${r.payer}: ${formatCents(r.amount_cents, r.currency)} — ${r.description}${r.receipt_path ? " 📎" : ""}`,
+      );
+      const total = rows.reduce((s, r) => s + r.amount_cents, 0);
+      return text(`${lines.join("\n")}\n\nTotal: ${formatCents(total, rows[0].currency)} (${rows.length} entries)`);
+    },
+  );
+
+  const settle = tool(
+    "settle",
+    `Compute the month's settlement: total, equal ${members.length}-way split, balances, and who pays whom. All math is exact (integer cents).`,
+    { month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("YYYY-MM; omit for current month") },
+    async (a) => {
+      const month = a.month ?? currentMonth();
+      const rows = store.listExpenses(ledger, month);
+      if (!rows.length) return text(`No expenses recorded for ${month} — nothing to settle.`);
+      const settlement = computeSettlement(
+        rows.map((r) => ({
+          id: r.id,
+          payer: r.payer,
+          amountCents: r.amount_cents,
+          currency: r.currency,
+          description: r.description,
+          date: r.date,
+        })),
+        members,
+        month,
+      );
+      const report = renderSettlement(settlement);
+      vault.writeNote(`finance/${company.toLowerCase()}/settlement-${month}.md`, `${report}\n`);
+      return text(report);
+    },
+  );
+
+  const exportCsv = tool(
+    "export_csv",
+    "Generate a CSV report of the expenses (optionally one month) and send it into this chat as a file.",
+    { month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("YYYY-MM; omit for all time") },
+    async (a) => {
+      const rows = store.listExpenses(ledger, a.month);
+      if (!rows.length) return text(a.month ? `No expenses for ${a.month}.` : "Ledger is empty.");
+      const csv = [
+        "id,date,payer,amount,currency,description",
+        ...rows.map((r) =>
+          [r.id, r.date, csvEscape(r.payer), (r.amount_cents / 100).toFixed(2), r.currency, csvEscape(r.description)].join(","),
+        ),
+      ].join("\n");
+      const month = a.month ?? currentMonth();
+      mkdirSync(EXPORTS_DIR, { recursive: true });
+      const filePath = join(EXPORTS_DIR, `${ledgerSlug}-${month}.csv`);
+      writeFileSync(filePath, `${csv}\n`);
+      return text(`CSV written to ${filePath}. Call attach_file with this exact path to deliver it into the chat.`);
+    },
+  );
+
+  const sendReceipt = tool(
+    "send_receipt",
+    "Send the archived receipt/invoice file of an expense into this chat.",
+    { id: z.number().int().describe("Expense id") },
+    async (a) => {
+      const row = store.listExpenses(ledger).find((r) => r.id === a.id);
+      if (!row) return text(`No expense #${a.id} in this ledger.`);
+      if (!row.receipt_path) return text(`Expense #${a.id} has no receipt on file.`);
+      return text(`Receipt is at ${row.receipt_path}. Call attach_file with this exact path to deliver it into the chat.`);
+    },
+  );
+
+  return createSdkMcpServer({
+    name: "ledger",
+    version: "0.1.0",
+    tools: [addExpense, removeExpense, listExpenses, settle, exportCsv, sendReceipt],
+  });
+}

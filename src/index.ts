@@ -12,7 +12,6 @@ import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { makeRunSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
 import { DirectChats } from "./agents/direct.js";
-import { FinanceAgent } from "./finance/agent.js";
 import { EventBus } from "./events.js";
 import { MessageRouter } from "./router.js";
 import { startWebServer } from "./web/server.js";
@@ -46,6 +45,7 @@ import { buildResearchServer } from "./research/server.js";
 import { computeMoneySignals } from "./money/signals.js";
 import { buildLifeopsServer } from "./lifeops/server.js";
 import { computeLifeopsSignals } from "./lifeops/ops.js";
+import { buildLedgerServer } from "./finance/server.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
@@ -184,6 +184,7 @@ async function main(): Promise<void> {
       money: (d) => buildMoneyServer({ store: d.store, categorize }),
       research: (d) => buildResearchServer({ store: d.store }),
       lifeops: (d) => buildLifeopsServer({ store: d.store }),
+      ledger: (d) => buildLedgerServer(d, { company: config.financeCompany, members: config.financeMembers }),
     } },
   );
 
@@ -254,23 +255,9 @@ async function main(): Promise<void> {
     primaryChat: config.primaryChat,
   });
 
-  const finance = new FinanceAgent({
-    store,
-    bus,
-    vault,
-    company: config.financeCompany,
-    members: config.financeMembers,
-    model: config.specialistModel,
-    sendFile: async (channel, chatId, filePath, caption) => {
-      await channels.get(channel)?.sendFile(chatId, filePath, caption);
-    },
-    log,
-  });
-
   const router = new MessageRouter({
     moderator,
     directChats,
-    finance,
     chatBindings: config.chatBindings,
     bus,
     gate,
@@ -565,7 +552,7 @@ async function main(): Promise<void> {
   }
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, finance, gate, voice, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, jobs, vault, config, router, gate, voice, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 

@@ -28,6 +28,8 @@ export const departmentSchema = z.object({
   memoDomain: z.string().min(1),
   vaultSection: z.string().optional(),
   toolServer: z.string().optional(),
+  /** Additional pack-specific MCP tool-server names (merged with singular toolServer, back-compat). */
+  toolServers: z.array(z.string()).default([]),
   /** Dept-level tool names prepended to the toolsUnion (e.g. recall/vault_read that are safe dept-wide). */
   tools: z.array(z.string()).default([]),
   actions: z.array(z.string()).default([]),

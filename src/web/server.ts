@@ -11,7 +11,6 @@ import type { JobManager } from "../engine/jobs.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { Config } from "../config.js";
 import type { MessageRouter } from "../router.js";
-import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
@@ -66,7 +65,6 @@ export interface WebDeps {
   vault: VaultWriter;
   config: Config;
   router: MessageRouter;
-  finance: FinanceAgent;
   gate: ActionGate;
   voice: VoiceService;
   reloadPacks: () => void;
@@ -145,12 +143,6 @@ export function startWebServer(deps: WebDeps, port: number): void {
                 tools: r.allowedTools, permissionMode: r.permissionMode,
                 skills: r.skills ?? [], guarded: !!r.toolChecks, cwd: r.cwd,
               })),
-              {
-                name: "finance", kind: "finance",
-                description: `${config.financeCompany} ledger: expenses, invoices, settlements.`,
-                tools: ["add_expense", "settle", "export_csv", "send_receipt"], guarded: true,
-                members: config.financeMembers.map((m) => m.name),
-              },
             ],
             playbooks: jobs.listPlaybooks(),
             bindings: [...config.chatBindings.entries()].map(([chatKey, b]) => ({ chatKey, ...b })),
@@ -237,13 +229,8 @@ export function startWebServer(deps: WebDeps, port: number): void {
         if (path === "/api/chat" && req.method === "POST") {
           const body = JSON.parse(await readBody(req)) as { target: string; text: string };
           if (!body.text?.trim()) return json(res, 400, { error: "text required" });
-          let reply: string | null;
-          if (body.target === "finance") {
-            reply = await deps.finance.handle("web", "ui-finance", body.text, { name: "UI" });
-          } else {
-            const text = body.target && !isChiefOfStaff(body.target) ? `@${body.target} ${body.text}` : body.text;
-            reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? null;
-          }
+          const text = body.target && !isChiefOfStaff(body.target) ? `@${body.target} ${body.text}` : body.text;
+          const reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? null;
           return json(res, 200, { reply });
         }
 

@@ -1,7 +1,6 @@
 import type { InboundMessage } from "./channels/types.js";
 import type { Moderator } from "./moderator/session.js";
 import { type DirectChats, parseDirectAddress, findAgentMention } from "./agents/direct.js";
-import type { FinanceAgent } from "./finance/agent.js";
 import type { ChatBinding } from "./config.js";
 import type { EventBus } from "./events.js";
 import type { ActionGate } from "./kernel/gate.js";
@@ -12,7 +11,6 @@ export type RouterResult = { text: string; attachments: Attachment[] };
 export interface RouterDeps {
   moderator: Moderator;
   directChats: DirectChats;
-  finance: FinanceAgent;
   chatBindings: Map<string, ChatBinding>;
   bus?: EventBus;
   gate?: ActionGate;
@@ -27,7 +25,7 @@ export class MessageRouter {
   constructor(private deps: RouterDeps) {}
 
   async handle(msg: InboundMessage): Promise<RouterResult | null> {
-    const { moderator, directChats, finance, chatBindings, bus } = this.deps;
+    const { moderator, directChats, chatBindings, bus } = this.deps;
     bus?.emit({
       type: "chat.in",
       channel: msg.channel,
@@ -126,43 +124,27 @@ export class MessageRouter {
       const addressed = findAgentMention(msg.text, binding.agents);
       const hasAttachments = !!msg.attachments?.length;
       if (addressed) {
-        if (addressed.role === "finance") {
-          routed("salim", "mention", `mention of ${addressed.role} in bound chat`);
-          const text = await agentTurn("finance", () =>
-            finance.handle(msg.channel, msg.chatId, addressed.text, msg.sender, msg.attachments));
-          reply = textOnly(text);
-        } else {
-          const canonicalTo = directChats.canonical(addressed.role) ?? addressed.role;
-          routed(canonicalTo, "mention", `mention of ${addressed.role} in bound chat`);
-          const result = await agentTurn(addressed.role, () =>
-            directChats.handle(addressed.role, msg.channel, msg.chatId, addressed.text));
-          reply = { text: `[${addressed.role}]\n${result.text}`, attachments: result.attachments };
-        }
+        const canonicalTo = directChats.canonical(addressed.role) ?? addressed.role;
+        routed(canonicalTo, "mention", `mention of ${addressed.role} in bound chat`);
+        const result = await agentTurn(addressed.role, () =>
+          directChats.handle(addressed.role, msg.channel, msg.chatId, addressed.text, msg.sender));
+        reply = { text: `[${addressed.role}]\n${result.text}`, attachments: result.attachments };
       } else if (binding.mentionOnly && !hasAttachments) {
         reply = null; // mention-only chat: stay silent for unaddressed chatter
-      } else if (binding.agents[0] === "finance") {
-        routed("salim", "binding", "first bound agent");
-        const text = await agentTurn("finance", () =>
-          finance.handle(msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments));
-        reply = textOnly(text);
       } else {
         const canonicalTo = directChats.canonical(binding.agents[0]) ?? binding.agents[0];
         routed(canonicalTo, "binding", "first bound agent");
         const result = await agentTurn(binding.agents[0], () =>
-          directChats.handle(binding.agents[0], msg.channel, msg.chatId, msg.text));
+          directChats.handle(binding.agents[0], msg.channel, msg.chatId, msg.text, msg.sender));
         reply = { text: `[${binding.agents[0]}]\n${result.text}`, attachments: result.attachments };
       }
     } else {
       const direct = parseDirectAddress(msg.text, directChats.names());
       if (direct) {
-        if (direct.role === "finance") {
-          routed("salim", "mention", `@${direct.role} addressed`);
-        } else {
-          const canonicalTo = directChats.canonical(direct.role) ?? direct.role;
-          routed(canonicalTo, "mention", `@${direct.role} addressed`);
-        }
+        const canonicalTo = directChats.canonical(direct.role) ?? direct.role;
+        routed(canonicalTo, "mention", `@${direct.role} addressed`);
         const result = await agentTurn(direct.role, () =>
-          directChats.handle(direct.role, msg.channel, msg.chatId, direct.text));
+          directChats.handle(direct.role, msg.channel, msg.chatId, direct.text, msg.sender));
         reply = { text: `[${direct.role}]\n${result.text}`, attachments: result.attachments };
       } else {
         routed("rami", "default", "no mention — chief of staff");

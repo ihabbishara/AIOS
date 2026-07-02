@@ -59,10 +59,15 @@ export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
   });
 
   const mcpServers: Record<string, unknown> = { [SERVER_NAME]: server };
-  if (pack.toolServer) {
-    const builder = deps.toolServers?.[pack.toolServer];
+  // Merge both singular toolServer and plural toolServers (back-compat).
+  const allToolServers = [
+    ...(pack.toolServer ? [pack.toolServer] : []),
+    ...(pack.toolServers ?? []),
+  ];
+  for (const tsName of allToolServers) {
+    const builder = deps.toolServers?.[tsName];
     if (builder) {
-      mcpServers[pack.toolServer] = builder({ store: deps.store, vault: deps.vault, gate: deps.gate, origin: deps.origin });
+      mcpServers[tsName] = builder({ store: deps.store, vault: deps.vault, gate: deps.gate, origin: deps.origin });
     }
     // unknown toolServer → fail-soft: omit it; the pack still loads with the shared server.
   }
@@ -108,6 +113,7 @@ export function makeResolveDeptFor(
         memoDomain: d.memoDomain,
         vaultSection: d.vaultSection,
         toolServer: d.toolServer,
+        toolServers: d.toolServers,
         tools: d.toolsUnion,
         actions: d.actions,
         roles: [],

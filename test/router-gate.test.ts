@@ -24,7 +24,6 @@ function setup() {
   const router = new MessageRouter({
     moderator: { handle: async () => "rami-reply" } as never,
     directChats: { handle: async () => ({ text: "direct-reply", attachments: [] }), names: () => [] } as never,
-    finance: { handle: async () => "finance-reply" } as never,
     chatBindings: new Map(),
     gate,
   });

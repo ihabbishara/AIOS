@@ -7,12 +7,12 @@ function reg(): LoadedRegistry {
   const engineering = {
     department: "engineering", mission: "Build software.", memoDomain: "code",
     vaultSection: "code", tools: [], sandbox: true, actions: ["vault.write"], playbooks: ["code-build"],
-    toolServer: undefined, toolsUnion: [],
+    toolServer: undefined, toolServers: [], toolsUnion: [],
   };
   const finance = {
     department: "finance", mission: "Money.", memoDomain: "money",
     vaultSection: "money", tools: [], sandbox: false, actions: [], playbooks: [],
-    toolServer: undefined, toolsUnion: [],
+    toolServer: undefined, toolServers: [], toolsUnion: [],
   };
   const maya = {
     manifest: { name: "maya", title: "Engineer", department: "engineering", charter: "c", persona: "p", prompt: "s",
