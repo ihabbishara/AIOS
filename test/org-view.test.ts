@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { EventBus } from "../src/events.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { buildOrgView } from "../src/web/org-view.js";
+import { buildOrgView, buildAgentProfile } from "../src/web/org-view.js";
 
 /** Minimal two-department registry: engineering (vulcan, alias developer) + finance (midas, private). */
 export function fixtureRegistry() {
@@ -101,5 +101,66 @@ describe("buildOrgView", () => {
     bus.emit({ type: "agent.end", agent: "vulcan", context: "chat:telegram:42", ok: true, costUsd: 0.25 });
     const eng = buildOrgView(registry, store, bus, "1999-01-01").find((d) => d.department === "engineering")!;
     expect(eng.agents[0].costTodayUsd).toBe(0);
+  });
+});
+
+describe("buildAgentProfile", () => {
+  it("returns null for unknown agents", () => {
+    const { store, bus, registry } = harness();
+    expect(buildAgentProfile("nobody", registry, store, bus)).toBeNull();
+  });
+
+  it("resolves aliases to the canonical profile", () => {
+    const { store, bus, registry } = harness();
+    const p = buildAgentProfile("developer", registry, store, bus)!;
+    expect(p.name).toBe("vulcan");
+    expect(p.title).toBe("Senior Engineer");
+    expect(p.department).toBe("engineering");
+    expect(p.charter).toBe("Owns implementing code changes.");
+    expect(p.persona).toBe("Terse.");
+    expect(p.aliases).toEqual(["developer"]);
+  });
+
+  it("effective tools tag grants; revoked defaults listed separately", () => {
+    const { store, bus, registry } = harness();
+    store.setRolePermission("vulcan", "WebSearch", 1, "test");
+    store.setRolePermission("vulcan", "Write", 0, "test");
+    const p = buildAgentProfile("vulcan", registry, store, bus)!;
+    expect(p.tools).toContainEqual({ name: "WebSearch", source: "granted" });
+    expect(p.tools).toContainEqual({ name: "Read", source: "default" });
+    expect(p.tools.some((t) => t.name === "Write")).toBe(false);
+    expect(p.revoked).toEqual([{ name: "Write", source: "revoked" }]);
+  });
+
+  it("trust rows filter to the department's action ceiling", () => {
+    const { store, bus, registry } = harness();
+    const trustRow = (actionType: string) => ({
+      actionType, state: "supervised" as const, approvals: 1, rejections: 0, streak: 1,
+      firstSeen: new Date().toISOString(), lastRejection: null, graduatedAt: null,
+    });
+    store.upsertTrust(trustRow("vault.write"));
+    store.upsertTrust(trustRow("email.send"));
+    const p = buildAgentProfile("vulcan", registry, store, bus)!;
+    expect(p.trust.map((t) => t.actionType)).toEqual(["vault.write"]);
+  });
+
+  it("recent runs, handoffs, and cost history come from the event stream", () => {
+    const { store, bus, registry } = harness();
+    bus.emit({ type: "agent.end", agent: "vulcan", context: "chat:telegram:42", ok: true, costUsd: 0.3 });
+    bus.emit({ type: "agent.end", agent: "developer", context: "job:fix-auth/implement", ok: false });
+    bus.emit({
+      type: "route.decision", to: "vulcan", via: "handoff",
+      reason: "charter match — code change", channel: "telegram", chatId: "42",
+    });
+    bus.emit({
+      type: "route.decision", to: "vulcan", via: "mention",
+      reason: "direct mention", channel: "telegram", chatId: "42",
+    });
+    const p = buildAgentProfile("vulcan", registry, store, bus)!;
+    expect(p.recentRuns).toHaveLength(2);
+    expect(p.recentRuns[0]).toMatchObject({ context: "job:fix-auth/implement", ok: false }); // newest first
+    expect(p.handoffs).toHaveLength(1); // via=handoff only
+    expect(p.handoffs[0].reason).toBe("charter match — code change");
+    expect(Object.values(p.costByDay)).toEqual([0.3]);
   });
 });

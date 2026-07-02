@@ -2,6 +2,9 @@
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
+import type { TrustRecord } from "../kernel/trust.js";
+import { effectiveAllowedTools } from "../agents/permissions.js";
+import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
 
 export type AgentLiveStatus = "idle" | "working" | "waiting";
 
@@ -91,4 +94,98 @@ export function buildOrgView(
     });
   }
   return out;
+}
+
+export interface AgentProfileView {
+  name: string;
+  title: string;
+  department: string;
+  mission: string;
+  charter: string;
+  persona: string;
+  aliases: string[];
+  visibility: "shared" | "private";
+  permissionMode: string;
+  model: string | null;
+  skills: string[];
+  guarded: boolean;
+  maxTurns: number;
+  tools: Array<{ name: string; source: "default" | "granted" }>;
+  revoked: Array<{ name: string; source: "revoked" }>;
+  /** Trust ledger rows for action types this agent's department can propose. */
+  trust: TrustRecord[];
+  /** Newest first, capped at 20. */
+  recentRuns: Array<{ ts: string; context: string; ok: boolean; costUsd: number | null }>;
+  /** hand_off dispatches to this agent (route.decision via=handoff), newest first, capped at 20. */
+  handoffs: Array<{ ts: string; reason: string; channel: string; chatId: string }>;
+  costByDay: Record<string, number>;
+}
+
+export function buildAgentProfile(
+  nameOrAlias: string,
+  registry: LoadedRegistry,
+  store: Store,
+  bus: EventBus,
+): AgentProfileView | null {
+  const name = registry.agentOf.get(nameOrAlias);
+  const def = name ? registry.agents.get(name) : undefined;
+  if (!def) return null;
+  const dept = registry.departments.get(def.department);
+
+  // hermes's real allowlist is the moderator toolset, not its empty manifest tools
+  // (same special case as permissionRoleCatalog in permissions-view.ts).
+  const base = def.manifest.name === "hermes" ? MODERATOR_ALLOWED_TOOLS : def.role.allowedTools;
+  const overrides = store.listRolePermissions(def.manifest.name);
+  const granted = new Set(overrides.filter((o) => o.allow === 1).map((o) => o.tool));
+  const baseSet = new Set(base);
+  const tools = effectiveAllowedTools(def.manifest.name, base, store).map((t) => ({
+    name: t,
+    source: (!baseSet.has(t) && granted.has(t) ? "granted" : "default") as "granted" | "default",
+  }));
+  const revoked = overrides
+    .filter((o) => o.allow === 0 && baseSet.has(o.tool))
+    .map((o) => ({ name: o.tool, source: "revoked" as const }));
+
+  const deptActions = new Set(dept?.actions ?? []);
+  const trust = store.listTrust().filter((t) => deptActions.has(t.actionType));
+
+  const recentRuns: AgentProfileView["recentRuns"] = [];
+  const handoffs: AgentProfileView["handoffs"] = [];
+  const costByDay: Record<string, number> = {};
+  for (const e of bus.history(0, HISTORY_WINDOW)) {
+    if (e.event.type === "agent.end" && canonical(registry, e.event.agent) === def.manifest.name) {
+      recentRuns.push({ ts: e.ts, context: e.event.context, ok: e.event.ok, costUsd: e.event.costUsd ?? null });
+      if (e.event.costUsd) {
+        const day = e.ts.slice(0, 10);
+        costByDay[day] = (costByDay[day] ?? 0) + e.event.costUsd;
+      }
+    } else if (
+      e.event.type === "route.decision" && e.event.via === "handoff" &&
+      canonical(registry, e.event.to) === def.manifest.name
+    ) {
+      handoffs.push({ ts: e.ts, reason: e.event.reason, channel: e.event.channel, chatId: e.event.chatId });
+    }
+  }
+
+  return {
+    name: def.manifest.name,
+    title: def.manifest.title,
+    department: def.department,
+    mission: dept?.mission ?? "",
+    charter: def.manifest.charter.trim(),
+    persona: def.manifest.persona.trim(),
+    aliases: def.manifest.aliases,
+    visibility: def.manifest.visibility,
+    permissionMode: def.role.permissionMode,
+    model: def.manifest.model ?? null,
+    skills: def.manifest.skills,
+    guarded: !!def.role.toolChecks,
+    maxTurns: def.manifest.maxTurns,
+    tools,
+    revoked,
+    trust,
+    recentRuns: recentRuns.slice(-20).reverse(),
+    handoffs: handoffs.slice(-20).reverse(),
+    costByDay,
+  };
 }
