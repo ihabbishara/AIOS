@@ -15,6 +15,7 @@ import type { VoiceService } from "../voice/index.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
+import { buildOrgView, buildAgentProfile } from "./org-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -407,6 +408,18 @@ export function startWebServer(deps: WebDeps, port: number): void {
           writeFileSync(route.absPath, body.yaml);
           reloadPacks();
           return json(res, 200, { ok: true, reloaded: true });
+        }
+
+        // ---- org ----
+        if (path === "/api/org" && req.method === "GET") {
+          return json(res, 200, buildOrgView(registry, store, bus));
+        }
+
+        const agentMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)$/.exec(path);
+        if (agentMatch && req.method === "GET") {
+          const profile = buildAgentProfile(agentMatch[1], registry, store, bus);
+          if (!profile) return json(res, 404, { error: "unknown agent" });
+          return json(res, 200, profile);
         }
 
         if (path === "/api/permissions" && req.method === "GET") {
