@@ -14,7 +14,7 @@ describe("kill-switch removes the engineering department from the registry", () 
       agents: new Map([["maya", maya]]),
       departments: new Map([["engineering", {
         department: "engineering", mission: "m", memoDomain: "code", vaultSection: "code",
-        tools: [], sandbox: true, actions: ["vault.write"], playbooks: ["code-build"], toolServers: [], toolsUnion: [],
+        tools: [], sandbox: true, actions: ["vault.write"], playbooks: ["code-build"], toolServers: [], toolsUnion: [], privateMemo: false,
       }]]),
       agentOf: new Map([["maya", "maya"], ["developer", "maya"]]),
       ownerOfPlaybook: new Map([["code-build", "engineering"]]),

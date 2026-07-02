@@ -14,7 +14,7 @@ stages:
   - type: loop
     id: design
     producer: kai
-    critic: nadia
+    critic: yara
     maxRounds: 3
     brief: >-
       Design the solution for the task using the research brief.

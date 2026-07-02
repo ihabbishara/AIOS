@@ -33,6 +33,10 @@ export interface RoleDef {
 
 const READ_TOOLS = ["Read", "Grep", "Glob"];
 const WEB_TOOLS = ["WebSearch", "WebFetch"];
+/** Second-brain memo tools owned bare by dept members (mapped to mcp__aios-pack__* at resolve).
+ *  Ownership is required post-clamp, so each member manifest lists them — this legacy map mirrors
+ *  those manifests to keep the YAML↔legacy parity test honest. */
+const PACK_MEMO = ["recall", "vault_read", "vault_write"];
 /** Sandboxed code server — replaces raw Bash for engineering agents in code jobs. */
 const CODE_SHELL = ["mcp__code__sh"];
 /** Research source management — all research dept members can save/query sources. */
@@ -137,7 +141,7 @@ export const roles: Record<string, RoleDef> = {
       "and any provided files. Produce a concise markdown research brief with sections: " +
       "Summary, Key findings, Recommended direction, Risks, Sources. Cite URLs. " +
       "Your final message is saved verbatim as research.md — make it the complete brief.",
-    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...CODE_SHELL],
+    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...CODE_SHELL, ...PACK_MEMO],
     permissionMode: "dontAsk",
     maxTurns: 30,
   },
@@ -150,7 +154,7 @@ export const roles: Record<string, RoleDef> = {
       "Interfaces, Error handling, Testing strategy, Implementation steps. If reviewer feedback " +
       "is provided, revise the design to address every point or explain why not. " +
       "Your final message is saved verbatim as the design document — make it complete and self-contained.",
-    allowedTools: [...READ_TOOLS, ...CODE_SHELL],
+    allowedTools: [...READ_TOOLS, ...CODE_SHELL, ...PACK_MEMO],
     permissionMode: "dontAsk",
     maxTurns: 25,
   },
@@ -162,7 +166,7 @@ export const roles: Record<string, RoleDef> = {
       "against the original request: completeness, correctness, simplicity (YAGNI), risks, testability. " +
       "Be demanding but fair — approve when the design is good enough to build, not perfect. " +
       "Return your verdict in the required structured format.",
-    allowedTools: [...READ_TOOLS, ...RESEARCH_MCP_TOOLS],
+    allowedTools: [...READ_TOOLS, ...RESEARCH_MCP_TOOLS, ...PACK_MEMO],
     permissionMode: "dontAsk",
     outputSchema: VERDICT_SCHEMA as unknown as Record<string, unknown>,
     maxTurns: 15,
@@ -175,7 +179,7 @@ export const roles: Record<string, RoleDef> = {
       "directory. Write clean, idiomatic code matching the existing style. Run builds to verify. " +
       "If test failures are provided, fix them. Finish with a markdown implementation summary: " +
       "what was built, files changed, how to run it, notable decisions.",
-    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", "TodoWrite", ...CODE_SHELL],
+    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", "TodoWrite", ...CODE_SHELL, ...PACK_MEMO],
     permissionMode: "bypassPermissions",
     maxTurns: 80,
   },
@@ -187,7 +191,7 @@ export const roles: Record<string, RoleDef> = {
       "in the working directory (look at package.json / Makefile / pyproject.toml). If no tests exist, " +
       "write minimal smoke tests for the new functionality first, then run them. " +
       "Report honestly in the required structured format — never claim passing without output proving it.",
-    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", ...CODE_SHELL],
+    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", ...CODE_SHELL, ...PACK_MEMO],
     permissionMode: "bypassPermissions",
     outputSchema: TEST_REPORT_SCHEMA as unknown as Record<string, unknown>,
     maxTurns: 40,
@@ -204,7 +208,7 @@ export const roles: Record<string, RoleDef> = {
       "Distinguish facts from your inference. Produce a markdown report with sections: " +
       "Summary, Market, Competitors (table), Audience, Pricing landscape, Trends, Opportunities & risks, " +
       "Recommendation, Sources. Your final message is saved verbatim as the report.",
-    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...RESEARCH_MCP_TOOLS],
+    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...RESEARCH_MCP_TOOLS, ...PACK_MEMO],
     permissionMode: "dontAsk",
     skills: ["market-sizing"],
     maxTurns: 40,
@@ -222,7 +226,7 @@ export const roles: Record<string, RoleDef> = {
       "propose a distinctive direction grounded in the product's audience and brand. " +
       "If reviewer feedback is provided, revise to address every point or argue why not. " +
       "Your final message is saved verbatim as the design brief — make it complete and self-contained.",
-    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...RESEARCH_MCP_TOOLS],
+    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...RESEARCH_MCP_TOOLS, ...PACK_MEMO],
     permissionMode: "dontAsk",
     skills: ["design-tokens"],
     maxTurns: 30,
@@ -235,7 +239,7 @@ export const roles: Record<string, RoleDef> = {
       "directory (use `git diff`/`git log` for recent changes). Report every issue you find with " +
       "file:line, severity (critical/major/minor), and a suggested fix. Do not filter for importance — " +
       "coverage over confidence. End with a short overall assessment. Read-only: do not modify files.",
-    allowedTools: [...READ_TOOLS, "Bash", ...CODE_SHELL],
+    allowedTools: [...READ_TOOLS, "Bash", ...CODE_SHELL, ...PACK_MEMO],
     permissionMode: "dontAsk",
     maxTurns: 30,
   },
@@ -257,7 +261,7 @@ export const roles: Record<string, RoleDef> = {
       "- All file writes go to the workspace; you cannot touch the user's real repositories.\n\n" +
       "Finish with a markdown summary: what you produced, where (workspace paths), and the exact " +
       "human steps to apply it.",
-    allowedTools: ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "WebFetch", "TodoWrite", ...CODE_SHELL],
+    allowedTools: ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "WebFetch", "TodoWrite", ...CODE_SHELL, ...PACK_MEMO],
     permissionMode: "default",
     maxTurns: 40,
   },
@@ -282,6 +286,8 @@ export const roles: Record<string, RoleDef> = {
       "mcp__money__list_budgets",
       "mcp__money__budget_status",
       "mcp__money__set_category_rule",
+      "recall",
+      "vault_read",
     ],
     permissionMode: "dontAsk",
     privateOnly: true,

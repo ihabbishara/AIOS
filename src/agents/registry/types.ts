@@ -35,5 +35,9 @@ export const departmentSchema = z.object({
   actions: z.array(z.string()).default([]),
   playbooks: z.array(z.string()).default([]),
   sandbox: z.boolean().default(false),
+  /** When true, the department's memo block is injected ONLY for private-visibility agents.
+   *  Shared members (e.g. the group-facing bookkeeper) get mission/persona but NOT the memo,
+   *  which can carry private money preferences. */
+  privateMemo: z.boolean().default(false),
 }).transform((d) => ({ ...d, vaultSection: d.vaultSection ?? d.department }));
 export type DepartmentManifest = z.infer<typeof departmentSchema>;

@@ -2,7 +2,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
-import { roles } from "../agents/roles/index.js";
 import { playbookSchema } from "../engine/playbook.js";
 import { parse as parseYaml } from "yaml";
 import type { Store } from "../store/db.js";
@@ -13,6 +12,7 @@ import type { Config } from "../config.js";
 import type { MessageRouter } from "../router.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
 
@@ -67,6 +67,8 @@ export interface WebDeps {
   router: MessageRouter;
   gate: ActionGate;
   voice: VoiceService;
+  /** Live registry — source of truth for the agents catalog and permissions view. */
+  registry: LoadedRegistry;
   reloadPacks: () => void;
   envPath: string;
   uiDist: string;
@@ -107,7 +109,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): void {
-  const { store, bus, jobs, vault, config, router, gate, voice, reloadPacks, log = () => {} } = deps;
+  const { store, bus, jobs, vault, config, router, gate, voice, registry, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
 
@@ -138,11 +140,14 @@ export function startWebServer(deps: WebDeps, port: number): void {
                 description: "Chief of Staff — discusses, routes, runs playbooks, hands off, reports.",
                 tools: ["run_playbook", "hand_off", "job_status", "vault"], guarded: false,
               },
-              ...Object.values(roles).map((r) => ({
-                name: r.name, kind: "specialist", description: r.description,
-                tools: r.allowedTools, permissionMode: r.permissionMode,
-                skills: r.skills ?? [], guarded: !!r.toolChecks, cwd: r.cwd,
-              })),
+              ...[...registry.agents.values()]
+                .filter((a) => a.manifest.name !== "rami")
+                .map((a) => ({
+                  name: a.manifest.name, kind: "specialist",
+                  title: a.manifest.title, description: a.role.description,
+                  tools: a.role.allowedTools, permissionMode: a.role.permissionMode,
+                  skills: a.role.skills ?? [], guarded: !!a.role.toolChecks, cwd: a.role.cwd,
+                })),
             ],
             playbooks: jobs.listPlaybooks(),
             bindings: [...config.chatBindings.entries()].map(([chatKey, b]) => ({ chatKey, ...b })),
@@ -377,8 +382,9 @@ export function startWebServer(deps: WebDeps, port: number): void {
                 }
               }
             }
-          } catch {
-            // If dept.yaml is corrupted, skip playbook augmentation but still return agent files
+          } catch (err) {
+            // If dept.yaml is corrupted, skip playbook augmentation but still return agent files.
+            log(`packs/${dept}/files: playbook augmentation skipped — ${(err as Error).message}`);
           }
           return json(res, 200, out);
         }
@@ -404,7 +410,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
         }
 
         if (path === "/api/permissions" && req.method === "GET") {
-          return json(res, 200, buildPermissionsView(store, bus));
+          return json(res, 200, buildPermissionsView(store, bus, registry));
         }
 
         if (path === "/api/permissions/propose" && req.method === "POST") {

@@ -4,6 +4,5 @@ lead: lina
 memoDomain: research
 vaultSection: knowledge
 toolServer: research
-tools: [recall, vault_read, vault_write]
 actions: [vault.write]
 playbooks: [research-report, market-research, product-design]

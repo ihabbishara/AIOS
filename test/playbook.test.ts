@@ -17,7 +17,7 @@ describe("playbook loading", () => {
     expect(pb.needsProjectDir).toBe(true);
     expect(pb.stages.map((s) => s.id)).toEqual(["research", "design", "implement", "test", "code-review"]);
     const design = pb.stages.find((s) => s.id === "design");
-    expect(design).toMatchObject({ type: "loop", producer: "kai", critic: "nadia", maxRounds: 3 });
+    expect(design).toMatchObject({ type: "loop", producer: "kai", critic: "yara", maxRounds: 3 });
   });
 
   it("rejects invalid stage types", () => {

@@ -37,10 +37,16 @@ export interface ResolveDeps {
   /** Registry of pack-specific tool-server builders, keyed by manifest `toolServer`. */
   toolServers?: Record<string, PackToolServerBuilder>;
   workspace?: { taskDir: string; mode: "build" | "analyze" };
+  /** Visibility of the agent this pack is being resolved for (byAgent path). Undefined on the
+   *  playbook path. Used with pack.privateMemo to gate the memo block. */
+  agentVisibility?: "shared" | "private";
 }
 
 export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
-  const memo = memoContextForDomain(deps.store, deps.vault, pack.memoDomain);
+  // A privateMemo department injects the memo block ONLY for private agents. A shared agent
+  // (or the playbook path, where visibility is unknown) gets mission/persona but no memo.
+  const includeMemo = !(pack.privateMemo && deps.agentVisibility !== "private");
+  const memo = includeMemo ? memoContextForDomain(deps.store, deps.vault, pack.memoDomain) : "";
   const contextBlock = [
     `## Pillar: ${pack.pillar}`,
     pack.persona.trim(),
@@ -100,9 +106,8 @@ export function makeResolveDeptFor(
     byAgent = false,
     workspace?: { taskDir: string; mode: "build" | "analyze" },
   ): ResolvedPack | undefined => {
-    const deptName = byAgent
-      ? reg.agents.get(reg.agentOf.get(key) ?? key)?.department
-      : reg.ownerOfPlaybook.get(key);
+    const agent = byAgent ? reg.agents.get(reg.agentOf.get(key) ?? key) : undefined;
+    const deptName = byAgent ? agent?.department : reg.ownerOfPlaybook.get(key);
     if (!deptName) return undefined;
     const d = reg.departments.get(deptName);
     if (!d) return undefined;
@@ -119,8 +124,13 @@ export function makeResolveDeptFor(
         roles: [],
         playbooks: d.playbooks,
         sandbox: d.sandbox,
+        privateMemo: d.privateMemo,
       },
-      { store: deps.store, vault: deps.vault, gate: deps.gate, origin, toolServers: deps.toolServers, workspace },
+      {
+        store: deps.store, vault: deps.vault, gate: deps.gate, origin,
+        toolServers: deps.toolServers, workspace,
+        agentVisibility: agent?.manifest.visibility,
+      },
     );
   };
 }

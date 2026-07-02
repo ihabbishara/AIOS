@@ -103,7 +103,7 @@ describe("tool ownership pins (regression guard against pack.yaml deletion)", ()
     expect(clamped).toContain("mcp__aios-pack__vault_read");
   });
 
-  it("bookkeeper privacy pin: salim clamped tools include ledger tools but NOT any mcp__money__*", () => {
+  it("bookkeeper privacy pin: salim clamped tools include ledger tools but NOT mcp__money__* nor the aios-pack memo tools", () => {
     const deps = makeDeps();
     const resolve = makeResolveDeptFor(reg, deps);
     const pack = resolve("salim", { channel: "cli", chatId: "x" }, true)!;
@@ -112,6 +112,10 @@ describe("tool ownership pins (regression guard against pack.yaml deletion)", ()
     const clamped = clampTools(salim.role.allowedTools, pack.tools);
     expect(clamped).toContain("mcp__ledger__add_expense");
     for (const t of MONEY_TOOLS) expect(clamped, `bookkeeper must NOT see ${t}`).not.toContain(t);
+    // salim does not own bare recall/vault_read → the finance union's aios-pack memo tools
+    // (carried by faris) must NOT leak to the shared bookkeeper.
+    expect(clamped, "bookkeeper must NOT get faris's recall").not.toContain("mcp__aios-pack__recall");
+    expect(clamped, "bookkeeper must NOT get faris's vault_read").not.toContain("mcp__aios-pack__vault_read");
   });
 
   it("engineering shell pin: maya clamped tools contain mcp__code__sh + vault_write; kai does NOT get Edit/Write/Bash", () => {

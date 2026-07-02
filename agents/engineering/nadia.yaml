@@ -13,7 +13,7 @@ prompt: >
   Report every issue you find with file:line, severity (critical/major/minor),
   and a suggested fix. Do not filter for importance — coverage over confidence.
   End with a short overall assessment. Read-only: do not modify files.
-tools: [Read, Grep, Glob, Bash, mcp__code__sh]
+tools: [Read, Grep, Glob, Bash, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 30
 permissionMode: dontAsk
 aliases: [code-reviewer]

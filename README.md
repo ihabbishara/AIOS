@@ -1,13 +1,14 @@
 # AI-OS
 
-A local, always-on multi-agent system built on the Claude Agent SDK. You chat with a
-**Moderator** from Telegram, Slack, or a local terminal; it delegates work to a team of
-specialists (researcher, architect, reviewer, developer, tester, code reviewer) through
-deterministic **playbooks**, and persists everything to an Obsidian vault.
+A local, always-on multi-agent system built on the Claude Agent SDK. You chat with
+**Rami, your Chief of Staff**, from Telegram, Slack, or a local terminal; he delegates work
+to a team of named specialists (Kai the architect, Maya the engineer, Yara the reviewer,
+Tarek in QA, Ziad the researcher, and more) through deterministic **playbooks**, and
+persists everything to an Obsidian vault.
 
 - **Runs on your Claude subscription** — no API key, no per-token billing.
 - **No public ports** — Telegram long-polling and Slack Socket Mode are outbound-only.
-- **Resumable** — jobs survive daemon restarts; the moderator remembers conversations.
+- **Resumable** — jobs survive daemon restarts; Rami remembers conversations.
 
 ## The Staff
 

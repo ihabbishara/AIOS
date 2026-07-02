@@ -52,16 +52,19 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
   };
 }
 
-/** Built-ins narrow to the role's own allowlist; scoped aios-pack tools pass through
- *  (dept-scoped + gate-ceilinged); any OTHER mcp__ tool requires the role to own it —
- *  dept-mates must not inherit each other's tool servers (e.g. shared bookkeeper
- *  must never see the private cfo's money tools). */
+/** Ownership-based clamp: a pack tool survives only if the role actually owns it. Applies to
+ *  aios-pack tools too — they are dept-scoped + gate-ceilinged, but a dept-mate must NOT
+ *  inherit one it doesn't own (e.g. shared salim must never get faris's recall/vault_read via
+ *  the finance union). aios-pack tools are owned by the BARE manifest name (recall/vault_read/…)
+ *  which resolvePack maps to the fq mcp__aios-pack__ name; the fq name is also accepted. Every
+ *  other tool (built-in or other mcp__ server) requires exact ownership. */
 export function clampTools(roleTools: string[] | undefined, packTools: string[]): string[] {
   const owned = new Set(roleTools ?? []);
-  return packTools.filter((t) =>
-    t.startsWith("mcp__aios-pack__") ? true
-    : t.startsWith("mcp__") ? owned.has(t)
-    : owned.has(t));
+  const AIOS_PACK = "mcp__aios-pack__";
+  return packTools.filter((t) => {
+    if (t.startsWith(AIOS_PACK)) return owned.has(t.slice(AIOS_PACK.length)) || owned.has(t);
+    return owned.has(t);
+  });
 }
 
 /** Apply a resolved pack to base SDK options: persona+memo appended to the prompt,
@@ -116,12 +119,10 @@ export type SpecialistRunFn = (
  */
 export function specialistOptions(
   role: RoleDef,
-  roleName: string,
   canonical: string,
   opts: RunOptions,
   store: Store,
 ): Options {
-  void roleName; // retained in signature for call-site documentation; canonical is the DB key
   const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
   const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
   return withEffectiveTools(withPack, canonical, store);
@@ -138,7 +139,7 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
     opts.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      const merged = specialistOptions(role, roleName, canonical, opts, deps.store);
+      const merged = specialistOptions(role, canonical, opts, deps.store);
       const observed = withDenialObserver(merged, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
       const q = query({
         prompt: brief,

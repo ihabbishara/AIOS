@@ -53,8 +53,9 @@ export interface ModeratorToolsDeps {
   projectsRoot: string;
   /** Origin of the message currently being handled — set before each query. */
   origin: { channel: string; chatId: string };
-  /** Hand a task off to a named agent inline (full tool set — same path as @mention). */
-  handOff: (agent: string, task: string) => Promise<{ text: string }>;
+  /** Hand a task off to a named agent inline (full tool set — same path as @mention).
+   *  The real per-turn origin (deps.origin) is threaded so private agents are walled off. */
+  handOff: (agent: string, task: string, origin: { channel: string; chatId: string }) => Promise<{ text: string }>;
   /** Agent names from the registry — used to build the hand_off tool's enum. */
   agentNames: string[];
   gate: ActionGate;
@@ -155,7 +156,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       task: z.string().describe("The task/question, with all context the agent needs"),
     },
     async (args) => {
-      const res = await deps.handOff(args.agent, args.task);
+      const res = await deps.handOff(args.agent, args.task, deps.origin);
       return text(`[${args.agent}]\n${res.text}`);
     },
   );

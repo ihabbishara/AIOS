@@ -13,7 +13,7 @@ stages:
   - type: loop
     id: design
     producer: kai
-    critic: nadia
+    critic: yara
     maxRounds: 3
     brief: Design the solution using the research brief.
   - type: single

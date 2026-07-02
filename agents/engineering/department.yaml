@@ -3,7 +3,6 @@ mission: Build, test, review, and operate software safely in sandboxed workspace
 lead: kai
 memoDomain: code
 vaultSection: code
-tools: [recall, vault_read, vault_write]
 actions: [vault.write]
 sandbox: true
 playbooks: [code-build, code-analyze]

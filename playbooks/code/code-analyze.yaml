@@ -11,7 +11,7 @@ stages:
   - type: loop
     id: assessment
     producer: kai
-    critic: nadia
+    critic: yara
     maxRounds: 2
     brief: >-
       Produce an architecture + quality assessment of the repository: strengths, risks,

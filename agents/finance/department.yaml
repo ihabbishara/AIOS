@@ -4,6 +4,6 @@ lead: faris
 memoDomain: money
 toolServer: money
 toolServers: [ledger]
-tools: [recall, vault_read]
 actions: []
 playbooks: []
+privateMemo: true

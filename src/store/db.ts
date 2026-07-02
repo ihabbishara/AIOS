@@ -329,11 +329,35 @@ export class Store {
         UNIQUE(role, tool)
       );
     `);
-    // Migration: rename pseudo-role "moderator" to "rami" (Task 7 rename).
-    try {
-      this.db.exec("UPDATE role_permissions SET role='rami' WHERE role='moderator'");
-    } catch {
-      /* noop */
+    // Migration: rename legacy role/alias keys to their canonical registry agent names, so
+    // permission grants/revokes recorded under an old alias keep applying after the staff
+    // rename. UPDATE OR REPLACE: if BOTH a legacy row and a conflicting canonical row exist
+    // for the same tool, the legacy (more specific, human-authored) row wins and the
+    // pre-existing canonical row is dropped — a plain UPDATE would throw on UNIQUE(role,tool).
+    // Each runs in its own try/catch so one failure can't abort the rest.
+    const LEGACY_ROLE_RENAMES: Array<[string, string]> = [
+      ["moderator", "rami"],
+      ["developer", "maya"],
+      ["architect", "kai"],
+      ["tester", "tarek"],
+      ["code-reviewer", "nadia"],
+      ["devops", "omar"],
+      ["researcher", "ziad"],
+      ["analyst", "lina"],
+      ["market-researcher", "sami"],
+      ["ui-ux-designer", "dalia"],
+      ["reviewer", "yara"],
+      ["cfo", "faris"],
+      ["finance", "salim"],
+    ];
+    for (const [legacy, canonical] of LEGACY_ROLE_RENAMES) {
+      try {
+        this.db
+          .prepare("UPDATE OR REPLACE role_permissions SET role = ? WHERE role = ?")
+          .run(canonical, legacy);
+      } catch {
+        /* noop — a single rename failing must not block startup */
+      }
     }
   }
 

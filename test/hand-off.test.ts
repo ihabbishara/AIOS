@@ -13,6 +13,7 @@ import { makeResolveDeptFor } from "../src/packs/resolve.js";
 import { roleQueryOptions, packRunOptions, specialistOptions } from "../src/agents/runner.js";
 import { withEffectiveTools } from "../src/agents/permissions.js";
 import { buildModeratorServer } from "../src/moderator/tools.js";
+import { makeHandOff } from "../src/moderator/handoff.js";
 import type { ModeratorToolsDeps } from "../src/moderator/tools.js";
 import type { GoogleAccounts } from "../src/senses/google/auth.js";
 import type { JobManager } from "../src/engine/jobs.js";
@@ -68,7 +69,7 @@ describe("capability parity", () => {
       const optionsA = withEffectiveTools(withPackA, name, deps.store);
 
       // Path B: specialist runner option assembly via the extracted pure kernel.
-      const optionsB = specialistOptions(def.role, name, name, { cwd: "/tmp", pack }, deps.store);
+      const optionsB = specialistOptions(def.role, name, { cwd: "/tmp", pack }, deps.store);
 
       expect([...(optionsA.allowedTools ?? [])].sort(), `${name} allowedTools`).toEqual(
         [...(optionsB.allowedTools ?? [])].sort(),
@@ -99,7 +100,7 @@ describe("capability parity", () => {
     const optionsA = withEffectiveTools(withPackA, name, deps.store);
 
     // Path B
-    const optionsB = specialistOptions(def.role, name, name, { cwd: "/tmp", pack }, deps.store);
+    const optionsB = specialistOptions(def.role, name, { cwd: "/tmp", pack }, deps.store);
 
     expect(optionsA.allowedTools, `${name} Path A must drop ${tool}`).not.toContain(tool);
     expect(optionsB.allowedTools, `${name} Path B must drop ${tool}`).not.toContain(tool);
@@ -153,5 +154,86 @@ describe("hand_off tool", () => {
     const toolNames = Object.keys(t);
     expect(toolNames).toContain("hand_off");
     expect(toolNames).not.toContain("ask_specialist");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C1 — hand_off must enforce the privateOnly wall using the REAL per-turn origin.
+// A group member must NOT reach a private agent (faris/jasmine) — and their full
+// private tools — through the Chief of Staff's hand_off.
+// ---------------------------------------------------------------------------
+
+describe("hand_off privacy wall (makeHandOff)", () => {
+  const PRIMARY = { channel: "tg", chatId: "private-1" };
+  const GROUP = { channel: "tg", chatId: "group-9" };
+
+  function setup(primaryChat?: { channel: string; chatId: string }) {
+    const reg = testRegistry();
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    const events: import("../src/events.js").StoredEvent[] = [];
+    bus.on((e) => events.push(e));
+    const calls: Array<{ agent: string; task: string }> = [];
+    const runSpecialist = async (agent: string, task: string) => {
+      calls.push({ agent, task });
+      return { text: `ran ${agent}`, costUsd: 0, numTurns: 1 };
+    };
+    const handOff = makeHandOff({
+      registry: reg,
+      resolveDeptFor: () => undefined,
+      runSpecialist,
+      bus,
+      primaryChat,
+      projectsRoot: "/tmp",
+      model: "m",
+    });
+    return { handOff, calls, events };
+  }
+
+  it("(a) refuses faris from a group origin and does NOT run the specialist", async () => {
+    const { handOff, calls, events } = setup(PRIMARY);
+    const res = await handOff("faris", "what did I spend", GROUP);
+    expect(res.text).toMatch(/private/i);
+    expect(calls).toHaveLength(0);
+    const ev = events.find((e) => e.event.type === "route.decision")!.event as {
+      reason: string; channel: string; chatId: string; via: string;
+    };
+    expect(ev.reason).toMatch(/refused/i);
+    expect(ev.via).toBe("handoff");
+    expect(ev.channel).toBe("tg");
+    expect(ev.chatId).toBe("group-9");
+  });
+
+  it("(b) runs faris from the primary (private) origin", async () => {
+    const { handOff, calls, events } = setup(PRIMARY);
+    const res = await handOff("faris", "spend", PRIMARY);
+    expect(calls).toEqual([{ agent: "faris", task: "spend" }]);
+    expect(res.text).toContain("ran faris");
+    const ev = events.find((e) => e.event.type === "route.decision")!.event as { reason: string };
+    expect(ev.reason).not.toMatch(/refused/i);
+  });
+
+  it("(c) maya (shared) is unaffected from any origin", async () => {
+    const { handOff, calls } = setup(PRIMARY);
+    await handOff("maya", "fix", GROUP);
+    expect(calls).toEqual([{ agent: "maya", task: "fix" }]);
+  });
+
+  it("(d) route.decision carries the real origin channel/chatId", async () => {
+    const { handOff, events } = setup(PRIMARY);
+    await handOff("maya", "fix", GROUP);
+    const ev = events.find((e) => e.event.type === "route.decision")!.event as {
+      channel: string; chatId: string; via: string;
+    };
+    expect(ev.via).toBe("handoff");
+    expect(ev.channel).toBe("tg");
+    expect(ev.chatId).toBe("group-9");
+  });
+
+  it("refuses faris addressed by its cfo alias from a group origin", async () => {
+    const { handOff, calls } = setup(PRIMARY);
+    const res = await handOff("cfo", "spend", GROUP);
+    expect(res.text).toMatch(/private/i);
+    expect(calls).toHaveLength(0);
   });
 });

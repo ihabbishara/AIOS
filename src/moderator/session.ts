@@ -43,8 +43,10 @@ export interface ModeratorDeps {
   bus: EventBus;
   jobs: JobManager;
   vault: VaultWriter;
-  /** Inline hand-off to a named agent (full tool set — parity with @mention). */
-  handOff: (agent: string, task: string) => Promise<{ text: string }>;
+  /** Inline hand-off to a named agent (full tool set — parity with @mention).
+   *  origin is the real per-turn origin — carried so the private-agent wall + ledger
+   *  scoping in makeHandOff see the true chat, not a hardcoded system:handoff. */
+  handOff: (agent: string, task: string, origin: { channel: string; chatId: string }) => Promise<{ text: string }>;
   registry: LoadedRegistry;
   projectsRoot: string;
   model?: string;
@@ -127,7 +129,8 @@ export class Moderator {
     const basePrompt = moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault), roster);
     const systemPrompt = ramiPersona ? `${ramiPersona}\n\n${basePrompt}` : basePrompt;
 
-    const agentNames = [...registry.agents.keys()];
+    // rami is the chief of staff himself — never a hand_off target (would recurse).
+    const agentNames = [...registry.agents.keys()].filter((n) => n !== "rami");
 
     const server = buildModeratorServer({
       jobs,

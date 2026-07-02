@@ -27,6 +27,8 @@ tools:
   - mcp__money__list_budgets
   - mcp__money__budget_status
   - mcp__money__set_category_rule
+  - recall
+  - vault_read
 maxTurns: 20
 visibility: private
 aliases: [cfo]

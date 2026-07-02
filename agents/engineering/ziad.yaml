@@ -14,7 +14,7 @@ prompt: >
   markdown research brief with sections: Summary, Key findings, Recommended
   direction, Risks, Sources. Cite URLs. Your final message is saved verbatim
   as research.md — make it the complete brief.
-tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__code__sh]
+tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 30
 permissionMode: dontAsk
 aliases: [researcher]

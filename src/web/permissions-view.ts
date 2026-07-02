@@ -1,6 +1,6 @@
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
-import { roles } from "../agents/roles/index.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
 import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
 
@@ -59,16 +59,19 @@ interface CatalogEntry {
   base: string[];
 }
 
-/** Every controllable role: the code registry + the two standalone pseudo-roles. */
-export function permissionRoleCatalog(): CatalogEntry[] {
-  const codeRoles = Object.values(roles).map((r) => ({
-    role: r.name,
-    description: r.description,
-    permissionMode: r.permissionMode,
-    toolCheckFallback: r.toolCheckFallback ?? "allow",
-    skills: r.skills ?? [],
-    base: r.allowedTools,
-  }));
+/** Every controllable role: the live registry agents (canonical names, compiled base tools)
+ *  + the rami pseudo-role (its real allowlist is MODERATOR_ALLOWED_TOOLS, not its empty manifest). */
+export function permissionRoleCatalog(registry: LoadedRegistry): CatalogEntry[] {
+  const codeRoles = [...registry.agents.values()]
+    .filter((a) => a.manifest.name !== "rami") // rami is the pseudo-role below, not a specialist
+    .map((a) => ({
+      role: a.role.name,
+      description: a.role.description,
+      permissionMode: a.role.permissionMode,
+      toolCheckFallback: a.role.toolCheckFallback ?? "allow",
+      skills: a.role.skills ?? [],
+      base: a.role.allowedTools,
+    }));
   return [
     ...codeRoles,
     {
@@ -82,7 +85,7 @@ export function permissionRoleCatalog(): CatalogEntry[] {
   ];
 }
 
-export function buildPermissionsView(store: Store, bus: EventBus): PermissionRoleView[] {
+export function buildPermissionsView(store: Store, bus: EventBus, registry: LoadedRegistry): PermissionRoleView[] {
   // Aggregate denials once.
   const denialMap = new Map<string, { count: number; lastTs: string }>();
   for (const e of bus.history(0, 5000)) {
@@ -92,7 +95,7 @@ export function buildPermissionsView(store: Store, bus: EventBus): PermissionRol
     denialMap.set(key, { count: (prev?.count ?? 0) + 1, lastTs: e.ts });
   }
 
-  return permissionRoleCatalog().map((entry) => {
+  return permissionRoleCatalog(registry).map((entry) => {
     const overrides = store.listRolePermissions(entry.role);
     const granted = new Set(overrides.filter((o) => o.allow === 1).map((o) => o.tool));
     const revokedNames = new Set(overrides.filter((o) => o.allow === 0).map((o) => o.tool));

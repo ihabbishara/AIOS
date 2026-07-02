@@ -11,6 +11,7 @@ import { localParts } from "./heartbeat/clock.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { makeRunSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
+import { makeHandOff } from "./moderator/handoff.js";
 import { DirectChats } from "./agents/direct.js";
 import { EventBus } from "./events.js";
 import { MessageRouter } from "./router.js";
@@ -220,13 +221,15 @@ async function main(): Promise<void> {
     resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
   });
 
-  const handOff = async (agent: string, task: string): Promise<{ text: string }> => {
-    const origin = { channel: "system", chatId: "handoff" };
-    bus.emit({ type: "route.decision", to: agent, via: "handoff", reason: "chief of staff hand_off", channel: origin.channel, chatId: origin.chatId });
-    const pack = resolveDeptFor(agent, origin, true);
-    const res = await runSpecialist(agent, task, { cwd: config.projectsRoot, model: config.specialistModel, pack });
-    return { text: res.text };
-  };
+  const handOff = makeHandOff({
+    registry,
+    resolveDeptFor,
+    runSpecialist,
+    bus,
+    primaryChat: config.primaryChat,
+    projectsRoot: config.projectsRoot,
+    model: config.specialistModel,
+  });
 
   const moderator = new Moderator({
     store,
@@ -552,7 +555,7 @@ async function main(): Promise<void> {
   }
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, gate, voice, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, jobs, vault, config, router, gate, voice, registry, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 

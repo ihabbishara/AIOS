@@ -15,6 +15,8 @@ export const packSchema = z.object({
   playbooks: z.array(z.string()).default([]),
   /** When true, the pack requires a jailed workspace + confinement (the code pack). */
   sandbox: z.boolean().default(false),
+  /** When true, the memo block is injected only for private-visibility agents (see departmentSchema). */
+  privateMemo: z.boolean().default(false),
 }).transform((p) => ({ ...p, vaultSection: p.vaultSection ?? p.pillar }));
 
 export type Pack = z.infer<typeof packSchema>;
