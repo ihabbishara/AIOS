@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { join, resolve } from "node:path";
 import { testRegistry } from "./fixtures/registry.js";
-import { salimReadCheck } from "../src/agents/guards/read-confined.js";
+import { ledgerReadCheck } from "../src/agents/guards/read-confined.js";
 
 // The live testRegistry fixture builds extras with vaultPath "/tmp/v", subdir "AIOS".
 const VAULT = "/tmp/v/AIOS";
@@ -34,8 +34,8 @@ describe("juno Read confinement (compiled role)", () => {
   });
 });
 
-describe("salimReadCheck helper", () => {
-  const check = salimReadCheck(["/vault/finance", "/tmp/aios-"]).Read;
+describe("ledgerReadCheck helper", () => {
+  const check = ledgerReadCheck(["/vault/finance", "/tmp/aios-"]).Read;
 
   it("allows under a dir root and under a literal-prefix root", () => {
     expect(check({ file_path: "/vault/finance/x.pdf" }).ok).toBe(true);

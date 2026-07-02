@@ -1,7 +1,7 @@
 // src/agents/registry/extras.ts
 import { join, resolve } from "node:path";
 import { halaloToolChecks, HALALO_EXPORTS_DIR } from "../guards/halalo-readonly.js";
-import { salimReadCheck } from "../guards/read-confined.js";
+import { ledgerReadCheck } from "../guards/read-confined.js";
 import type { AgentExtras } from "./loader.js";
 import type { FinanceMember } from "../../config.js";
 
@@ -41,7 +41,7 @@ export function buildExtras(cfg: ExtrasConfig): Record<string, AgentExtras> {
       return {
         promptSuffix: `\n\nCompany: ${cfg.financeCompany}. Team members sharing costs equally (${cfg.financeMembers.length}): ${roster}.`,
         attachDirs,
-        toolChecks: salimReadCheck(readRoots),
+        toolChecks: ledgerReadCheck(readRoots),
         // toolCheckFallback omitted → default "allow" (mirrors the old FinanceAgent guardOptions).
       };
     })(),

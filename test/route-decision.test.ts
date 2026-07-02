@@ -13,12 +13,12 @@ function setup() {
   // Stub directChats: supports names(), canonical(), handle(), resetSession()
   const resetCalls: Array<{ role: string; channel: string; chatId: string }> = [];
   const directChats = {
-    names: () => ["maya", "developer", "rami"],
+    names: () => ["vulcan", "developer", "hermes"],
     canonical: (nameOrAlias: string) => {
       const map: Record<string, string> = {
-        maya: "maya",
-        developer: "maya", // alias -> canonical
-        rami: "rami",
+        vulcan: "vulcan",
+        developer: "vulcan", // alias -> canonical
+        hermes: "hermes",
       };
       return map[nameOrAlias];
     },
@@ -64,9 +64,9 @@ describe("route.decision", () => {
 
   it("emits mention routing with agent name", async () => {
     const { router, events } = ctx;
-    await router.handle({ channel: "cli", chatId: "c", text: "@maya fix the bug" });
+    await router.handle({ channel: "cli", chatId: "c", text: "@vulcan fix the bug" });
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
-    expect(ev.to).toBe("maya");
+    expect(ev.to).toBe("vulcan");
     expect(ev.via).toBe("mention");
     expect(ev.channel).toBe("cli");
     expect(ev.chatId).toBe("c");
@@ -119,13 +119,13 @@ describe("route.decision", () => {
     bus.on((e) => events.push(e));
 
     const directChats = {
-      names: () => ["maya"],
-      canonical: (n: string) => (n === "maya" ? "maya" : undefined),
+      names: () => ["vulcan"],
+      canonical: (n: string) => (n === "vulcan" ? "vulcan" : undefined),
       handle: async () => ({ text: "reply", attachments: [] }),
       resetSession: () => {},
     };
     const chatBindings = new Map([
-      ["tg:g", { agents: ["maya", "rami"], mentionOnly: false }],
+      ["tg:g", { agents: ["vulcan", "hermes"], mentionOnly: false }],
     ]);
     const router = new MessageRouter({
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
@@ -134,11 +134,11 @@ describe("route.decision", () => {
       bus,
     });
 
-    await router.handle({ channel: "tg", chatId: "g", text: "@maya help me" });
+    await router.handle({ channel: "tg", chatId: "g", text: "@vulcan help me" });
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
     expect(ev.via).toBe("mention");
-    expect(ev.to).toBe("maya");
-    expect(ev.reason).toContain("mention of maya");
+    expect(ev.to).toBe("vulcan");
+    expect(ev.reason).toContain("mention of vulcan");
   });
 
   it("emits binding routing via first bound agent when no mention", async () => {
@@ -148,13 +148,13 @@ describe("route.decision", () => {
     bus.on((e) => events.push(e));
 
     const directChats = {
-      names: () => ["maya"],
-      canonical: (n: string) => (n === "maya" ? "maya" : undefined),
+      names: () => ["vulcan"],
+      canonical: (n: string) => (n === "vulcan" ? "vulcan" : undefined),
       handle: async () => ({ text: "reply", attachments: [] }),
       resetSession: () => {},
     };
     const chatBindings = new Map([
-      ["tg:g", { agents: ["maya"], mentionOnly: false }],
+      ["tg:g", { agents: ["vulcan"], mentionOnly: false }],
     ]);
     const router = new MessageRouter({
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
@@ -166,24 +166,24 @@ describe("route.decision", () => {
     await router.handle({ channel: "tg", chatId: "g", text: "help me" });
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
     expect(ev.via).toBe("binding");
-    expect(ev.to).toBe("maya");
+    expect(ev.to).toBe("vulcan");
     expect(ev.reason).toBe("first bound agent");
   });
 
-  it("resolves alias in unbound mention: @developer → maya canonical", async () => {
+  it("resolves alias in unbound mention: @developer → vulcan canonical", async () => {
     const { router, events } = ctx;
     await router.handle({ channel: "cli", chatId: "c", text: "@developer fix this" });
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
-    expect(ev.to).toBe("maya");
+    expect(ev.to).toBe("vulcan");
     expect(ev.via).toBe("mention");
   });
 
   it("/reset @developer emits to canonical target and calls resetSession", async () => {
     const { router, events, resetCalls } = ctx;
     await router.handle({ channel: "cli", chatId: "c", text: "/reset @developer" });
-    // route.decision resolves the alias to canonical "maya"
+    // route.decision resolves the alias to canonical "vulcan"
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
-    expect(ev.to).toBe("maya");
+    expect(ev.to).toBe("vulcan");
     expect(ev.via).toBe("reset");
     // resetSession was called (with the alias — real DirectChats.resetSession canonicalizes internally)
     expect(resetCalls).toHaveLength(1);
@@ -196,7 +196,7 @@ describe("route.decision", () => {
     expect(events.some((e) => e.event.type === "route.decision")).toBe(false);
   });
 
-  it("@finance in bound group resolves to salim (canonical) and passes sender", async () => {
+  it("@finance in bound group resolves to juno (canonical) and passes sender", async () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
     const events: StoredEvent[] = [];
@@ -206,8 +206,8 @@ describe("route.decision", () => {
     let capturedSender: unknown;
 
     const directChats = {
-      names: () => ["salim", "finance"],
-      canonical: (n: string) => n === "finance" ? "salim" : n === "salim" ? "salim" : undefined,
+      names: () => ["juno", "finance"],
+      canonical: (n: string) => n === "finance" ? "juno" : n === "juno" ? "juno" : undefined,
       handle: async (role: string, _ch: string, _cid: string, _text: string, sender: unknown) => {
         capturedRole = role;
         capturedSender = sender;
@@ -230,15 +230,15 @@ describe("route.decision", () => {
     const sender = { name: "Alice", username: "alice" };
     await router.handle({ channel: "tg", chatId: "group-42", text: "@finance paid 40 for domain", sender });
 
-    // handle was called with alias "finance"; canonical("finance") === "salim"
+    // handle was called with alias "finance"; canonical("finance") === "juno"
     expect(capturedRole).toBe("finance");
-    expect(directChats.canonical(capturedRole!)).toBe("salim");
-    // sender forwarded so salim can prepend [from: Alice (@alice)]
+    expect(directChats.canonical(capturedRole!)).toBe("juno");
+    // sender forwarded so juno can prepend [from: Alice (@alice)]
     expect(capturedSender).toEqual(sender);
 
     // route.decision emits the canonical name
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
-    expect(ev.to).toBe("salim");
+    expect(ev.to).toBe("juno");
     expect(ev.via).toBe("mention");
   });
 });
@@ -251,8 +251,8 @@ describe("router attachment forwarding", () => {
     let capturedAttachments: unknown;
 
     const directChats = {
-      names: () => ["maya"],
-      canonical: (n: string) => (n === "maya" ? "maya" : undefined),
+      names: () => ["vulcan"],
+      canonical: (n: string) => (n === "vulcan" ? "vulcan" : undefined),
       handle: async (
         _role: string,
         _channel: string,
@@ -278,7 +278,7 @@ describe("router attachment forwarding", () => {
     await router.handle({
       channel: "cli",
       chatId: "c",
-      text: "@maya here is my invoice",
+      text: "@vulcan here is my invoice",
       attachments: fakeAttachments,
     });
 
@@ -291,8 +291,8 @@ describe("router attachment forwarding", () => {
     let capturedAttachments: unknown;
 
     const directChats = {
-      names: () => ["maya"],
-      canonical: (n: string) => (n === "maya" ? "maya" : undefined),
+      names: () => ["vulcan"],
+      canonical: (n: string) => (n === "vulcan" ? "vulcan" : undefined),
       handle: async (
         _role: string,
         _channel: string,
@@ -307,7 +307,7 @@ describe("router attachment forwarding", () => {
       resetSession: () => {},
     };
 
-    const chatBindings = new Map([["tg:g", { agents: ["maya"], mentionOnly: false }]]);
+    const chatBindings = new Map([["tg:g", { agents: ["vulcan"], mentionOnly: false }]]);
     const router = new MessageRouter({
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,

@@ -135,16 +135,16 @@ describe("tool ownership pins (regression guard against pack.yaml deletion)", ()
 
     const vulcan = reg.agents.get("vulcan")!;
     const athena = reg.agents.get("athena")!;
-    const mayaClamped = clampTools(vulcan.role.allowedTools, vulcanPack.tools);
-    const kaiClamped = clampTools(athena.role.allowedTools, athenaPack.tools);
+    const vulcanClamped = clampTools(vulcan.role.allowedTools, vulcanPack.tools);
+    const athenaClamped = clampTools(athena.role.allowedTools, athenaPack.tools);
 
-    expect(mayaClamped).toContain("mcp__code__sh");
-    expect(mayaClamped).toContain("mcp__aios-pack__vault_write");
+    expect(vulcanClamped).toContain("mcp__code__sh");
+    expect(vulcanClamped).toContain("mcp__aios-pack__vault_write");
 
-    expect(kaiClamped).toContain("mcp__code__sh");
-    expect(kaiClamped).toContain("mcp__aios-pack__recall");
-    expect(kaiClamped).not.toContain("Edit");
-    expect(kaiClamped).not.toContain("Write");
-    expect(kaiClamped).not.toContain("Bash");
+    expect(athenaClamped).toContain("mcp__code__sh");
+    expect(athenaClamped).toContain("mcp__aios-pack__recall");
+    expect(athenaClamped).not.toContain("Edit");
+    expect(athenaClamped).not.toContain("Write");
+    expect(athenaClamped).not.toContain("Bash");
   });
 });

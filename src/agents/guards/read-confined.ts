@@ -18,16 +18,16 @@ function under(real: string, root: string): boolean {
 }
 
 /**
- * Deterministic Read confinement for the shared bookkeeper (salim).
+ * Deterministic Read confinement for the shared bookkeeper (juno).
  *
- * salim lives in the team's group chat and reads attacker-suppliable invoice files, so a
+ * juno lives in the team's group chat and reads attacker-suppliable invoice files, so a
  * bare Read tool would let a group member coax it into reading e.g. ~/.ssh keys or the AIOS
  * .env. This restores the deleted FinanceAgent's Read guard: reads are allowed ONLY under the
  * finance evidence roots (vault finance + attachments dirs, invoice staging in data/downloads,
  * tmp staging). Everything else denies. toolCheckFallback stays "allow" as the old agent had —
- * salim's remaining tools are its own MCP tools, governed by allowedTools.
+ * juno's remaining tools are its own MCP tools, governed by allowedTools.
  */
-export function salimReadCheck(roots: string[]): Record<string, ToolCheck> {
+export function ledgerReadCheck(roots: string[]): Record<string, ToolCheck> {
   return {
     Read: (input) => {
       const p = input.file_path;
