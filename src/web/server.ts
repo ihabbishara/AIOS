@@ -15,7 +15,7 @@ import type { FinanceAgent } from "../finance/agent.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
-import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile } from "./packs-view.js";
+import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -367,6 +367,7 @@ export function startWebServer(deps: WebDeps, port: number): void {
             const deptContent = parseYaml(readFileSync(deptYamlPath, "utf8")) as { playbooks?: string[] };
             const pbNames = Array.isArray(deptContent.playbooks) ? deptContent.playbooks : [];
             for (const pb of pbNames) {
+              if (!isSafePlaybookName(pb)) continue; // Finding 2: reject unsafe playbook names before any path join
               const pbFile = `${pb}.yaml`;
               if (seen.has(pbFile)) continue;
               for (const pbPath of [
@@ -391,25 +392,17 @@ export function startWebServer(deps: WebDeps, port: number): void {
           const deptDir = join(config.agentsDir, pillar);
           if (!existsSync(join(deptDir, "department.yaml"))) return json(res, 404, { error: "unknown department" });
           const body = JSON.parse(await readBody(req)) as { yaml: string };
-          if (file === "department.yaml") {
-            const v = validatePackFile(file, body.yaml, "department");
-            if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
-            writeFileSync(join(deptDir, file), body.yaml);
-          } else if (existsSync(join(deptDir, file))) {
-            const v = validatePackFile(file, body.yaml, "agent", pillar);
-            if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
-            writeFileSync(join(deptDir, file), body.yaml);
-          } else if (existsSync(join(config.playbooksDir, pillar, file))) {
-            const v = validatePackFile(file, body.yaml, "playbook");
-            if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
-            writeFileSync(join(config.playbooksDir, pillar, file), body.yaml);
-          } else if (existsSync(join(config.playbooksDir, file))) {
-            const v = validatePackFile(file, body.yaml, "playbook");
-            if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
-            writeFileSync(join(config.playbooksDir, file), body.yaml);
-          } else {
-            return json(res, 404, { error: "file not found in agents or playbooks directory" });
-          }
+          // Parse department.yaml to get the playbook list for flat-path dept membership guard (fail-closed on error)
+          let deptPlaybooks: string[] = [];
+          try {
+            const raw = parseYaml(readFileSync(join(deptDir, "department.yaml"), "utf8")) as { playbooks?: unknown };
+            if (Array.isArray(raw.playbooks)) deptPlaybooks = raw.playbooks.filter((x): x is string => typeof x === "string");
+          } catch { /* empty list → flat branch refuses */ }
+          const route = resolvePackFilePath(pillar, file, { agentsDir: config.agentsDir, playbooksDir: config.playbooksDir, deptPlaybooks });
+          if (!route) return json(res, 404, { error: "file not found in agents or playbooks directory" });
+          const v = validatePackFile(file, body.yaml, route.type, pillar);
+          if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
+          writeFileSync(route.absPath, body.yaml);
           reloadPacks();
           return json(res, 200, { ok: true, reloaded: true });
         }

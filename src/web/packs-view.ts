@@ -166,6 +166,56 @@ export function packDisableKey(dept: string): string {
 export interface RunValidation { ok: boolean; error?: string; projectDir?: string; }
 export interface FileValidation { ok: boolean; error?: string; }
 export type PackFileType = "department" | "agent" | "playbook";
+export type PackFileRoute = { type: PackFileType; absPath: string };
+
+/** Guard for playbook names loaded from department.yaml.
+ *  Only word chars and hyphens are allowed — no dots, slashes, or traversal sequences. */
+export function isSafePlaybookName(name: string): boolean {
+  return /^[\w-]+$/.test(name);
+}
+
+/** Pure routing for PUT /api/packs/<dept>/files/<file>. Returns undefined → 404 (never creates new files).
+ *  Branch order (mirrors existing server.ts behavior):
+ *   1. department.yaml → {type:"department", absPath: agentsDir/<dept>/department.yaml}
+ *   2. exists(agentsDir/<dept>/<file>) → {type:"agent", ...}
+ *   3. exists(playbooksDir/<dept>/<file>) → {type:"playbook", ...}  (subdir, already dept-scoped)
+ *   4. exists(playbooksDir/<file>) AND stem in deptPlaybooks → {type:"playbook", ...}  (flat, with dept guard)
+ *   else undefined
+ */
+export function resolvePackFilePath(
+  dept: string,
+  file: string,
+  dirs: { agentsDir: string; playbooksDir: string; deptPlaybooks: string[] },
+  exists: (p: string) => boolean = existsSync,
+): PackFileRoute | undefined {
+  const { agentsDir, playbooksDir, deptPlaybooks } = dirs;
+
+  // Branch 1: department config always wins — no existence check needed
+  if (file === "department.yaml") {
+    return { type: "department", absPath: join(agentsDir, dept, "department.yaml") };
+  }
+
+  // Branch 2: existing agent yaml in agents dir
+  const agentPath = join(agentsDir, dept, file);
+  if (exists(agentPath)) {
+    return { type: "agent", absPath: agentPath };
+  }
+
+  // Branch 3: playbook in dept subdir (dept-scoped by path — no extra guard needed)
+  const subdirPath = join(playbooksDir, dept, file);
+  if (exists(subdirPath)) {
+    return { type: "playbook", absPath: subdirPath };
+  }
+
+  // Branch 4: flat playbook, but only if the stem is listed in this dept's playbooks array
+  const flatPath = join(playbooksDir, file);
+  const stem = file.replace(/\.ya?ml$/, "");
+  if (exists(flatPath) && deptPlaybooks.includes(stem)) {
+    return { type: "playbook", absPath: flatPath };
+  }
+
+  return undefined;
+}
 
 /** Validate a department, agent, or playbook file before write.
  *  fileType drives schema selection; "agent" additionally checks dept + name/filename alignment. */
