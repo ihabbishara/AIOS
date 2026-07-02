@@ -48,6 +48,11 @@ export class DirectChats {
     return [...this.deps.registry.agentOf.keys()];
   }
 
+  /** Canonical agent name for a name-or-alias, undefined when unknown. */
+  canonical(nameOrAlias: string): string | undefined {
+    return this.deps.registry.agentOf.get(nameOrAlias);
+  }
+
   async handle(
     role: string,
     channel: string,

@@ -39,6 +39,14 @@ export class MessageRouter {
     /** Wrap a plain string result (moderator / finance / gate / reset) into RouterResult. */
     const textOnly = (text: string): RouterResult => ({ text, attachments: [] });
 
+    /** Emit a route.decision event before the agent turn. */
+    const routed = (
+      to: string,
+      via: "mention" | "binding" | "handoff" | "default" | "verdict" | "reset",
+      reason: string,
+    ) =>
+      bus?.emit({ type: "route.decision", to, via, reason, channel: msg.channel, chatId: msg.chatId });
+
     // Session reset commands: /reset or /new [role]
     // NOTE: This block is intentionally placed BEFORE the mentionOnly gate below.
     // /reset must always be available even in mention-only chats — do not move it
@@ -59,26 +67,32 @@ export class MessageRouter {
         moderator.resetSession(msg.channel, msg.chatId);
         replyText = "Session reset. Starting fresh next message.";
       }
+      routed("moderator", "reset", "session reset");
       bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
       return textOnly(replyText);
     }
 
     // Gate verdicts short-circuit all routing: /approve <id>, /reject <id> [reason]
     const gateCmd = /^\/(approve|reject)\s+([\w-]+)(?:\s+([\s\S]+))?$/i.exec(msg.text.trim());
-    if (gateCmd && this.deps.gate) {
+    if (gateCmd) {
+      routed("gate", "verdict", "/approve|/reject intercept");
       const [, verb, id, reason] = gateCmd;
       let replyText: string;
-      try {
-        const row = await this.deps.gate.resolve(id, verb.toLowerCase() as "approve" | "reject", {
-          by: msg.sender?.username ?? msg.sender?.name ?? msg.channel,
-          reason: reason?.trim(),
-        });
-        replyText =
-          row.status === "executed" ? `✓ Executed [${row.type}] — ${row.result}`
-          : row.status === "failed" ? `⚠ Approved, but execution failed [${row.type}] — ${row.result}`
-          : `✗ Rejected [${row.type}]${row.reject_reason ? ` — ${row.reject_reason}` : ""}`;
-      } catch (err) {
-        replyText = `Gate: ${err instanceof Error ? err.message : String(err)}`;
+      if (this.deps.gate) {
+        try {
+          const row = await this.deps.gate.resolve(id, verb.toLowerCase() as "approve" | "reject", {
+            by: msg.sender?.username ?? msg.sender?.name ?? msg.channel,
+            reason: reason?.trim(),
+          });
+          replyText =
+            row.status === "executed" ? `✓ Executed [${row.type}] — ${row.result}`
+            : row.status === "failed" ? `⚠ Approved, but execution failed [${row.type}] — ${row.result}`
+            : `✗ Rejected [${row.type}]${row.reject_reason ? ` — ${row.reject_reason}` : ""}`;
+        } catch (err) {
+          replyText = `Gate: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      } else {
+        replyText = `Gate: no action gate configured`;
       }
       bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
       return textOnly(replyText);
@@ -106,10 +120,13 @@ export class MessageRouter {
       const hasAttachments = !!msg.attachments?.length;
       if (addressed) {
         if (addressed.role === "finance") {
+          routed("salim", "mention", `mention of ${addressed.role} in bound chat`);
           const text = await agentTurn("finance", () =>
             finance.handle(msg.channel, msg.chatId, addressed.text, msg.sender, msg.attachments));
           reply = textOnly(text);
         } else {
+          const canonicalTo = directChats.canonical(addressed.role) ?? addressed.role;
+          routed(canonicalTo, "mention", `mention of ${addressed.role} in bound chat`);
           const result = await agentTurn(addressed.role, () =>
             directChats.handle(addressed.role, msg.channel, msg.chatId, addressed.text));
           reply = { text: `[${addressed.role}]\n${result.text}`, attachments: result.attachments };
@@ -117,10 +134,13 @@ export class MessageRouter {
       } else if (binding.mentionOnly && !hasAttachments) {
         reply = null; // mention-only chat: stay silent for unaddressed chatter
       } else if (binding.agents[0] === "finance") {
+        routed("salim", "binding", "first bound agent");
         const text = await agentTurn("finance", () =>
           finance.handle(msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments));
         reply = textOnly(text);
       } else {
+        const canonicalTo = directChats.canonical(binding.agents[0]) ?? binding.agents[0];
+        routed(canonicalTo, "binding", "first bound agent");
         const result = await agentTurn(binding.agents[0], () =>
           directChats.handle(binding.agents[0], msg.channel, msg.chatId, msg.text));
         reply = { text: `[${binding.agents[0]}]\n${result.text}`, attachments: result.attachments };
@@ -128,10 +148,17 @@ export class MessageRouter {
     } else {
       const direct = parseDirectAddress(msg.text, directChats.names());
       if (direct) {
+        if (direct.role === "finance") {
+          routed("salim", "mention", `@${direct.role} addressed`);
+        } else {
+          const canonicalTo = directChats.canonical(direct.role) ?? direct.role;
+          routed(canonicalTo, "mention", `@${direct.role} addressed`);
+        }
         const result = await agentTurn(direct.role, () =>
           directChats.handle(direct.role, msg.channel, msg.chatId, direct.text));
         reply = { text: `[${direct.role}]\n${result.text}`, attachments: result.attachments };
       } else {
+        routed("rami", "default", "no mention — chief of staff");
         const text = await agentTurn("moderator", () =>
           moderator.handle(msg.channel, msg.chatId, msg.text, msg.attachments));
         reply = textOnly(text);
