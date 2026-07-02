@@ -174,4 +174,26 @@ describe("route.decision", () => {
     expect(ev.to).toBe("maya");
     expect(ev.reason).toBe("first bound agent");
   });
+
+  it("resolves alias in unbound mention: @developer → maya canonical", async () => {
+    const { router, events } = ctx;
+    await router.handle({ channel: "cli", chatId: "c", text: "@developer fix this" });
+    const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
+    expect(ev.to).toBe("maya");
+    expect(ev.via).toBe("mention");
+  });
+
+  it("/reset @developer emits to canonical target", async () => {
+    const { router, events } = ctx;
+    await router.handle({ channel: "cli", chatId: "c", text: "/reset @developer" });
+    const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
+    expect(ev.to).toBe("maya");
+    expect(ev.via).toBe("reset");
+  });
+
+  it("/reset @nonexistent emits NO route.decision", async () => {
+    const { router, events } = ctx;
+    await router.handle({ channel: "cli", chatId: "c", text: "/reset @nonexistent" });
+    expect(events.some((e) => e.event.type === "route.decision")).toBe(false);
+  });
 });

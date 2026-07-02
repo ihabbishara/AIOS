@@ -55,6 +55,7 @@ export class MessageRouter {
     if (resetCmd) {
       const roleName = resetCmd[1]?.toLowerCase();
       let replyText: string;
+      let resetOccurred = false;
       if (roleName) {
         const knownRoles = directChats.names();
         if (!knownRoles.includes(roleName)) {
@@ -62,12 +63,18 @@ export class MessageRouter {
         } else {
           directChats.resetSession(roleName, msg.channel, msg.chatId);
           replyText = `@${roleName} session reset. Starting fresh next message.`;
+          resetOccurred = true;
         }
       } else {
         moderator.resetSession(msg.channel, msg.chatId);
         replyText = "Session reset. Starting fresh next message.";
+        resetOccurred = true;
       }
-      routed("moderator", "reset", "session reset");
+      // Only emit route.decision if reset actually happened (valid role or moderator)
+      if (resetOccurred) {
+        const resetTarget = roleName ? (directChats.canonical(roleName) ?? roleName) : "moderator";
+        routed(resetTarget, "reset", "session reset");
+      }
       bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
       return textOnly(replyText);
     }
