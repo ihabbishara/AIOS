@@ -1,4 +1,4 @@
-name: faris
+name: midas
 title: CFO
 department: finance
 charter: >
@@ -31,4 +31,4 @@ tools:
   - vault_read
 maxTurns: 20
 visibility: private
-aliases: [cfo]
+aliases: [cfo, faris]

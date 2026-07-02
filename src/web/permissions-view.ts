@@ -60,10 +60,10 @@ interface CatalogEntry {
 }
 
 /** Every controllable role: the live registry agents (canonical names, compiled base tools)
- *  + the rami pseudo-role (its real allowlist is MODERATOR_ALLOWED_TOOLS, not its empty manifest). */
+ *  + the hermes pseudo-role (its real allowlist is MODERATOR_ALLOWED_TOOLS, not its empty manifest). */
 export function permissionRoleCatalog(registry: LoadedRegistry): CatalogEntry[] {
   const codeRoles = [...registry.agents.values()]
-    .filter((a) => a.manifest.name !== "rami") // rami is the pseudo-role below, not a specialist
+    .filter((a) => a.manifest.name !== "hermes") // hermes is the pseudo-role below, not a specialist
     .map((a) => ({
       role: a.role.name,
       description: a.role.description,
@@ -75,7 +75,7 @@ export function permissionRoleCatalog(registry: LoadedRegistry): CatalogEntry[] 
   return [
     ...codeRoles,
     {
-      role: "rami",
+      role: "hermes",
       description: "Chief of Staff — routes work, talks to you, and hands off to specialists.",
       permissionMode: "dontAsk",
       toolCheckFallback: "allow",

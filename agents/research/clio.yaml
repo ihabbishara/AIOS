@@ -1,4 +1,4 @@
-name: lina
+name: clio
 title: Analyst / Librarian
 department: research
 charter: >
@@ -32,4 +32,4 @@ tools:
   - mcp__research__search_sources
 maxTurns: 25
 permissionMode: dontAsk
-aliases: [analyst]
+aliases: [analyst, lina]

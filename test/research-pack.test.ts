@@ -21,10 +21,10 @@ describe("research department (registry)", () => {
 
   it("binds research agents by canonical name; aliases resolve via agentOf", () => {
     const reg = testRegistry();
-    expect(reg.agentOf.get("analyst")).toBe("lina");
-    expect(reg.agentOf.get("market-researcher")).toBe("sami");
-    expect(reg.agentOf.get("ui-ux-designer")).toBe("dalia");
-    expect(reg.agents.get("lina")?.department).toBe("research");
+    expect(reg.agentOf.get("analyst")).toBe("clio");
+    expect(reg.agentOf.get("market-researcher")).toBe("janus");
+    expect(reg.agentOf.get("ui-ux-designer")).toBe("venus");
+    expect(reg.agents.get("clio")?.department).toBe("research");
   });
 
   it("leaves finance + engineering departments intact", () => {
@@ -39,7 +39,7 @@ describe("research department (registry)", () => {
     expect(reg.departments.has("research")).toBe(false);
     expect(reg.playbooks.has("research-report")).toBe(false);
     expect(reg.ownerOfPlaybook.has("research-report")).toBe(false);
-    expect(reg.agents.has("lina")).toBe(false);
+    expect(reg.agents.has("clio")).toBe(false);
     // engineering + finance survive
     expect(reg.departments.has("engineering")).toBe(true);
     expect(reg.departments.has("finance")).toBe(true);

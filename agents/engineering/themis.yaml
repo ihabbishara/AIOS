@@ -1,4 +1,4 @@
-name: nadia
+name: themis
 title: Code Reviewer
 department: engineering
 charter: >
@@ -16,4 +16,4 @@ prompt: >
 tools: [Read, Grep, Glob, Bash, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 30
 permissionMode: dontAsk
-aliases: [code-reviewer]
+aliases: [code-reviewer, nadia]

@@ -32,7 +32,7 @@ const MCP_TOOLS = [
   "mcp__aios__forget",
 ];
 
-/** The moderator (rami) pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
+/** The moderator (hermes) pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
 export const MODERATOR_ALLOWED_TOOLS = [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
 /** hand_off runs a full specialist session inside an MCP call — allow up to 10 min. */
@@ -124,13 +124,13 @@ export class Moderator {
       department: a.department,
     }));
 
-    // Prepend rami's persona block (tolerate rami absent — skip prefix).
-    const ramiPersona = registry.agents.get("rami")?.role.systemPrompt;
+    // Prepend hermes's persona block (tolerate hermes absent — skip prefix).
+    const hermesPersona = registry.agents.get("hermes")?.role.systemPrompt;
     const basePrompt = moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault), roster);
-    const systemPrompt = ramiPersona ? `${ramiPersona}\n\n${basePrompt}` : basePrompt;
+    const systemPrompt = hermesPersona ? `${hermesPersona}\n\n${basePrompt}` : basePrompt;
 
-    // rami is the chief of staff himself — never a hand_off target (would recurse).
-    const agentNames = [...registry.agents.keys()].filter((n) => n !== "rami");
+    // hermes is the chief of staff himself — never a hand_off target (would recurse).
+    const agentNames = [...registry.agents.keys()].filter((n) => n !== "hermes");
 
     const server = buildModeratorServer({
       jobs,
@@ -149,7 +149,7 @@ export class Moderator {
     const moderatorOptions = {
       systemPrompt,
       mcpServers: { aios: server },
-      allowedTools: effectiveAllowedTools("rami", MODERATOR_ALLOWED_TOOLS, store),
+      allowedTools: effectiveAllowedTools("hermes", MODERATOR_ALLOWED_TOOLS, store),
       permissionMode: "dontAsk" as const,
       settingSources: [],
       strictMcpConfig: true,
@@ -163,7 +163,7 @@ export class Moderator {
       sessionKey: `moderator-session:${chatKey}`,
       prompt,
       log: this.deps.log,
-      options: withDenialObserver(moderatorOptions, "rami", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
+      options: withDenialObserver(moderatorOptions, "hermes", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
     });
   }
 }

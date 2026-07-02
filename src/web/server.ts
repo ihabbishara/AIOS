@@ -50,12 +50,12 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
 ];
 
 /**
- * Returns true when the web UI `target` field should be routed to the Chief of Staff (Rami).
- * Accepts the legacy "moderator" sentinel (transition window — some UI builds may still send it)
- * and the current "rami" name, as well as undefined/empty (default path).
+ * Returns true when the web UI `target` field should be routed to the Chief of Staff (Hermes).
+ * Accepts the legacy "moderator" sentinel and the old "rami" name (transition window) as well
+ * as the current "hermes" name and undefined/empty (default path).
  */
 export function isChiefOfStaff(target?: string): boolean {
-  return !target || target === "moderator" || target === "rami";
+  return !target || target === "moderator" || target === "rami" || target === "hermes";
 }
 
 export interface WebDeps {
@@ -136,12 +136,12 @@ export function startWebServer(deps: WebDeps, port: number): void {
             voice: deps.voice.available(),
             agents: [
               {
-                name: "rami", kind: "moderator",
+                name: "hermes", kind: "moderator",
                 description: "Chief of Staff — discusses, routes, runs playbooks, hands off, reports.",
                 tools: ["run_playbook", "hand_off", "job_status", "vault"], guarded: false,
               },
               ...[...registry.agents.values()]
-                .filter((a) => a.manifest.name !== "rami")
+                .filter((a) => a.manifest.name !== "hermes")
                 .map((a) => ({
                   name: a.manifest.name, kind: "specialist",
                   title: a.manifest.title, description: a.role.description,

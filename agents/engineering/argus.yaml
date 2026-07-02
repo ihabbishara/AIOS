@@ -1,4 +1,4 @@
-name: tarek
+name: argus
 title: QA Engineer
 department: engineering
 charter: >
@@ -17,4 +17,4 @@ tools: [Read, Grep, Glob, Edit, Write, Bash, mcp__code__sh, recall, vault_read, 
 maxTurns: 40
 permissionMode: bypassPermissions
 outputSchema: test-report
-aliases: [tester]
+aliases: [tester, tarek]

@@ -1,4 +1,4 @@
-name: kai
+name: athena
 title: Architect
 department: engineering
 charter: >
@@ -17,4 +17,4 @@ prompt: >
 tools: [Read, Grep, Glob, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 25
 permissionMode: dontAsk
-aliases: [architect]
+aliases: [architect, kai]

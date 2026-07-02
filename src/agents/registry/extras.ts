@@ -28,7 +28,7 @@ export function buildExtras(cfg: ExtrasConfig): Record<string, AgentExtras> {
       attachDirs: [HALALO_EXPORTS_DIR],
       promptSuffix: `\n\n## Exports directory\nYour exports directory (absolute): ${HALALO_EXPORTS_DIR}. Write deliverable files there (e.g. ${HALALO_EXPORTS_DIR}/orders.csv), then attach_file with that same absolute path. A bare filename would be refused — always use the full exports path.`,
     },
-    salim: (() => {
+    juno: (() => {
       const attachDirs = [join(cfg.vaultPath, cfg.vaultSubdir, "attachments"), "/tmp/aios-"];
       // Read is confined to the finance evidence roots: the vault finance + attachments
       // dirs (as the deleted FinanceAgent guard had), plus invoice staging in

@@ -1,4 +1,4 @@
-name: dalia
+name: venus
 title: UI/UX Designer
 department: research
 charter: >
@@ -25,4 +25,4 @@ tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__research__save_source, mcp__
 maxTurns: 30
 permissionMode: dontAsk
 skills: [design-tokens]
-aliases: [ui-ux-designer]
+aliases: [ui-ux-designer, dalia]

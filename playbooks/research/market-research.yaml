@@ -6,8 +6,8 @@ needsProjectDir: false
 stages:
   - type: loop
     id: market-report
-    producer: sami
-    critic: yara
+    producer: janus
+    critic: minos
     maxRounds: 2
     brief: >-
       Produce a thorough market research report for the product/idea. The reviewer

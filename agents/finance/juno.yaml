@@ -1,4 +1,4 @@
-name: salim
+name: juno
 title: Bookkeeper
 department: finance
 charter: >
@@ -37,4 +37,4 @@ tools:
   - mcp__aios_attachments__attach_file
 maxTurns: 30
 permissionMode: dontAsk
-aliases: [finance]
+aliases: [finance, salim]

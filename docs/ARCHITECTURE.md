@@ -167,7 +167,7 @@ vault link to partial artifacts. Per-job wall-time budget (default 2h).
 
 Every agent is a YAML manifest in `agents/<department>/`. `loadRegistry()` produces three maps:
 
-- **`agentOf: Map<name|alias, canonical-name>`** — resolves any name or alias to the canonical agent name. `@developer` → `maya`, `@cfo` → `faris`, `@finance` → `salim`.
+- **`agentOf: Map<name|alias, canonical-name>`** — resolves any name or alias to the canonical agent name. `@developer` → `vulcan`, `@cfo` → `midas`, `@finance` → `juno`. Old arabic names resolve too: `@maya` → `vulcan`, `@faris` → `midas`, etc.
 - **`agents: Map<name, AgentDef>`** — each entry holds the raw manifest and a compiled `RoleDef` (persona + prompt merged into `systemPrompt`, tools, permission mode, visibility flag).
 - **`ownerOfPlaybook: Map<playbook, department>`** — which department's tool set a playbook stage runs under.
 
@@ -175,17 +175,17 @@ Department manifests (`agents/<dept>/department.yaml`) evolved from the old `pac
 
 ```
 agents/
-  operations/   department.yaml  rami.yaml
-  engineering/  department.yaml  kai.yaml maya.yaml tarek.yaml nadia.yaml omar.yaml ziad.yaml
-  research/     department.yaml  lina.yaml sami.yaml dalia.yaml yara.yaml
-  finance/      department.yaml  faris.yaml salim.yaml
+  operations/   department.yaml  hermes.yaml
+  engineering/  department.yaml  athena.yaml vulcan.yaml argus.yaml themis.yaml atlas.yaml odin.yaml
+  research/     department.yaml  clio.yaml janus.yaml venus.yaml minos.yaml
+  finance/      department.yaml  midas.yaml juno.yaml
   life/         department.yaml  jasmine.yaml
   clients/      department.yaml  halalo.yaml
 ```
 
 **Kill-switches:** `AIOS_<DEPT>_DISABLED=1` drops a department and all its agents and playbooks at load. Legacy env names map forward: `AIOS_CODE_DISABLED` → engineering, `AIOS_MONEY_DISABLED` → finance, `AIOS_RESEARCH_DISABLED` → research, `AIOS_LIFEOPS_DISABLED` → life.
 
-**Per-agent MCP ownership:** each department manifest declares which tool server it owns. The resolver clamps agents to their department's tool server so no agent can reach another department's data (e.g. salim gets `ledger` tools; faris gets `money` tools).
+**Per-agent MCP ownership:** each department manifest declares which tool server it owns. The resolver clamps agents to their department's tool server so no agent can reach another department's data (e.g. juno gets `ledger` tools; midas gets `money` tools).
 
 ---
 
@@ -193,25 +193,25 @@ agents/
 
 All 15 named agents, compiled from their manifests at load:
 
-| Dept | Name | Title |
-|---|---|---|
-| Operations | Rami | Chief of Staff |
-| Engineering | Kai | Architect / Eng Lead |
-| Engineering | Maya | Senior Engineer |
-| Engineering | Tarek | QA Engineer |
-| Engineering | Nadia | Code Reviewer |
-| Engineering | Omar | DevOps |
-| Engineering | Ziad | Eng Researcher |
-| Research | Lina | Analyst / Librarian |
-| Research | Sami | Market Researcher |
-| Research | Dalia | UI/UX Designer |
-| Research | Yara | Research Reviewer |
-| Finance | Faris | CFO (private) |
-| Finance | Salim | Bookkeeper (group) |
-| Life | Jasmine | Personal Ops |
-| Clients | Halalo | Halalo Project Agent |
+| Dept | Name | Title | Legacy aliases |
+|---|---|---|---|
+| Operations | Hermes | Chief of Staff | rami, moderator |
+| Engineering | Athena | Architect / Eng Lead | architect, kai |
+| Engineering | Vulcan | Senior Engineer | developer, maya |
+| Engineering | Argus | QA Engineer | tester, tarek |
+| Engineering | Themis | Code Reviewer | code-reviewer, nadia |
+| Engineering | Atlas | DevOps | devops, omar |
+| Engineering | Odin | Eng Researcher | researcher, ziad |
+| Research | Clio | Analyst / Librarian | analyst, lina |
+| Research | Janus | Market Researcher | market-researcher, sami |
+| Research | Venus | UI/UX Designer | ui-ux-designer, dalia |
+| Research | Minos | Research Reviewer | reviewer, yara |
+| Finance | Midas | CFO (private) | cfo, faris |
+| Finance | Juno | Bookkeeper (group) | finance, salim |
+| Life | Jasmine | Personal Ops | jasmine |
+| Clients | Halalo | Halalo Project Agent | halalo |
 
-`visibility: private` agents (faris, jasmine) are refused from any origin that is not the configured `AIOS_PRIMARY_CHAT` or the local web cockpit (`web:ui`). The check runs before any LLM call, fail-closed when the primary chat is unset.
+`visibility: private` agents (midas, jasmine) are refused from any origin that is not the configured `AIOS_PRIMARY_CHAT` or the local web cockpit (`web:ui`). The check runs before any LLM call, fail-closed when the primary chat is unset.
 
 ---
 
@@ -229,8 +229,8 @@ Dispatch paths in priority order:
 2. **`/approve|/reject <id>`** — gate verdict short-circuit. Emits `via: "verdict"` to `to: "gate"`.
 3. **Bound chat + `@mention`** — `chatBindings` maps a `channel:chatId` key to a list of agent names. A mention in a bound chat routes to that agent. Emits `via: "mention"`.
 4. **Bound chat, no mention** — routes to the first bound agent (unless `mentionOnly: true`). Emits `via: "binding"`.
-5. **Unbound `@name`** — `agentOf` lookup → `DirectChats.handle` → persistent direct session. Emits `via: "mention"`. Aliases resolve: `@developer` → maya.
-6. **Everything else** → Chief of Staff (rami). Emits `via: "default"` with `reason: "no mention — chief of staff"`.
+5. **Unbound `@name`** — `agentOf` lookup → `DirectChats.handle` → persistent direct session. Emits `via: "mention"`. Aliases resolve: `@developer` → vulcan.
+6. **Everything else** → Chief of Staff (hermes). Emits `via: "default"` with `reason: "no mention — chief of staff"`.
 
 `route.decision` events are stored in SQLite and power the routing trail in Mission Control.
 
@@ -240,7 +240,7 @@ Dispatch paths in priority order:
 
 ### hand_off
 
-Rami (Chief of Staff) dispatches to any registry agent via the `hand_off(agent, task, context?)` tool. This replaces the old `ask_specialist` (which used a toolless clone). `hand_off` resolves the named agent through the full registry with its department tool set and runs one-shot, returning the result text. Unknown agent → error string, no crash.
+Hermes (Chief of Staff) dispatches to any registry agent via the `hand_off(agent, task, context?)` tool. This replaces the old `ask_specialist` (which used a toolless clone). `hand_off` resolves the named agent through the full registry with its department tool set and runs one-shot, returning the result text. Unknown agent → error string, no crash.
 
 ### Talking to specialists
 
@@ -317,7 +317,7 @@ src/
   config.ts               env + paths
   channels/               types.ts · telegram.ts · slack.ts · cli.ts
   router.ts               MessageRouter — single routing brain; emits route.decision
-  moderator/              session.ts (Rami's persistent session) · tools.ts · prompt.ts
+  moderator/              session.ts (Hermes's persistent session) · tools.ts · prompt.ts
   engine/                 playbook.ts (YAML+zod) · executor.ts (stage machine) · jobs.ts (queue)
   agents/
     direct.ts             DirectChats — persistent per-agent sessions, privacy gate
@@ -328,10 +328,10 @@ src/
   store/db.ts             SQLite (node:sqlite)
   vault/writer.ts         markdown artifacts, daily log
 agents/                   YAML manifests — one subdir per department
-  operations/             department.yaml  rami.yaml
-  engineering/            department.yaml  kai.yaml maya.yaml tarek.yaml nadia.yaml omar.yaml ziad.yaml
-  research/               department.yaml  lina.yaml sami.yaml dalia.yaml yara.yaml
-  finance/                department.yaml  faris.yaml salim.yaml
+  operations/             department.yaml  hermes.yaml
+  engineering/            department.yaml  athena.yaml vulcan.yaml argus.yaml themis.yaml atlas.yaml odin.yaml
+  research/               department.yaml  clio.yaml janus.yaml venus.yaml minos.yaml
+  finance/                department.yaml  midas.yaml juno.yaml
   life/                   department.yaml  jasmine.yaml
   clients/                department.yaml  halalo.yaml
 playbooks/                code-inplace · research-report · echo (YAML stage definitions)

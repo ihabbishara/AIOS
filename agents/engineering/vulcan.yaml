@@ -1,4 +1,4 @@
-name: maya
+name: vulcan
 title: Senior Engineer
 department: engineering
 charter: >
@@ -16,4 +16,4 @@ prompt: >
 tools: [Read, Grep, Glob, Edit, Write, Bash, TodoWrite, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 80
 permissionMode: bypassPermissions
-aliases: [developer]
+aliases: [developer, maya]

@@ -77,12 +77,16 @@ describe("isChiefOfStaff predicate (web sentinel)", () => {
     expect(isChiefOfStaff("moderator")).toBe(true);
   });
 
-  it("returns true for current chief-of-staff name 'rami'", () => {
+  it("returns true for current chief-of-staff name 'hermes'", () => {
+    expect(isChiefOfStaff("hermes")).toBe(true);
+  });
+
+  it("returns true for legacy chief-of-staff name 'rami' — backward-compat transition window", () => {
     expect(isChiefOfStaff("rami")).toBe(true);
   });
 
   it("returns false for specialist names — they get routed as @-mentions", () => {
-    expect(isChiefOfStaff("maya")).toBe(false);
+    expect(isChiefOfStaff("vulcan")).toBe(false);
     expect(isChiefOfStaff("finance")).toBe(false);
     expect(isChiefOfStaff("architect")).toBe(false);
   });

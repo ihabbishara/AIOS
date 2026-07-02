@@ -359,6 +359,32 @@ export class Store {
         /* noop — a single rename failing must not block startup */
       }
     }
+    // Migration wave 2: Arabic staff names → mythological names (mythic-names branch).
+    // Runs after wave 1 so double-hop aliases (e.g. moderator→rami→hermes) chain correctly.
+    const MYTHIC_RENAMES: Array<[string, string]> = [
+      ["rami", "hermes"],
+      ["maya", "vulcan"],
+      ["kai", "athena"],
+      ["tarek", "argus"],
+      ["nadia", "themis"],
+      ["omar", "atlas"],
+      ["ziad", "odin"],
+      ["lina", "clio"],
+      ["sami", "janus"],
+      ["dalia", "venus"],
+      ["yara", "minos"],
+      ["faris", "midas"],
+      ["salim", "juno"],
+    ];
+    for (const [arabic, mythic] of MYTHIC_RENAMES) {
+      try {
+        this.db
+          .prepare("UPDATE OR REPLACE role_permissions SET role = ? WHERE role = ?")
+          .run(mythic, arabic);
+      } catch {
+        /* noop — a single rename failing must not block startup */
+      }
+    }
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at" | "job_dir">): void {

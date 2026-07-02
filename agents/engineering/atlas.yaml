@@ -1,4 +1,4 @@
-name: omar
+name: atlas
 title: DevOps Engineer
 department: engineering
 charter: >
@@ -19,4 +19,4 @@ prompt: |
 tools: [Read, Grep, Glob, Edit, Write, WebSearch, WebFetch, TodoWrite, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 40
 permissionMode: default
-aliases: [devops]
+aliases: [devops, omar]

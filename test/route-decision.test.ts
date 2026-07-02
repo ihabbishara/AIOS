@@ -76,7 +76,7 @@ describe("route.decision", () => {
     const { router, events } = ctx;
     await router.handle({ channel: "cli", chatId: "c", text: "hello" });
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
-    expect(ev.to).toBe("rami");
+    expect(ev.to).toBe("hermes");
     expect(ev.via).toBe("default");
     expect(ev.reason).toBe("no mention — chief of staff");
   });

@@ -1,4 +1,4 @@
-name: yara
+name: minos
 title: Research Reviewer
 department: research
 charter: >
@@ -17,4 +17,4 @@ tools: [Read, Grep, Glob, mcp__research__save_source, mcp__research__list_source
 maxTurns: 15
 permissionMode: dontAsk
 outputSchema: verdict
-aliases: [reviewer]
+aliases: [reviewer, yara]

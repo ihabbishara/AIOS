@@ -7,40 +7,40 @@ import { testRegistry } from "./fixtures/registry.js";
 const reg = testRegistry();
 
 describe("buildPermissionsView", () => {
-  it("includes every registry agent (canonical names) plus the rami pseudo-role", () => {
+  it("includes every registry agent (canonical names) plus the hermes pseudo-role", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
     const view = buildPermissionsView(store, bus, reg);
     const names = view.map((r) => r.role);
-    expect(names).toContain("rami");
-    expect(names).toContain("ziad"); // a canonical registry agent
-    expect(names).toContain("salim");
-    // aliases are NOT catalog keys — only canonical names + the rami pseudo-role
-    expect(names).not.toContain("researcher"); // ziad's alias
-    expect(names).not.toContain("finance");    // salim's alias
-    // rami appears exactly once (pseudo-role, not its empty manifest)
-    expect(names.filter((n) => n === "rami")).toHaveLength(1);
+    expect(names).toContain("hermes");
+    expect(names).toContain("odin"); // a canonical registry agent
+    expect(names).toContain("juno");
+    // aliases are NOT catalog keys — only canonical names + the hermes pseudo-role
+    expect(names).not.toContain("researcher"); // odin's alias
+    expect(names).not.toContain("finance");    // juno's alias
+    // hermes appears exactly once (pseudo-role, not its empty manifest)
+    expect(names.filter((n) => n === "hermes")).toHaveLength(1);
   });
 
   it("tags base tools 'default', grants 'granted', and revoked defaults 'revoked'", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
-    store.setRolePermission("rami", "Bash", 1, "ihab"); // grant a non-default
-    store.setRolePermission("rami", "mcp__aios__recall", 0, "ihab"); // revoke a default
-    const rami = buildPermissionsView(store, bus, reg).find((r) => r.role === "rami")!;
-    const byName = Object.fromEntries(rami.tools.map((t) => [t.name, t.source]));
+    store.setRolePermission("hermes", "Bash", 1, "ihab"); // grant a non-default
+    store.setRolePermission("hermes", "mcp__aios__recall", 0, "ihab"); // revoke a default
+    const hermes = buildPermissionsView(store, bus, reg).find((r) => r.role === "hermes")!;
+    const byName = Object.fromEntries(hermes.tools.map((t) => [t.name, t.source]));
     expect(byName["Bash"]).toBe("granted");
     expect(byName["mcp__aios__recall"]).toBeUndefined(); // revoked → not in effective list
-    expect(rami.revoked).toContainEqual({ name: "mcp__aios__recall", source: "revoked" });
+    expect(hermes.revoked).toContainEqual({ name: "mcp__aios__recall", source: "revoked" });
   });
 
   it("aggregates tool.denied events per role+tool with count and last ts", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
-    bus.emit({ type: "tool.denied", role: "ziad", tool: "Bash" });
-    bus.emit({ type: "tool.denied", role: "ziad", tool: "Bash" });
-    const ziad = buildPermissionsView(store, bus, reg).find((r) => r.role === "ziad")!;
-    const denial = ziad.denials.find((d) => d.tool === "Bash")!;
+    bus.emit({ type: "tool.denied", role: "odin", tool: "Bash" });
+    bus.emit({ type: "tool.denied", role: "odin", tool: "Bash" });
+    const odin = buildPermissionsView(store, bus, reg).find((r) => r.role === "odin")!;
+    const denial = odin.denials.find((d) => d.tool === "Bash")!;
     expect(denial.count).toBe(2);
     expect(typeof denial.lastTs).toBe("string");
   });
@@ -48,15 +48,15 @@ describe("buildPermissionsView", () => {
   it("exposes knownTools = built-ins ∪ the role's own tools (for grant autocomplete)", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
-    const rami = buildPermissionsView(store, bus, reg).find((r) => r.role === "rami")!;
-    // built-ins rami does NOT have are still suggested (so you can grant them)
-    expect(rami.knownTools).toContain("Bash");
-    expect(rami.knownTools).toContain("Edit");
-    expect(rami.knownTools).toContain("Skill");
+    const hermes = buildPermissionsView(store, bus, reg).find((r) => r.role === "hermes")!;
+    // built-ins hermes does NOT have are still suggested (so you can grant them)
+    expect(hermes.knownTools).toContain("Bash");
+    expect(hermes.knownTools).toContain("Edit");
+    expect(hermes.knownTools).toContain("Skill");
     // the role's own MCP tools are suggested too
-    expect(rami.knownTools).toContain("mcp__aios__recall");
-    // no duplicates (Read is both a built-in and a rami default)
-    expect(rami.knownTools.filter((t) => t === "Read")).toHaveLength(1);
+    expect(hermes.knownTools).toContain("mcp__aios__recall");
+    // no duplicates (Read is both a built-in and a hermes default)
+    expect(hermes.knownTools.filter((t) => t === "Read")).toHaveLength(1);
   });
 });
 

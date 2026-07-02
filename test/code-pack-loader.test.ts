@@ -15,8 +15,8 @@ describe("engineering department loads (registry)", () => {
     expect(reg.playbooks.has("code-analyze")).toBe(true);
     expect(reg.ownerOfPlaybook.get("code-build")).toBe("engineering");
   });
-  it("maps devops alias uniquely to omar in engineering", () => {
-    expect(reg.agentOf.get("devops")).toBe("omar");
-    expect(reg.agents.get("omar")?.department).toBe("engineering");
+  it("maps devops alias uniquely to atlas in engineering", () => {
+    expect(reg.agentOf.get("devops")).toBe("atlas");
+    expect(reg.agents.get("atlas")?.department).toBe("engineering");
   });
 });

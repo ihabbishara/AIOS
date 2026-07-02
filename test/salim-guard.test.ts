@@ -6,14 +6,14 @@ import { salimReadCheck } from "../src/agents/guards/read-confined.js";
 // The live testRegistry fixture builds extras with vaultPath "/tmp/v", subdir "AIOS".
 const VAULT = "/tmp/v/AIOS";
 
-describe("salim Read confinement (compiled role)", () => {
+describe("juno Read confinement (compiled role)", () => {
   const reg = testRegistry();
-  const salim = reg.agents.get("salim")!;
-  const readCheck = salim.role.toolChecks!.Read;
+  const juno = reg.agents.get("juno")!;
+  const readCheck = juno.role.toolChecks!.Read;
 
   it("wires a Read guard with the default 'allow' fallback (mirrors old FinanceAgent)", () => {
     expect(readCheck).toBeDefined();
-    expect(salim.role.toolCheckFallback ?? "allow").toBe("allow");
+    expect(juno.role.toolCheckFallback ?? "allow").toBe("allow");
   });
 
   it("denies reads of secrets outside the finance evidence dirs", () => {

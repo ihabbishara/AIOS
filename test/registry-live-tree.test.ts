@@ -36,20 +36,27 @@ describe("live agents/ tree", () => {
     expect(reg.agents.size).toBe(15);
   });
 
-  it("legacy @role aliases resolve", () => {
+  it("legacy @role aliases resolve to mythic canonical names", () => {
     for (const [alias, name] of Object.entries({
-      developer: "maya", architect: "kai", tester: "tarek", "code-reviewer": "nadia",
-      devops: "omar", researcher: "ziad", analyst: "lina", "market-researcher": "sami",
-      "ui-ux-designer": "dalia", reviewer: "yara", cfo: "faris", finance: "salim",
+      // legacy role aliases
+      developer: "vulcan", architect: "athena", tester: "argus", "code-reviewer": "themis",
+      devops: "atlas", researcher: "odin", analyst: "clio", "market-researcher": "janus",
+      "ui-ux-designer": "venus", reviewer: "minos", cfo: "midas", finance: "juno",
+      // arabic name aliases also resolve
+      maya: "vulcan", kai: "athena", tarek: "argus", nadia: "themis",
+      omar: "atlas", ziad: "odin", lina: "clio", sami: "janus",
+      dalia: "venus", yara: "minos", faris: "midas", salim: "juno",
+      // chief-of-staff aliases
+      rami: "hermes", moderator: "hermes",
     })) expect(reg.agentOf.get(alias), alias).toBe(name);
   });
 
   it("compiled roles preserve the legacy security surface", () => {
     const pin: Array<[string, string]> = [
-      ["maya", "developer"], ["kai", "architect"], ["tarek", "tester"],
-      ["nadia", "code-reviewer"], ["omar", "devops"], ["ziad", "researcher"],
-      ["sami", "market-researcher"], ["dalia", "ui-ux-designer"], ["yara", "reviewer"],
-      ["lina", "analyst"], ["faris", "cfo"], ["jasmine", "jasmine"], ["halalo", "halalo"],
+      ["vulcan", "developer"], ["athena", "architect"], ["argus", "tester"],
+      ["themis", "code-reviewer"], ["atlas", "devops"], ["odin", "researcher"],
+      ["janus", "market-researcher"], ["venus", "ui-ux-designer"], ["minos", "reviewer"],
+      ["clio", "analyst"], ["midas", "cfo"], ["jasmine", "jasmine"], ["halalo", "halalo"],
     ];
     for (const [agent, legacy] of pin) {
       const compiled = reg.agents.get(agent)!.role;
@@ -74,9 +81,9 @@ describe("live agents/ tree", () => {
     expect(reg.agents.get("jasmine")!.role.systemPrompt).toContain("update_task/complete_task/dismiss_task");
   });
 
-  it("private agents are faris and jasmine only", () => {
+  it("private agents are midas and jasmine only", () => {
     const priv = [...reg.agents.values()].filter((a) => a.role.privateOnly).map((a) => a.manifest.name).sort();
-    expect(priv).toEqual(["faris", "jasmine"]);
+    expect(priv).toEqual(["jasmine", "midas"]);
   });
 });
 
@@ -91,45 +98,45 @@ describe("tool ownership pins (regression guard against pack.yaml deletion)", ()
     "mcp__money__set_category_rule",
   ];
 
-  it("cfo capability pin: faris resolved pack + clamp contains all 10 money tools + aios-pack recall/vault_read", () => {
+  it("cfo capability pin: midas resolved pack + clamp contains all 10 money tools + aios-pack recall/vault_read", () => {
     const deps = makeDeps();
     const resolve = makeResolveDeptFor(reg, deps);
-    const pack = resolve("faris", { channel: "cli", chatId: "x" }, true)!;
+    const pack = resolve("midas", { channel: "cli", chatId: "x" }, true)!;
     expect(pack).toBeDefined();
-    const faris = reg.agents.get("faris")!;
-    const clamped = clampTools(faris.role.allowedTools, pack.tools);
+    const midas = reg.agents.get("midas")!;
+    const clamped = clampTools(midas.role.allowedTools, pack.tools);
     for (const t of MONEY_TOOLS) expect(clamped, `cfo must have ${t}`).toContain(t);
     expect(clamped).toContain("mcp__aios-pack__recall");
     expect(clamped).toContain("mcp__aios-pack__vault_read");
   });
 
-  it("bookkeeper privacy pin: salim clamped tools include ledger tools but NOT mcp__money__* nor the aios-pack memo tools", () => {
+  it("bookkeeper privacy pin: juno clamped tools include ledger tools but NOT mcp__money__* nor the aios-pack memo tools", () => {
     const deps = makeDeps();
     const resolve = makeResolveDeptFor(reg, deps);
-    const pack = resolve("salim", { channel: "cli", chatId: "x" }, true)!;
+    const pack = resolve("juno", { channel: "cli", chatId: "x" }, true)!;
     expect(pack).toBeDefined();
-    const salim = reg.agents.get("salim")!;
-    const clamped = clampTools(salim.role.allowedTools, pack.tools);
+    const juno = reg.agents.get("juno")!;
+    const clamped = clampTools(juno.role.allowedTools, pack.tools);
     expect(clamped).toContain("mcp__ledger__add_expense");
     for (const t of MONEY_TOOLS) expect(clamped, `bookkeeper must NOT see ${t}`).not.toContain(t);
-    // salim does not own bare recall/vault_read → the finance union's aios-pack memo tools
-    // (carried by faris) must NOT leak to the shared bookkeeper.
-    expect(clamped, "bookkeeper must NOT get faris's recall").not.toContain("mcp__aios-pack__recall");
-    expect(clamped, "bookkeeper must NOT get faris's vault_read").not.toContain("mcp__aios-pack__vault_read");
+    // juno does not own bare recall/vault_read → the finance union's aios-pack memo tools
+    // (carried by midas) must NOT leak to the shared bookkeeper.
+    expect(clamped, "bookkeeper must NOT get midas's recall").not.toContain("mcp__aios-pack__recall");
+    expect(clamped, "bookkeeper must NOT get midas's vault_read").not.toContain("mcp__aios-pack__vault_read");
   });
 
-  it("engineering shell pin: maya clamped tools contain mcp__code__sh + vault_write; kai does NOT get Edit/Write/Bash", () => {
+  it("engineering shell pin: vulcan clamped tools contain mcp__code__sh + vault_write; athena does NOT get Edit/Write/Bash", () => {
     const deps = makeDeps();
     const resolve = makeResolveDeptFor(reg, deps);
-    const mayaPack = resolve("maya", { channel: "cli", chatId: "x" }, true)!;
-    const kaiPack = resolve("kai", { channel: "cli", chatId: "x" }, true)!;
-    expect(mayaPack).toBeDefined();
-    expect(kaiPack).toBeDefined();
+    const vulcanPack = resolve("vulcan", { channel: "cli", chatId: "x" }, true)!;
+    const athenaPack = resolve("athena", { channel: "cli", chatId: "x" }, true)!;
+    expect(vulcanPack).toBeDefined();
+    expect(athenaPack).toBeDefined();
 
-    const maya = reg.agents.get("maya")!;
-    const kai = reg.agents.get("kai")!;
-    const mayaClamped = clampTools(maya.role.allowedTools, mayaPack.tools);
-    const kaiClamped = clampTools(kai.role.allowedTools, kaiPack.tools);
+    const vulcan = reg.agents.get("vulcan")!;
+    const athena = reg.agents.get("athena")!;
+    const mayaClamped = clampTools(vulcan.role.allowedTools, vulcanPack.tools);
+    const kaiClamped = clampTools(athena.role.allowedTools, athenaPack.tools);
 
     expect(mayaClamped).toContain("mcp__code__sh");
     expect(mayaClamped).toContain("mcp__aios-pack__vault_write");

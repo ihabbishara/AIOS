@@ -12,7 +12,7 @@ import { makeResolveDeptFor } from "../src/packs/resolve.js";
 import { testRegistry } from "./fixtures/registry.js";
 
 // finance/department.yaml has privateMemo: true — so the money memo must reach the private CFO
-// (faris) but NOT the shared, group-facing bookkeeper (salim).
+// (midas) but NOT the shared, group-facing bookkeeper (juno).
 const MEMO_MARKER = "APPROVE_INVOICES_UNDER_FIFTY_ZZZ";
 
 describe("privateMemo gating in resolveDeptFor", () => {
@@ -29,20 +29,20 @@ describe("privateMemo gating in resolveDeptFor", () => {
     return { root, store, vault, gate };
   }
 
-  it("faris (private) receives the memo; salim (shared) does not — both keep mission/persona", () => {
+  it("midas (private) receives the memo; juno (shared) does not — both keep mission/persona", () => {
     const { root, store, vault, gate } = deps();
     const resolve = makeResolveDeptFor(reg, { store, vault, gate });
     const origin = { channel: "cli", chatId: "x" };
 
-    const faris = resolve("faris", origin, true)!;
-    const salim = resolve("salim", origin, true)!;
+    const midas = resolve("midas", origin, true)!;
+    const juno = resolve("juno", origin, true)!;
 
-    expect(faris.contextBlock).toContain(MEMO_MARKER);
-    expect(salim.contextBlock).not.toContain(MEMO_MARKER);
+    expect(midas.contextBlock).toContain(MEMO_MARKER);
+    expect(juno.contextBlock).not.toContain(MEMO_MARKER);
 
     // Mission/persona survives for both (the finance dept mission).
-    expect(faris.contextBlock).toContain("group expense ledger");
-    expect(salim.contextBlock).toContain("group expense ledger");
+    expect(midas.contextBlock).toContain("group expense ledger");
+    expect(juno.contextBlock).toContain("group expense ledger");
 
     rmSync(root, { recursive: true, force: true });
   });

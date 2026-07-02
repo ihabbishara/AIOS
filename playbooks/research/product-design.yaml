@@ -6,15 +6,15 @@ needsProjectDir: false
 stages:
   - type: single
     id: market
-    role: sami
+    role: janus
     brief: >-
       Research the market for this product idea: competitors, audience, pricing,
       positioning gaps. The design will build on your findings.
 
   - type: loop
     id: design-brief
-    producer: dalia
-    critic: yara
+    producer: venus
+    critic: minos
     maxRounds: 3
     brief: >-
       Create the complete UI/UX design brief for the product, grounded in the

@@ -64,7 +64,7 @@ describe("research department resolve + recall + view", () => {
     expect(research.toolServer).toBe("research");
     expect(research.actions).toEqual(["vault.write"]);
     expect(research.playbooks.map((p) => p.name).sort()).toEqual(["market-research", "product-design", "research-report"]);
-    // Research agents: lina, sami, dalia, yara
-    expect(research.roles.map((r) => r.name)).toContain("lina");
+    // Research agents: clio, janus, venus, minos
+    expect(research.roles.map((r) => r.name)).toContain("clio");
   });
 });

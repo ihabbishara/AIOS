@@ -19,43 +19,61 @@ function withReopen(seed: (s: Store) => void): Store {
 }
 
 describe("legacy role_permissions rename migration", () => {
-  it("renames a legacy alias with NO canonical conflict (architect → kai)", () => {
+  it("renames a legacy alias through two waves (architect → kai → athena)", () => {
     const s = withReopen((s1) => s1.setRolePermission("architect", "Read", 1, "legacy"));
     expect(s.listRolePermissions("architect")).toEqual([]);
-    expect(s.listRolePermissions("kai").map((r) => r.tool)).toContain("Read");
+    expect(s.listRolePermissions("kai")).toEqual([]);       // wave 1 moved it, wave 2 moved again
+    expect(s.listRolePermissions("athena").map((r) => r.tool)).toContain("Read");
     s.close();
   });
 
-  it("on a UNIQUE(role,tool) conflict the legacy row wins and the canonical row is dropped", () => {
+  it("on a UNIQUE(role,tool) conflict the legacy row wins and chains to mythic name", () => {
     const s = withReopen((s1) => {
       s1.setRolePermission("developer", "Bash", 1, "legacy"); // legacy grant
       s1.setRolePermission("maya", "Bash", 0, "canonical");   // conflicting canonical revoke
     });
     expect(s.listRolePermissions("developer")).toEqual([]);
-    const maya = s.listRolePermissions("maya");
-    // Exactly one maya/Bash row survives, carrying the legacy value (allow=1).
-    const bashRows = maya.filter((r) => r.tool === "Bash");
+    expect(s.listRolePermissions("maya")).toEqual([]);       // both waves consumed it
+    const vulcan = s.listRolePermissions("vulcan");
+    // Exactly one vulcan/Bash row survives, carrying the legacy value (allow=1).
+    const bashRows = vulcan.filter((r) => r.tool === "Bash");
     expect(bashRows).toHaveLength(1);
     expect(bashRows[0].allow).toBe(1);
     s.close();
   });
 
-  it("covers finance→salim and cfo→faris", () => {
+  it("covers finance→salim→juno and cfo→faris→midas", () => {
     const s = withReopen((s1) => {
       s1.setRolePermission("finance", "Read", 0, "legacy");
       s1.setRolePermission("cfo", "mcp__money__list_transactions", 1, "legacy");
     });
     expect(s.listRolePermissions("finance")).toEqual([]);
     expect(s.listRolePermissions("cfo")).toEqual([]);
-    expect(s.listRolePermissions("salim").map((r) => r.tool)).toContain("Read");
-    expect(s.listRolePermissions("faris").map((r) => r.tool)).toContain("mcp__money__list_transactions");
+    expect(s.listRolePermissions("salim")).toEqual([]);     // wave 2 consumed it
+    expect(s.listRolePermissions("faris")).toEqual([]);     // wave 2 consumed it
+    expect(s.listRolePermissions("juno").map((r) => r.tool)).toContain("Read");
+    expect(s.listRolePermissions("midas").map((r) => r.tool)).toContain("mcp__money__list_transactions");
     s.close();
   });
 
-  it("still renames moderator → rami (pre-existing migration)", () => {
+  it("chains moderator → rami → hermes across both migration waves", () => {
     const s = withReopen((s1) => s1.setRolePermission("moderator", "Bash", 1, "legacy"));
     expect(s.listRolePermissions("moderator")).toEqual([]);
-    expect(s.listRolePermissions("rami").map((r) => r.tool)).toContain("Bash");
+    expect(s.listRolePermissions("rami")).toEqual([]);      // wave 2 consumed it
+    expect(s.listRolePermissions("hermes").map((r) => r.tool)).toContain("Bash");
+    s.close();
+  });
+
+  it("migration chain: developer AND maya both end up on vulcan", () => {
+    const s = withReopen((s1) => {
+      s1.setRolePermission("developer", "Bash", 1, "legacy");   // wave1: developer→maya; wave2: maya→vulcan
+      s1.setRolePermission("maya", "Read", 1, "canonical");      // wave2: maya→vulcan
+    });
+    expect(s.listRolePermissions("developer")).toEqual([]);
+    expect(s.listRolePermissions("maya")).toEqual([]);
+    const vulcan = s.listRolePermissions("vulcan");
+    expect(vulcan.map((r) => r.tool)).toContain("Bash");
+    expect(vulcan.map((r) => r.tool)).toContain("Read");
     s.close();
   });
 });

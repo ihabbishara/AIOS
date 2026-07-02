@@ -6,17 +6,17 @@ needsProjectDir: true
 stages:
   - type: single
     id: research
-    role: ziad
+    role: odin
     brief: Read and map the repository in the working directory. Summarize structure and stack.
   - type: loop
     id: assessment
-    producer: kai
-    critic: yara
+    producer: athena
+    critic: minos
     maxRounds: 2
     brief: >-
       Produce an architecture + quality assessment of the repository: strengths, risks,
       tech-debt, concrete recommendations. The reviewer checks accuracy and completeness.
   - type: single
     id: code-review
-    role: nadia
+    role: themis
     brief: Deep-review the most important modules (read-only) and list issues with file:line.

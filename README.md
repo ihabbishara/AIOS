@@ -1,39 +1,39 @@
 # AI-OS
 
 A local, always-on multi-agent system built on the Claude Agent SDK. You chat with
-**Rami, your Chief of Staff**, from Telegram, Slack, or a local terminal; he delegates work
-to a team of named specialists (Kai the architect, Maya the engineer, Yara the reviewer,
-Tarek in QA, Ziad the researcher, and more) through deterministic **playbooks**, and
+**Hermes, your Chief of Staff**, from Telegram, Slack, or a local terminal; he delegates work
+to a team of named specialists (Athena the architect, Vulcan the engineer, Minos the reviewer,
+Argus in QA, Odin the researcher, and more) through deterministic **playbooks**, and
 persists everything to an Obsidian vault.
 
 - **Runs on your Claude subscription** — no API key, no per-token billing.
 - **No public ports** — Telegram long-polling and Slack Socket Mode are outbound-only.
-- **Resumable** — jobs survive daemon restarts; Rami remembers conversations.
+- **Resumable** — jobs survive daemon restarts; Hermes remembers conversations.
 
 ## The Staff
 
 15 named agents in 6 departments, loaded from YAML manifests in `agents/`:
 
-| Dept | Name | Title |
-|---|---|---|
-| Operations | **Rami** | Chief of Staff |
-| Engineering | **Kai** | Architect / Eng Lead |
-| Engineering | **Maya** | Senior Engineer |
-| Engineering | **Tarek** | QA Engineer |
-| Engineering | **Nadia** | Code Reviewer |
-| Engineering | **Omar** | DevOps |
-| Engineering | **Ziad** | Eng Researcher |
-| Research | **Lina** | Analyst / Librarian |
-| Research | **Sami** | Market Researcher |
-| Research | **Dalia** | UI/UX Designer |
-| Research | **Yara** | Research Reviewer |
-| Finance | **Faris** | CFO (private) |
-| Finance | **Salim** | Bookkeeper (group) |
-| Life | **Jasmine** | Personal Ops |
-| Clients | **Halalo** | Halalo Project Agent |
+| Dept | Name | Title | Legacy alias |
+|---|---|---|---|
+| Operations | **Hermes** | Chief of Staff | rami, moderator |
+| Engineering | **Athena** | Architect / Eng Lead | architect, kai |
+| Engineering | **Vulcan** | Senior Engineer | developer, maya |
+| Engineering | **Argus** | QA Engineer | tester, tarek |
+| Engineering | **Themis** | Code Reviewer | code-reviewer, nadia |
+| Engineering | **Atlas** | DevOps | devops, omar |
+| Engineering | **Odin** | Eng Researcher | researcher, ziad |
+| Research | **Clio** | Analyst / Librarian | analyst, lina |
+| Research | **Janus** | Market Researcher | market-researcher, sami |
+| Research | **Venus** | UI/UX Designer | ui-ux-designer, dalia |
+| Research | **Minos** | Research Reviewer | reviewer, yara |
+| Finance | **Midas** | CFO (private) | cfo, faris |
+| Finance | **Juno** | Bookkeeper (group) | finance, salim |
+| Life | **Jasmine** | Personal Ops | jasmine |
+| Clients | **Halalo** | Halalo Project Agent | halalo |
 
-Aliases: `@developer` → Maya, `@cfo` → Faris, `@finance` → Salim.
-Private agents (Faris, Jasmine) refuse requests from group/shared chats.
+Aliases: `@developer` → Vulcan, `@cfo` → Midas, `@finance` → Juno (old arabic names also still work).
+Private agents (Midas, Jasmine) refuse requests from group/shared chats.
 
 ## Architecture
 

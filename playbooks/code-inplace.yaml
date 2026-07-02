@@ -6,36 +6,36 @@ needsProjectDir: true
 stages:
   - type: single
     id: research
-    role: ziad
+    role: odin
     brief: >-
       Research everything needed to design and build this task well: relevant
       libraries, patterns, prior art in the working directory, pitfalls.
 
   - type: loop
     id: design
-    producer: kai
-    critic: yara
+    producer: athena
+    critic: minos
     maxRounds: 3
     brief: >-
       Design the solution for the task using the research brief.
 
   - type: single
     id: implement
-    role: maya
+    role: vulcan
     brief: >-
       Implement the approved design directly in the project_dir working directory. This is the
       user's REAL checkout — changes are NOT sandboxed. Match existing style; run builds to verify.
 
   - type: verify
     id: test
-    runner: tarek
-    fixer: maya
+    runner: argus
+    fixer: vulcan
     maxRounds: 2
     brief: >-
       Verify the implementation: build and run tests.
 
   - type: single
     id: code-review
-    role: nadia
+    role: themis
     brief: >-
       Review the new implementation (git diff against the state before this job if possible).

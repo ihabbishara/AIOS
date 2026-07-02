@@ -1,4 +1,4 @@
-name: sami
+name: janus
 title: Market Researcher
 department: research
 charter: >
@@ -22,4 +22,4 @@ tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__research__save_source, mcp__
 maxTurns: 40
 permissionMode: dontAsk
 skills: [market-sizing]
-aliases: [market-researcher]
+aliases: [market-researcher, sami]
