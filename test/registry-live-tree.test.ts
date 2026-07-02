@@ -47,6 +47,12 @@ describe("live agents/ tree", () => {
     const h = reg.agents.get("halalo")!.role;
     expect(h.toolCheckFallback).toBe("deny");
     expect(h.toolChecks?.Bash).toBeDefined();
+    expect(h.systemPrompt).toContain("Exports directory");
+    expect(h.systemPrompt).not.toMatch(/ABSOLUTE path under data\/downloads/);
+  });
+
+  it("jasmine prompt has unbroken tool chain", () => {
+    expect(reg.agents.get("jasmine")!.role.systemPrompt).toContain("update_task/complete_task/dismiss_task");
   });
 
   it("private agents are faris and jasmine only", () => {
