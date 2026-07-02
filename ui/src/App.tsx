@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, setToken, getToken } from "./api.js";
 import { useEvents, usePoll } from "./hooks.js";
 import { Board } from "./views/Board.js";
-import { Agents } from "./views/Agents.js";
+import { Org } from "./views/Org.js";
 import { Chat } from "./views/Chat.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
@@ -12,14 +12,15 @@ import { Trust } from "./views/Trust.js";
 import { Permissions } from "./views/Permissions.js";
 import { Packs } from "./views/Packs.js";
 
-const TABS = ["board", "approvals", "trust", "permissions", "agents", "packs", "chat", "config", "costs"] as const;
+const TABS = ["org", "chat", "routing", "board", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("board");
+  const [tab, setTab] = useState<Tab>("org");
   const [chatTarget, setChatTarget] = useState("hermes");
   const { events, connected } = useEvents();
   const { data: state, error, reload } = usePoll(() => api.state(), []);
+  const openChat = (name: string) => { setChatTarget(name); setTab("chat"); };
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;
 
@@ -77,12 +78,13 @@ export function App() {
         {/* Main view */}
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
+          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} /></div>
+          <div className={tab === "routing" ? "" : "hidden"}><div className="text-dim text-[11px]">routing trail lands in the next commit</div></div>
           <div className={tab === "board" ? "h-full" : "hidden"}><Board events={events} /></div>
           <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
           <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
           <div className={tab === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
-          <div className={tab === "agents" ? "" : "hidden"}><Agents state={state} events={events} /></div>
-          <div className={tab === "packs" ? "" : "hidden"}><Packs events={events} /></div>
+          <div className={tab === "departments" ? "" : "hidden"}><Packs events={events} /></div>
           <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
           <div className={tab === "config" ? "h-full" : "hidden"}><Config /></div>
           <div className={tab === "costs" ? "" : "hidden"}><Costs events={events} /></div>
