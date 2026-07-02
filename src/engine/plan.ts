@@ -1,7 +1,11 @@
 // src/engine/plan.ts — graph validation (fail-closed) + lead planner (Task 7).
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { isPrivateOrigin } from "../agents/direct.js";
-import type { GraphNodeSpec } from "./compile.js";
+import { toNewTaskNodes, type GraphNodeSpec } from "./compile.js";
+import { resolve } from "node:path";
+import type { Store } from "../store/db.js";
+import type { SpecialistRunFn } from "../agents/runner.js";
+import type { ResolvedPack } from "../packs/resolve.js";
 
 export const MAX_NODES = 12;
 const KEY_RE = /^[a-z][a-z0-9-]*$/;
@@ -72,4 +76,205 @@ export function validateGraph(nodes: GraphNodeSpec[], ctx: ValidateCtx): Validat
     for (const n of nodes) if (n.deps.includes(next.key)) indegree.set(n.key, indegree.get(n.key)! - 1);
   }
   return { ok: true, order };
+}
+
+export const GRAPH_SCHEMA = {
+  type: "object",
+  required: ["summary", "needsWorkspace", "nodes"],
+  additionalProperties: false,
+  properties: {
+    summary: { type: "string" },
+    needsWorkspace: { enum: ["greenfield", "worktree", "analyze", "none"] },
+    projectDir: { type: "string" },
+    nodes: {
+      type: "array", minItems: 1, maxItems: 12,
+      items: {
+        type: "object",
+        required: ["key", "type", "agent", "brief", "deps"],
+        additionalProperties: false,
+        properties: {
+          key: { type: "string" },
+          type: { enum: ["run", "loop", "verify"] },
+          agent: { type: "string" },
+          critic: { type: "string" },
+          brief: { type: "string" },
+          deps: { type: "array", items: { type: "string" } },
+          maxRounds: { type: "integer", minimum: 1, maximum: 5 },
+        },
+      },
+    },
+  },
+} as const;
+
+export const PATCH_SCHEMA = {
+  type: "object",
+  required: ["ops"],
+  additionalProperties: false,
+  properties: {
+    ops: {
+      type: "array", minItems: 1, maxItems: 6,
+      items: {
+        type: "object",
+        required: ["op"],
+        additionalProperties: true,
+        properties: { op: { enum: ["replace", "add", "abandon"] } },
+      },
+    },
+  },
+} as const;
+
+export function renderPlanPreview(title: string, summary: string, nodes: GraphNodeSpec[]): string {
+  const lines = nodes.map((n) => {
+    const pair = n.critic ? `${n.agent} ⇄ ${n.critic}` : n.agent;
+    const after = n.deps.length ? ` — after: ${n.deps.join(", ")}` : "";
+    return `- ${n.key} (${n.type}) — ${pair}${after}`;
+  });
+  return `📋 Plan for "${title}" — ${summary}\n${lines.join("\n")}\nStarting now. /pause or /abandon <goal> anytime.`;
+}
+
+interface RawPlan {
+  summary: string;
+  needsWorkspace: "greenfield" | "worktree" | "analyze" | "none";
+  projectDir?: string;
+  nodes: Array<{ key: string; type: "run" | "loop" | "verify"; agent: string; critic?: string; brief: string; deps: string[]; maxRounds?: number }>;
+}
+
+function rosterBlock(registry: LoadedRegistry, department: string): string {
+  return [...registry.agents.values()]
+    .filter((a) => a.department === department)
+    .map((a) => {
+      const schema = a.manifest.outputSchema ? ` [outputSchema: ${a.manifest.outputSchema}]` : "";
+      return `- ${a.manifest.name} — ${a.manifest.title} — ${a.manifest.charter.trim().split(/(?<=\.)\s/)[0]}${schema}`;
+    })
+    .join("\n");
+}
+
+function planningBrief(dept: string, title: string, request: string, roster: string, retryError?: string): string {
+  return [
+    `You are the ${dept} department lead. Decompose the goal below into a task graph for YOUR department's agents.`,
+    `# Goal: ${title}\n${request}`,
+    `# Your agents\n${roster}`,
+    `# Node types
+- run: one agent, one brief, one artifact.
+- loop: producer + critic rounds; the critic MUST be an agent tagged [outputSchema: verdict].
+- verify: runner + fixer rounds; the runner MUST be an agent tagged [outputSchema: test-report]; put the fixer in "critic".
+# Rules
+- 1-12 nodes. Keys: lowercase-kebab. "deps" lists node keys that must finish first; independent nodes run in parallel.
+- Only agents from the roster above.
+- Each brief must stand alone: the agent sees the goal request + prior artifacts of its deps, nothing else.
+- needsWorkspace: "worktree" (edit an existing repo safely) | "analyze" (read-only repo) | "greenfield" (new scratch dir) | "none". projectDir required for worktree/analyze.`,
+    retryError ? `# Your previous plan was INVALID — fix this and return a corrected plan\n${retryError}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+export interface PlannerDeps {
+  registry: LoadedRegistry;
+  store: Store;
+  run: SpecialistRunFn;
+  resolveDeptFor: (key: string, origin: { channel: string; chatId: string }, byAgent?: boolean) => ResolvedPack | undefined;
+  primaryChat?: { channel: string; chatId: string };
+  projectsRoot: string;
+  model?: string;
+  postPreview: (origin: { channel: string; chatId: string }, text: string) => Promise<void>;
+  log?: (l: string) => void;
+}
+
+export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
+  const runLead = async (lead: string, brief: string, origin: { channel: string; chatId: string }, schema: Record<string, unknown>) =>
+    deps.run(lead, brief, {
+      cwd: deps.projectsRoot, model: deps.model,
+      pack: deps.resolveDeptFor(lead, origin, true),
+      outputSchema: schema,
+    });
+
+  const validateOrExplain = (nodes: RawPlan["nodes"], department: string, origin: { channel: string; chatId: string }) => {
+    const specs: GraphNodeSpec[] = nodes.map((n) => ({
+      key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds,
+    }));
+    const v = validateGraph(specs, { registry: deps.registry, department, origin, primaryChat: deps.primaryChat });
+    return { specs, v };
+  };
+
+  return {
+    async plan(engine, params) {
+      const dept = deps.registry.departments.get(params.department);
+      if (!dept?.lead) throw new Error(`unknown department or no lead: "${params.department}" — use hand_off or run_playbook instead`);
+      const origin = { channel: params.channel, chatId: params.chatId };
+      const roster = rosterBlock(deps.registry, params.department);
+
+      let raw: RawPlan | undefined;
+      let error = "";
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined), origin, GRAPH_SCHEMA);
+        const candidate = res.structured as RawPlan | undefined;
+        if (!candidate?.nodes) { error = "no structured plan returned"; continue; }
+        const { v } = validateOrExplain(candidate.nodes, params.department, origin);
+        if (v.ok) { raw = candidate; break; }
+        error = v.error;
+      }
+      if (!raw) throw new Error(`planning failed: ${error}`);
+
+      const { specs } = validateOrExplain(raw.nodes, params.department, origin);
+      let projectDir: string | undefined;
+      if (raw.needsWorkspace === "worktree" || raw.needsWorkspace === "analyze") {
+        if (!raw.projectDir || !resolve(raw.projectDir).startsWith(resolve(deps.projectsRoot))) {
+          throw new Error(`planning failed: needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`);
+        }
+        projectDir = resolve(raw.projectDir);
+      }
+      await deps.postPreview(origin, renderPlanPreview(params.title, raw.summary, specs));
+      return engine.startPlannedGoal({
+        title: params.title, request: params.request, department: params.department, lead: dept.lead,
+        origin, summary: raw.summary, nodes: toNewTaskNodes(specs), projectDir, needsWorkspace: raw.needsWorkspace,
+      });
+    },
+
+    async replan(goal, failed, errorMsg) {
+      const origin = { channel: goal.origin_channel, chatId: goal.origin_chat_id };
+      const nodes = deps.store.listNodes(goal.id);
+      const state = nodes.map((n) => ({
+        key: n.node_key, type: n.type, agent: n.agent, critic: n.critic ?? undefined,
+        status: n.status, deps: JSON.parse(n.depends_on) as string[], error: n.error ?? undefined,
+      }));
+      const roster = rosterBlock(deps.registry, goal.department);
+      const brief = [
+        `You are the ${goal.department} lead. A node in your plan failed — patch the plan.`,
+        `# Goal: ${goal.title}\n${goal.request}`,
+        `# Current graph\n${JSON.stringify(state, null, 2)}`,
+        `# Failed node: ${failed.node_key}\n${errorMsg}`,
+        `# Your agents\n${roster}`,
+        `# Patch ops (return {"ops":[...]})
+- {"op":"replace","key":"<node_key>","node":{key,type,agent,critic?,brief,deps,maxRounds?}} — swap the failed node (key may stay the same).
+- {"op":"add","nodes":[{...}]} — add new nodes (done nodes are immutable).
+- {"op":"abandon","reason":"..."} — when the goal cannot be salvaged.
+Same rules as planning: roster agents only, verdict/test-report critics, ≤12 total nodes, no cycles.`,
+      ].join("\n\n");
+
+      const res = await runLead(goal.lead, brief, origin, PATCH_SCHEMA);
+      const patch = res.structured as { ops: Array<Record<string, unknown>> } | undefined;
+      if (!patch?.ops?.length) throw new Error("lead returned no patch ops");
+
+      // Build the would-be graph, validate whole, then persist.
+      type RawNode = RawPlan["nodes"][number];
+      const current = new Map(state.map((s) => [s.key, { key: s.key, type: s.type, agent: s.agent, critic: s.critic, brief: nodes.find((n) => n.node_key === s.key)!.brief, deps: s.deps } as RawNode]));
+      const replaces: RawNode[] = [];
+      const adds: RawNode[] = [];
+      for (const op of patch.ops) {
+        if (op.op === "abandon") throw new Error(`lead recommends abandoning: ${String(op.reason ?? "no reason")}`);
+        if (op.op === "replace") { const n = op.node as RawNode; current.set(String(op.key), n); replaces.push(n); }
+        if (op.op === "add") { for (const n of (op.nodes as RawNode[]) ?? []) { current.set(n.key, n); adds.push(n); } }
+      }
+      const { v, specs } = validateOrExplain([...current.values()], goal.department, origin);
+      if (!v.ok) throw new Error(`patch invalid: ${v.error}`);
+      void specs;
+
+      for (const n of replaces) {
+        deps.store.replaceNode(goal.id, n.key, toNewTaskNodes([{ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds }])[0]);
+      }
+      if (adds.length) {
+        deps.store.insertNodes(goal.id, toNewTaskNodes(adds.map((n) => ({ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds }))));
+      }
+      await deps.postPreview(origin, `♻️ Re-planned "${goal.title}" after ${failed.node_key} failed:\n${renderPlanPreview(goal.title, "patched plan", [...current.values()].map((n) => ({ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps })))}`);
+    },
+  };
 }

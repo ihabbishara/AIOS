@@ -103,6 +103,8 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** When set, the owning pack's context (persona+memo), tool allowlist, and scoped MCP server. */
   pack?: ResolvedPack;
+  /** Structured-output schema for roles without their own (role schema always wins). */
+  outputSchema?: Record<string, unknown>;
 }
 
 export type SpecialistRunFn = (
@@ -148,8 +150,8 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
           additionalDirectories: opts.additionalDirectories,
           persistSession: false,
           abortController: abort,
-          ...(role.outputSchema
-            ? { outputFormat: { type: "json_schema" as const, schema: role.outputSchema } }
+          ...((role.outputSchema ?? opts.outputSchema)
+            ? { outputFormat: { type: "json_schema" as const, schema: (role.outputSchema ?? opts.outputSchema) as Record<string, unknown> } }
             : {}),
         },
       });
