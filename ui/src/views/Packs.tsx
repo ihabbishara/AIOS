@@ -14,7 +14,7 @@ export function Packs({ events }: { events: StoredEvent[] }) {
     <div className="flex flex-col gap-4 overflow-auto h-full min-h-0 pr-1">
       {(packs ?? []).map((p, i) => <PackCard key={p.pillar} pack={p} i={i} />)}
       {packs && packs.length === 0 && (
-        <div className="border border-dashed border-line text-dim text-[11px] p-4 text-center">no packs bound</div>
+        <div className="border border-dashed border-line text-dim text-[11px] p-4 text-center">no departments loaded</div>
       )}
     </div>
   );
