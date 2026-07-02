@@ -143,6 +143,9 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
     try {
       const merged = specialistOptions(role, canonical, opts, deps.store);
       const observed = withDenialObserver(merged, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
+      // Structured output arrives via the SDK's StructuredOutput tool — a clamped allowlist
+      // that omits it silently yields structured: undefined (observed live: planner + critics).
+      const schema = role.outputSchema ?? opts.outputSchema;
       const q = query({
         prompt: brief,
         options: {
@@ -150,8 +153,11 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
           additionalDirectories: opts.additionalDirectories,
           persistSession: false,
           abortController: abort,
-          ...((role.outputSchema ?? opts.outputSchema)
-            ? { outputFormat: { type: "json_schema" as const, schema: (role.outputSchema ?? opts.outputSchema) as Record<string, unknown> } }
+          ...(schema
+            ? {
+                outputFormat: { type: "json_schema" as const, schema: schema as Record<string, unknown> },
+                allowedTools: [...new Set([...(observed.allowedTools ?? []), "StructuredOutput"])],
+              }
             : {}),
         },
       });
