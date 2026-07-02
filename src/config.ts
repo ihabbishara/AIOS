@@ -18,6 +18,9 @@ export interface Config {
   slackBotToken?: string;
   slackAppToken?: string;
   maxConcurrentJobs: number;
+  maxConcurrentNodes: number;
+  /** Daily global spend cap in dollars; undefined = unlimited. */
+  dailyBudgetUsd?: number;
   jobWallTimeMs: number;
   moderatorModel?: string;
   specialistModel?: string;
@@ -183,6 +186,8 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     slackBotToken: process.env.SLACK_BOT_TOKEN,
     slackAppToken: process.env.SLACK_APP_TOKEN,
     maxConcurrentJobs: Number(process.env.AIOS_MAX_CONCURRENT_JOBS ?? 1),
+    maxConcurrentNodes: Number(env.AIOS_MAX_CONCURRENT_NODES ?? 2),
+    dailyBudgetUsd: env.AIOS_DAILY_BUDGET_USD ? Number(env.AIOS_DAILY_BUDGET_USD) : undefined,
     jobWallTimeMs: Number(process.env.AIOS_JOB_WALL_TIME_MS ?? 2 * 60 * 60 * 1000),
     moderatorModel: process.env.AIOS_MODERATOR_MODEL,
     specialistModel: process.env.AIOS_SPECIALIST_MODEL,
