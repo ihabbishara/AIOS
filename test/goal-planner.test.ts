@@ -102,3 +102,29 @@ describe("lead planner", () => {
     expect(out).toContain("build (loop) — vulcan ⇄ minos-eng — after: research");
   });
 });
+
+describe("replan guards (review fixes)", () => {
+  it("a patch replacing a DONE node is rejected — done nodes are immutable", async () => {
+    const { engine, store } = harness([GOOD_PLAN]);
+    const g = await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+    // Build a planner whose lead returns a replace-done patch, then call replan directly.
+    const { makePlanner } = await import("../src/engine/plan.js");
+    const planner = makePlanner({
+      registry: (engine as unknown as { deps: { registry: import("../src/agents/registry/loader.js").LoadedRegistry } }).deps.registry,
+      store,
+      run: async () => ({
+        text: "patch",
+        structured: { ops: [{ op: "replace", key: "research", node: { key: "research", type: "run", agent: "odin", brief: "redo", deps: [] } }] },
+        costUsd: 0, numTurns: 1,
+      }),
+      resolveDeptFor: () => undefined,
+      primaryChat: { channel: "telegram", chatId: "1" },
+      projectsRoot: "/tmp/projects",
+      postPreview: async () => {},
+    });
+    const failed = store.listNodes(g.id)[1];
+    await expect(planner.replan(store.getGoal(g.id)!, failed, "boom"))
+      .rejects.toThrow(/done nodes are immutable/);
+  });
+});

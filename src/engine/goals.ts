@@ -347,7 +347,9 @@ export class GoalEngine {
     for (const goal of this.deps.store.unfinishedGoals()) {
       if (goal.status !== "running") continue;
       const nodes = this.deps.store.listNodes(goal.id);
-      if (Date.now() > new Date(goal.created_at).getTime() + this.deps.wallTimeMs) {
+      // Wall-time counts from the last goal-level transition (updated_at), not created_at —
+      // a budget-paused goal resumed next morning gets a fresh window instead of instant failure.
+      if (Date.now() > new Date(goal.updated_at).getTime() + this.deps.wallTimeMs) {
         this.setGoalStatus(goal.id, "failed", "Goal wall-time budget exceeded");
         this.deps.store.skipUnfinishedNodes(goal.id);
         void this.complete(goal, false, "Goal wall-time budget exceeded");
@@ -370,6 +372,18 @@ export class GoalEngine {
       if (fresh.every((n) => n.status === "done")) {
         this.setGoalStatus(goal.id, "done");
         void this.complete(this.deps.store.getGoal(goal.id)!, true);
+        continue;
+      }
+      // Deadlock guard: still "running", nothing in flight, nothing schedulable → some
+      // unfinished node depends (transitively) on a failed/skipped node. Fail loudly
+      // instead of sitting "running" forever (a bad re-plan patch can produce this).
+      const stillRunning = this.deps.store.getGoal(goal.id)?.status === "running";
+      const anyActive = fresh.some((n) => n.status === "running" || n.status === "ready");
+      if (stillRunning && !anyActive && fresh.some((n) => n.status === "pending")) {
+        const msg = "stuck: unfinished nodes depend on failed/skipped nodes";
+        this.setGoalStatus(goal.id, "failed", msg);
+        this.deps.store.skipUnfinishedNodes(goal.id);
+        void this.complete(this.deps.store.getGoal(goal.id)!, false, msg);
       }
     }
   }

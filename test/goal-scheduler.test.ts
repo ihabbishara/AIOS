@@ -160,3 +160,32 @@ describe("GoalEngine scheduler", () => {
     await vi.waitFor(() => expect(store.getGoal("g9")!.status).toBe("done"));
   });
 });
+
+describe("GoalEngine guards (review fixes)", () => {
+  it("wall-time exceeded → goal failed, nodes skipped", async () => {
+    const { engine, store } = harness();
+    (engine as unknown as { deps: { wallTimeMs: number } }).deps.wallTimeMs = -1000;
+    const g = engine.createFromPlaybook({ playbook: "research-report", title: "R", request: "r", channel: "t", chatId: "1" });
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("failed"));
+    expect(store.getGoal(g.id)!.error).toMatch(/wall-time/i);
+  });
+
+  it("goal whose pending nodes depend on a failed node fails loudly instead of hanging", async () => {
+    const { engine, store, completions } = harness();
+    store.insertGoal({
+      id: "g8", slug: "stuck", title: "S", request: "s", department: "engineering",
+      lead: "athena", origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: "2026-07-03-stuck", plan_summary: "planned", replans_used: 2, error: null,
+    });
+    store.insertNodes("g8", [
+      { node_key: "a", type: "run", agent: "odin", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
+      { node_key: "b", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: ["a"], max_rounds: 1 },
+    ]);
+    store.updateNodeStatus("g8", "a", "failed", "boom");
+    engine.pump();
+    await vi.waitFor(() => expect(store.getGoal("g8")!.status).toBe("failed"));
+    expect(store.getGoal("g8")!.error).toMatch(/stuck/);
+    expect(store.listNodes("g8").find((n) => n.node_key === "b")!.status).toBe("skipped");
+    expect(completions).toEqual([{ ok: false }]);
+  });
+});

@@ -259,9 +259,13 @@ Same rules as planning: roster agents only, verdict/test-report critics, ≤12 t
       const current = new Map(state.map((s) => [s.key, { key: s.key, type: s.type, agent: s.agent, critic: s.critic, brief: nodes.find((n) => n.node_key === s.key)!.brief, deps: s.deps } as RawNode]));
       const replaces: RawNode[] = [];
       const adds: RawNode[] = [];
+      const doneKeys = new Set(nodes.filter((n) => n.status === "done").map((n) => n.node_key));
       for (const op of patch.ops) {
         if (op.op === "abandon") throw new Error(`lead recommends abandoning: ${String(op.reason ?? "no reason")}`);
-        if (op.op === "replace") { const n = op.node as RawNode; current.set(String(op.key), n); replaces.push(n); }
+        if (op.op === "replace") {
+          if (doneKeys.has(String(op.key))) throw new Error(`patch invalid: node "${String(op.key)}" is done — done nodes are immutable`);
+          const n = op.node as RawNode; current.set(String(op.key), n); replaces.push(n);
+        }
         if (op.op === "add") { for (const n of (op.nodes as RawNode[]) ?? []) { current.set(n.key, n); adds.push(n); } }
       }
       const { v, specs } = validateOrExplain([...current.values()], goal.department, origin);
