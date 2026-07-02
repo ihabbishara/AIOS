@@ -9,6 +9,31 @@ deterministic **playbooks**, and persists everything to an Obsidian vault.
 - **No public ports** — Telegram long-polling and Slack Socket Mode are outbound-only.
 - **Resumable** — jobs survive daemon restarts; the moderator remembers conversations.
 
+## The Staff
+
+15 named agents in 6 departments, loaded from YAML manifests in `agents/`:
+
+| Dept | Name | Title |
+|---|---|---|
+| Operations | **Rami** | Chief of Staff |
+| Engineering | **Kai** | Architect / Eng Lead |
+| Engineering | **Maya** | Senior Engineer |
+| Engineering | **Tarek** | QA Engineer |
+| Engineering | **Nadia** | Code Reviewer |
+| Engineering | **Omar** | DevOps |
+| Engineering | **Ziad** | Eng Researcher |
+| Research | **Lina** | Analyst / Librarian |
+| Research | **Sami** | Market Researcher |
+| Research | **Dalia** | UI/UX Designer |
+| Research | **Yara** | Research Reviewer |
+| Finance | **Faris** | CFO (private) |
+| Finance | **Salim** | Bookkeeper (group) |
+| Life | **Jasmine** | Personal Ops |
+| Clients | **Halalo** | Halalo Project Agent |
+
+Aliases: `@developer` → Maya, `@cfo` → Faris, `@finance` → Salim.
+Private agents (Faris, Jasmine) refuse requests from group/shared chats.
+
 ## Architecture
 
 ```

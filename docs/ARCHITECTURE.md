@@ -163,37 +163,91 @@ vault link to partial artifacts. Per-job wall-time budget (default 2h).
 
 ---
 
-## Specialist personas
+## Agent registry
 
-Each specialist is a **fresh SDK session per task** with its own system prompt, tool
-allowlist, permission mode, and turn cap. They don't share conversation state — context
-flows through the brief (task + prior artifacts) the engine builds.
+Every agent is a YAML manifest in `agents/<department>/`. `loadRegistry()` produces three maps:
 
-| | Persona | Tools | Permissions | Output |
-|---|---|---|---|---|
-| 🔎 **researcher** | Investigator. Surveys libraries, prior art, pitfalls, constraints. Cites sources. | Read, Grep, Glob, WebSearch, WebFetch | read-only (`dontAsk`) | `research.md` brief: Summary, Key findings, Recommended direction, Risks, Sources |
-| 📐 **architect** | Designer. Turns request + research into a complete technical design. Revises against every reviewer point or argues why not. | Read, Grep, Glob | read-only | design doc: Overview, Architecture, Components, Data flow, Interfaces, Error handling, Testing, Steps |
-| 🧐 **reviewer** | Demanding-but-fair critic. Judges completeness, correctness, simplicity (YAGNI), risks, testability. Approves "good enough to build", not perfect. | Read, Grep, Glob | read-only | structured verdict JSON: `approve`/`revise` + reasons |
-| 👷 **developer** | Builder. Implements the approved design, matches existing code style, verifies builds. Fixes test failures when handed them. | Read, Grep, Glob, Edit, Write, Bash, TodoWrite | write — confined to the job's project dir under `~/projects` | code + implementation summary |
-| 🧪 **tester** | Honest verifier. Discovers and runs the project's tests/build; writes smoke tests if none exist. "Never claim passing without output proving it." | Read, Grep, Glob, Edit, Write, Bash | write — same confinement | structured report JSON: `passed` + failures |
-| 🔬 **code-reviewer** | Audit. Reviews the diff; reports every issue with file:line + severity, coverage over confidence. Read-only by design. | Read, Grep, Glob, Bash | read-only | findings list + overall assessment |
-| 📊 **market-researcher** | Market analyst. Competitors, audience, pricing, TAM/SAM (assumptions stated), trends, gaps. Facts vs inference, every claim sourced. | Read, Grep, Glob, WebSearch, WebFetch | read-only | market report: Market, Competitors, Audience, Pricing, Trends, Opportunities, Sources |
-| 🎨 **ui-ux-designer** | Product designer. Personas, mermaid user flows, IA, ASCII wireframes, design tokens, component inventory, a11y notes. Anti-generic-AI aesthetics. | Read, Grep, Glob, WebSearch, WebFetch | read-only | implementable design brief |
-| 🕌 **halalo** | Halalo marketplace (CS-Cart) backend specialist. Repo expertise + live staging/production AWS inspection. Project CLAUDE.md injected at runtime. | Read/Grep/Glob (repo-confined), Bash (gated), Web | **deterministic read-only gate**: aws describe/get/list + SSM with read-only inner commands (mysql SELECT only); file reads confined to the repo; everything else denied in code | root-cause analyses with live evidence |
-| 🧠 **Moderator** | Your chief of staff. Discusses, refines, routes, reports. Phone-readable replies, outcome first. Never pretends a job finished. | vault + job tools, Read, Grep, Glob, WebSearch, WebFetch | read-only + job control | chat |
+- **`agentOf: Map<name|alias, canonical-name>`** — resolves any name or alias to the canonical agent name. `@developer` → `maya`, `@cfo` → `faris`, `@finance` → `salim`.
+- **`agents: Map<name, AgentDef>`** — each entry holds the raw manifest and a compiled `RoleDef` (persona + prompt merged into `systemPrompt`, tools, permission mode, visibility flag).
+- **`ownerOfPlaybook: Map<playbook, department>`** — which department's tool set a playbook stage runs under.
 
-Personas live in `src/agents/roles/index.ts`; the Moderator's in `src/moderator/prompt.ts`.
+Department manifests (`agents/<dept>/department.yaml`) evolved from the old `pack.yaml`: they carry the department name, memo domain, vault section, `toolServers` list (money | research | lifeops | ledger), and the playbook names owned by the department. The tool resolution pipeline (`packRunOptions → withEffectiveTools`) reads department manifests instead of pack manifests.
+
+```
+agents/
+  operations/   department.yaml  rami.yaml
+  engineering/  department.yaml  kai.yaml maya.yaml tarek.yaml nadia.yaml omar.yaml ziad.yaml
+  research/     department.yaml  lina.yaml sami.yaml dalia.yaml yara.yaml
+  finance/      department.yaml  faris.yaml salim.yaml
+  life/         department.yaml  jasmine.yaml
+  clients/      department.yaml  halalo.yaml
+```
+
+**Kill-switches:** `AIOS_<DEPT>_DISABLED=1` drops a department and all its agents and playbooks at load. Legacy env names map forward: `AIOS_CODE_DISABLED` → engineering, `AIOS_MONEY_DISABLED` → finance, `AIOS_RESEARCH_DISABLED` → research, `AIOS_LIFEOPS_DISABLED` → life.
+
+**Per-agent MCP ownership:** each department manifest declares which tool server it owns. The resolver clamps agents to their department's tool server so no agent can reach another department's data (e.g. salim gets `ledger` tools; faris gets `money` tools).
+
+---
+
+## The staff
+
+All 15 named agents, compiled from their manifests at load:
+
+| Dept | Name | Title |
+|---|---|---|
+| Operations | Rami | Chief of Staff |
+| Engineering | Kai | Architect / Eng Lead |
+| Engineering | Maya | Senior Engineer |
+| Engineering | Tarek | QA Engineer |
+| Engineering | Nadia | Code Reviewer |
+| Engineering | Omar | DevOps |
+| Engineering | Ziad | Eng Researcher |
+| Research | Lina | Analyst / Librarian |
+| Research | Sami | Market Researcher |
+| Research | Dalia | UI/UX Designer |
+| Research | Yara | Research Reviewer |
+| Finance | Faris | CFO (private) |
+| Finance | Salim | Bookkeeper (group) |
+| Life | Jasmine | Personal Ops |
+| Clients | Halalo | Halalo Project Agent |
+
+`visibility: private` agents (faris, jasmine) are refused from any origin that is not the configured `AIOS_PRIMARY_CHAT` or the local web cockpit (`web:ui`). The check runs before any LLM call, fail-closed when the primary chat is unset.
+
+---
+
+## Routing
+
+`MessageRouter` is the single routing brain for every channel (Telegram, Slack, CLI, web). On every inbound message it emits a **`route.decision`** event before dispatching:
+
+```
+{ type: "route.decision", to, via: "mention"|"binding"|"default"|"verdict"|"reset", reason, channel, chatId }
+```
+
+Dispatch paths in priority order:
+
+1. **`/reset [@name]`** — clears the named agent's session (or the Chief of Staff session if no name). Emits `via: "reset"`.
+2. **`/approve|/reject <id>`** — gate verdict short-circuit. Emits `via: "verdict"` to `to: "gate"`.
+3. **Bound chat + `@mention`** — `chatBindings` maps a `channel:chatId` key to a list of agent names. A mention in a bound chat routes to that agent. Emits `via: "mention"`.
+4. **Bound chat, no mention** — routes to the first bound agent (unless `mentionOnly: true`). Emits `via: "binding"`.
+5. **Unbound `@name`** — `agentOf` lookup → `DirectChats.handle` → persistent direct session. Emits `via: "mention"`. Aliases resolve: `@developer` → maya.
+6. **Everything else** → Chief of Staff (rami). Emits `via: "default"` with `reason: "no mention — chief of staff"`.
+
+`route.decision` events are stored in SQLite and power the routing trail in Mission Control.
+
+### Direct sessions
+
+`DirectChats` manages persistent one-on-one sessions with named agents. Session keys are `direct-session:<canonical>:<channel>:<chatId>` — stored in SQLite, survive daemon restarts. Alias and canonical names share the same key after canonicalization in `resetSession`.
+
+### hand_off
+
+Rami (Chief of Staff) dispatches to any registry agent via the `hand_off(agent, task, context?)` tool. This replaces the old `ask_specialist` (which used a toolless clone). `hand_off` resolves the named agent through the full registry with its department tool set and runs one-shot, returning the result text. Unknown agent → error string, no crash.
 
 ### Talking to specialists
 
-Specialists are reachable three ways:
+Specialists are reachable two ways:
 
-1. **Pipeline stages** — the engine briefs them inside playbook jobs (fresh session per task).
-2. **Moderator consult** — the Moderator's `ask_specialist` tool runs a one-shot specialist
-   call inline and uses the answer in its reply.
-3. **Direct chat** — messages starting `@role ...` (or `role: ...`) bypass the Moderator;
-   each specialist keeps a persistent per-chat session (own memory, resumable across daemon
-   restarts), with its pipeline persona softened by a direct-chat addendum.
+1. **Pipeline stages** — the engine briefs them inside playbook jobs (fresh SDK session per task, full department tool set).
+2. **Direct chat** — messages starting `@name ...` (or `name: ...`) are routed by `MessageRouter` to `DirectChats.handle`; each agent keeps a persistent per-chat session (own memory, resumable across daemon restarts).
 
 ---
 
@@ -259,16 +313,29 @@ AIOS_SPECIALIST_MODEL=claude-sonnet-4-6
 
 ```
 src/
-  index.ts            daemon entry: channels + moderator + job manager wiring
-  config.ts           env + paths
-  channels/           types.ts · telegram.ts · slack.ts · cli.ts
-  moderator/          session.ts (persistent sessions) · tools.ts (SDK MCP tools) · prompt.ts
-  engine/             playbook.ts (YAML+zod) · executor.ts (stage machine) · jobs.ts (queue)
-  agents/             runner.ts (SDK session per task) · roles/index.ts (personas)
-  store/db.ts         SQLite (node:sqlite)
-  vault/writer.ts     markdown artifacts, daily log
-playbooks/            code-inplace · research-report · echo
-launchd/              com.ihab.aios.plist
-scripts/smoke.ts      one-shot end-to-end test
-test/                 executor + playbook unit tests
+  index.ts                daemon entry: channels + router + job manager wiring
+  config.ts               env + paths
+  channels/               types.ts · telegram.ts · slack.ts · cli.ts
+  router.ts               MessageRouter — single routing brain; emits route.decision
+  moderator/              session.ts (Rami's persistent session) · tools.ts · prompt.ts
+  engine/                 playbook.ts (YAML+zod) · executor.ts (stage machine) · jobs.ts (queue)
+  agents/
+    direct.ts             DirectChats — persistent per-agent sessions, privacy gate
+    registry/             loader.ts (loadRegistry) · types.ts (zod schemas) · extras.ts
+    roles/index.ts        legacy RoleDef constants (still referenced by older tests)
+    runner.ts             SDK session per task
+    guards/               halalo-readonly.ts · other deterministic tool gates
+  store/db.ts             SQLite (node:sqlite)
+  vault/writer.ts         markdown artifacts, daily log
+agents/                   YAML manifests — one subdir per department
+  operations/             department.yaml  rami.yaml
+  engineering/            department.yaml  kai.yaml maya.yaml tarek.yaml nadia.yaml omar.yaml ziad.yaml
+  research/               department.yaml  lina.yaml sami.yaml dalia.yaml yara.yaml
+  finance/                department.yaml  faris.yaml salim.yaml
+  life/                   department.yaml  jasmine.yaml
+  clients/                department.yaml  halalo.yaml
+playbooks/                code-inplace · research-report · echo (YAML stage definitions)
+launchd/                  com.ihab.aios.plist
+scripts/smoke.ts          one-shot end-to-end test
+test/                     unit + integration tests (vitest)
 ```

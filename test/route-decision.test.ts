@@ -11,6 +11,7 @@ function setup() {
   bus.on((e) => events.push(e));
 
   // Stub directChats: supports names(), canonical(), handle(), resetSession()
+  const resetCalls: Array<{ role: string; channel: string; chatId: string }> = [];
   const directChats = {
     names: () => ["maya", "developer", "rami"],
     canonical: (nameOrAlias: string) => {
@@ -23,7 +24,9 @@ function setup() {
     },
     handle: async (_role: string, _channel: string, _chatId: string, _text: string) =>
       ({ text: "direct-reply", attachments: [] }),
-    resetSession: (_role: string, _channel: string, _chatId: string) => {},
+    resetSession: (role: string, channel: string, chatId: string) => {
+      resetCalls.push({ role, channel, chatId });
+    },
   };
 
   const moderator = {
@@ -49,7 +52,7 @@ function setup() {
     bus,
   });
 
-  return { router, routerWithMentionOnlyBinding, events, bus };
+  return { router, routerWithMentionOnlyBinding, events, bus, resetCalls };
 }
 
 describe("route.decision", () => {
@@ -175,18 +178,68 @@ describe("route.decision", () => {
     expect(ev.via).toBe("mention");
   });
 
-  it("/reset @developer emits to canonical target", async () => {
-    const { router, events } = ctx;
+  it("/reset @developer emits to canonical target and calls resetSession", async () => {
+    const { router, events, resetCalls } = ctx;
     await router.handle({ channel: "cli", chatId: "c", text: "/reset @developer" });
+    // route.decision resolves the alias to canonical "maya"
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
     expect(ev.to).toBe("maya");
     expect(ev.via).toBe("reset");
+    // resetSession was called (with the alias — real DirectChats.resetSession canonicalizes internally)
+    expect(resetCalls).toHaveLength(1);
+    expect(resetCalls[0].role).toBe("developer");
   });
 
   it("/reset @nonexistent emits NO route.decision", async () => {
     const { router, events } = ctx;
     await router.handle({ channel: "cli", chatId: "c", text: "/reset @nonexistent" });
     expect(events.some((e) => e.event.type === "route.decision")).toBe(false);
+  });
+
+  it("@finance in bound group resolves to salim (canonical) and passes sender", async () => {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    const events: StoredEvent[] = [];
+    bus.on((e) => events.push(e));
+
+    let capturedRole: string | undefined;
+    let capturedSender: unknown;
+
+    const directChats = {
+      names: () => ["salim", "finance"],
+      canonical: (n: string) => n === "finance" ? "salim" : n === "salim" ? "salim" : undefined,
+      handle: async (role: string, _ch: string, _cid: string, _text: string, sender: unknown) => {
+        capturedRole = role;
+        capturedSender = sender;
+        return { text: "ledger reply", attachments: [] };
+      },
+      resetSession: () => {},
+    };
+
+    const chatBindings = new Map([
+      ["tg:group-42", { agents: ["finance"], mentionOnly: false }],
+    ]);
+
+    const router = new MessageRouter({
+      moderator: { handle: async () => "mod", resetSession: () => {} } as never,
+      directChats: directChats as never,
+      chatBindings,
+      bus,
+    });
+
+    const sender = { name: "Alice", username: "alice" };
+    await router.handle({ channel: "tg", chatId: "group-42", text: "@finance paid 40 for domain", sender });
+
+    // handle was called with alias "finance"; canonical("finance") === "salim"
+    expect(capturedRole).toBe("finance");
+    expect(directChats.canonical(capturedRole!)).toBe("salim");
+    // sender forwarded so salim can prepend [from: Alice (@alice)]
+    expect(capturedSender).toEqual(sender);
+
+    // route.decision emits the canonical name
+    const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
+    expect(ev.to).toBe("salim");
+    expect(ev.via).toBe("mention");
   });
 });
 
