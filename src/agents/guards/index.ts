@@ -20,6 +20,10 @@ export function guardOptions(
   const decide = (toolName: string, input: Record<string, unknown>) => {
     const check = checks[toolName];
     if (check) return check(input);
+    // StructuredOutput is the SDK's output channel for json_schema results, not a
+    // side-effect tool — a fallback-deny guard must never block it (it silently
+    // strips verdicts/plans: observed live with the goal planner).
+    if (toolName === "StructuredOutput") return { ok: true as const };
     // MCP tools (the role's own SDK tools) are governed by allowedTools.
     if (toolName.startsWith("mcp__")) return { ok: true as const };
     return fallback === "allow"
