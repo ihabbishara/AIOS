@@ -4,7 +4,7 @@ import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn } from "../agents/resumable.js";
 import { processAttachments } from "../attachments.js";
 import type { Store } from "../store/db.js";
-import type { JobManager } from "../engine/jobs.js";
+import type { GoalEngine } from "../engine/goals.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
@@ -14,7 +14,8 @@ import type { EventBus } from "../events.js";
 
 const MCP_TOOLS = [
   "mcp__aios__run_playbook",
-  "mcp__aios__job_status",
+  "mcp__aios__goal_status",
+  "mcp__aios__plan_goal",
   "mcp__aios__list_playbooks",
   "mcp__aios__hand_off",
   "mcp__aios__vault_write",
@@ -41,7 +42,7 @@ const STREAM_CLOSE_TIMEOUT_MS = 10 * 60 * 1000;
 export interface ModeratorDeps {
   store: Store;
   bus: EventBus;
-  jobs: JobManager;
+  goals: GoalEngine;
   vault: VaultWriter;
   /** Inline hand-off to a named agent (full tool set — parity with @mention).
    *  origin is the real per-turn origin — carried so the private-agent wall + ledger
@@ -103,7 +104,7 @@ export class Moderator {
     userText: string,
     attachments?: Array<{ path: string; fileName: string }>,
   ): Promise<string> {
-    const { store, jobs, vault, projectsRoot, registry } = this.deps;
+    const { store, goals, vault, projectsRoot, registry } = this.deps;
     this.origin = { channel, chatId };
 
     // Process attachments before the agent turn so vault copies exist even if
@@ -126,14 +127,16 @@ export class Moderator {
 
     // Prepend hermes's persona block (tolerate hermes absent — skip prefix).
     const hermesPersona = registry.agents.get("hermes")?.role.systemPrompt;
-    const basePrompt = moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault), roster);
+    const basePrompt = moderatorPrompt(goals.listPlaybooks(), projectsRoot, memoContext(store, vault), roster);
     const systemPrompt = hermesPersona ? `${hermesPersona}\n\n${basePrompt}` : basePrompt;
 
     // hermes is the chief of staff himself — never a hand_off target (would recurse).
     const agentNames = [...registry.agents.keys()].filter((n) => n !== "hermes");
 
     const server = buildModeratorServer({
-      jobs,
+      goals,
+      departments: [...registry.departments.keys()],
+      bus: this.deps.bus,
       store,
       vault,
       projectsRoot,

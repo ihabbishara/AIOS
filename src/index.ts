@@ -9,6 +9,11 @@ import { allocateWorkspace } from "./code/workspace.js";
 import { randomUUID } from "node:crypto";
 import { localParts } from "./heartbeat/clock.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
+import { GoalEngine, type GoalOutcome } from "./engine/goals.js";
+import { SpendGuard, attachBudgetLedger } from "./engine/budget.js";
+import { makePlanner } from "./engine/plan.js";
+import type { GoalRow } from "./store/db.js";
+import type { Playbook } from "./engine/playbook.js";
 import { makeRunSpecialist } from "./agents/runner.js";
 import { Moderator } from "./moderator/session.js";
 import { makeHandOff } from "./moderator/handoff.js";
@@ -221,6 +226,65 @@ async function main(): Promise<void> {
     resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
   });
 
+  const spendGuard = new SpendGuard({ store, capUsd: config.dailyBudgetUsd });
+  attachBudgetLedger(bus, store);
+
+  const onGoalComplete = async (outcome: GoalOutcome): Promise<void> => {
+    const { goal } = outcome;
+    const channel = channels.get(goal.origin_channel);
+    const notice = outcome.ok
+      ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.`
+      : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.`;
+    const report = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
+    await channel?.send(goal.origin_chat_id, report);
+    bus.emit({ type: "chat.out", channel: goal.origin_channel, chatId: goal.origin_chat_id, text: report.slice(0, 300) });
+  };
+
+  const prepareGoalSandbox = async (goal: GoalRow, _opts: { playbook?: Playbook }) => {
+    // Facade code goals keep today's engineering-only allocation; planned engineering
+    // goals get greenfield/worktree per project_dir presence (analyze read-only).
+    if (goal.department !== "engineering") return undefined;
+    const pbName = goal.plan_summary.startsWith("playbook:") ? goal.plan_summary.slice("playbook:".length) : undefined;
+    if (pbName === "code-inplace") return undefined; // inplace edits the real checkout — no sandbox
+    const mode: "build" | "analyze" = pbName === "code-analyze" ? "analyze" : "build";
+    const wsMode = mode === "analyze" ? "analyze" : (goal.project_dir ? "worktree" : "greenfield");
+    const { taskDir } = allocateWorkspace(
+      { mode: wsMode, source: goal.project_dir ?? undefined, slug: goal.slug },
+      { workspaceRoot: config.workspaceRoot, readRoots: config.codeReadRoots, now: localParts(new Date()).date, id: randomUUID().slice(0, 8) },
+    );
+    return { taskDir, mode };
+  };
+
+  const goals = new GoalEngine({
+    store, vault, run: runSpecialist, registry,
+    playbooks: registry.playbooks,
+    wallTimeMs: config.jobWallTimeMs,
+    maxConcurrentNodes: config.maxConcurrentNodes,
+    model: config.specialistModel,
+    spendGuard,
+    onComplete: onGoalComplete,
+    onEvent: (e) => bus.emit(e),
+    log,
+    resolveDeptFor,
+    prepareSandbox: prepareGoalSandbox,
+    planner: makePlanner({
+      registry, store, run: runSpecialist, resolveDeptFor,
+      primaryChat: config.primaryChat, projectsRoot: config.projectsRoot,
+      model: config.specialistModel,
+      postPreview: async (origin, text) => {
+        await channels.get(origin.channel)?.send(origin.chatId, text);
+        bus.emit({ type: "chat.out", channel: origin.channel, chatId: origin.chatId, text: text.slice(0, 300) });
+      },
+      log,
+    }),
+    primaryChat: config.primaryChat,
+    projectsRoot: config.projectsRoot,
+    workspaceRoot: config.workspaceRoot,
+    pingBudgetPaused: (text) => {
+      if (config.primaryChat) void channels.get(config.primaryChat.channel)?.send(config.primaryChat.chatId, text);
+    },
+  });
+
   const handOff = makeHandOff({
     registry,
     resolveDeptFor,
@@ -234,7 +298,7 @@ async function main(): Promise<void> {
   const moderator = new Moderator({
     store,
     bus,
-    jobs,
+    goals,
     vault,
     handOff,
     registry,
@@ -264,6 +328,7 @@ async function main(): Promise<void> {
     chatBindings: config.chatBindings,
     bus,
     gate,
+    goals,
   });
 
   const onMessage = async (msg: import("./channels/types.js").InboundMessage): Promise<void> => {

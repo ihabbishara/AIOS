@@ -16,7 +16,7 @@ import { buildModeratorServer } from "../src/moderator/tools.js";
 import { makeHandOff } from "../src/moderator/handoff.js";
 import type { ModeratorToolsDeps } from "../src/moderator/tools.js";
 import type { GoogleAccounts } from "../src/senses/google/auth.js";
-import type { JobManager } from "../src/engine/jobs.js";
+import type { GoalEngine } from "../src/engine/goals.js";
 
 // ---------------------------------------------------------------------------
 // Shared deps factories
@@ -116,7 +116,8 @@ describe("capability parity", () => {
 function buildServer(overrides: Partial<ModeratorToolsDeps> = {}) {
   const store = new Store(":memory:");
   const deps: ModeratorToolsDeps = {
-    jobs: null as unknown as JobManager,
+    goals: null as unknown as GoalEngine,
+    departments: [],
     store,
     vault: null as unknown as VaultWriter,
     projectsRoot: "/tmp",

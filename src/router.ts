@@ -14,6 +14,8 @@ export interface RouterDeps {
   chatBindings: Map<string, ChatBinding>;
   bus?: EventBus;
   gate?: ActionGate;
+  /** Goal lifecycle intercepts (/pause /resume /abandon). */
+  goals?: import("./engine/goals.js").GoalEngine;
 }
 
 /**
@@ -99,6 +101,19 @@ export class MessageRouter {
       } else {
         replyText = `Gate: no action gate configured`;
       }
+      bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
+      return textOnly(replyText);
+    }
+
+    // Goal lifecycle short-circuits: /pause <goal>, /resume <goal>, /abandon <goal>
+    const goalCmd = /^\/(pause|resume|abandon)\s+(\S+)\s*$/i.exec(msg.text.trim());
+    if (goalCmd && this.deps.goals) {
+      const [, verb, ref] = goalCmd;
+      const v = verb.toLowerCase();
+      const replyText =
+        v === "pause" ? this.deps.goals.pauseGoal(ref)
+        : v === "resume" ? this.deps.goals.resumeGoal(ref)
+        : this.deps.goals.abandonGoal(ref);
       bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
       return textOnly(replyText);
     }

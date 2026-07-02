@@ -1,7 +1,8 @@
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { resolve } from "node:path";
-import type { JobManager } from "../engine/jobs.js";
+import type { GoalEngine } from "../engine/goals.js";
+import type { EventBus } from "../events.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
@@ -47,7 +48,10 @@ export function teachingDomain(kind: "preference" | "fact" | "forget", domain?: 
 }
 
 export interface ModeratorToolsDeps {
-  jobs: JobManager;
+  goals: GoalEngine;
+  /** Department names from the registry — for the plan_goal tool description. */
+  departments: string[];
+  bus?: EventBus;
   store: Store;
   vault: VaultWriter;
   projectsRoot: string;
@@ -87,7 +91,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
           return text(`Refused: project_dir must be under ${deps.projectsRoot}`);
         }
       }
-      const job = deps.jobs.createJob({
+      const goal = deps.goals.createFromPlaybook({
         playbook: args.playbook,
         title: args.title,
         request: args.request,
@@ -95,7 +99,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
         channel: deps.origin.channel,
         chatId: deps.origin.chatId,
       });
-      return text(`Job started: ${job.id} (${job.slug}, playbook ${job.playbook}). You will be notified on completion.`);
+      return text(`Goal started: ${goal.id} (${goal.slug}, playbook ${args.playbook}). You will be notified on completion.`);
     },
   );
 
@@ -116,7 +120,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
         return text(`Refused: project_dir is required for mode "${mode}".`);
       }
       try {
-        const job = deps.jobs.createJob({
+        const goal = deps.goals.createFromPlaybook({
           playbook: plan.playbook,
           title: args.title,
           request: args.request,
@@ -125,24 +129,55 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
           chatId: deps.origin.chatId,
           inplace: plan.inplace,
         });
-        return text(`Job started: ${job.id} (${job.slug}, playbook ${job.playbook}). You will be notified on completion.`);
+        return text(`Goal started: ${goal.id} (${goal.slug}, playbook ${plan.playbook}). You will be notified on completion.`);
       } catch (err) {
         return text(`Refused: ${(err as Error).message}`);
       }
     },
   );
 
-  const jobStatus = tool(
-    "job_status",
-    "Get status of a job by id, or list recent jobs when no id given.",
-    { job_id: z.string().optional() },
+  const goalStatus = tool(
+    "goal_status",
+    "Get status of a goal by id or slug, or list recent goals when none given.",
+    { goal_id: z.string().optional() },
     async (args) => {
-      if (args.job_id) {
-        const job = deps.store.getJob(args.job_id);
-        return text(job ? JSON.stringify(job, null, 2) : `No job ${args.job_id}`);
+      if (args.goal_id) {
+        const g = deps.store.getGoal(args.goal_id) ?? deps.store.getGoalBySlug(args.goal_id);
+        if (!g) return text(`No goal ${args.goal_id}`);
+        const nodes = deps.store.listNodes(g.id)
+          .map((n) => `  ${n.node_key} [${n.status}] ${n.agent}${n.error ? ` — ${n.error}` : ""}`).join("\n");
+        return text(`${g.id} (${g.slug}) [${g.status}] ${g.title}\n${nodes}`);
       }
-      const jobs = deps.store.listJobs(10).map((j) => `${j.created_at} ${j.id} [${j.status}] ${j.title}`);
-      return text(jobs.join("\n") || "No jobs yet.");
+      const goals = deps.store.listGoals(10).map((g) => `${g.created_at} ${g.slug} [${g.status}] ${g.title}`);
+      return text(goals.join("\n") || "No goals yet.");
+    },
+  );
+
+  const planGoal = tool(
+    "plan_goal",
+    "Hand a department-sized goal to that department's lead. The lead decomposes it into a task graph " +
+      "(parallel where possible), posts the plan to the chat, and execution starts immediately. Use for goals " +
+      "that need multiple agents/steps; use hand_off for one-sitting tasks and code_task for code playbooks. " +
+      "Departments: " + deps.departments.join(", "),
+    {
+      department: z.string().describe("Owning department, e.g. engineering"),
+      title: z.string().describe("Short goal title"),
+      request: z.string().describe("Full goal description with all context the lead needs"),
+    },
+    async (args) => {
+      deps.bus?.emit({
+        type: "route.decision", to: args.department, via: "plan",
+        reason: `goal handed to ${args.department} lead`, channel: deps.origin.channel, chatId: deps.origin.chatId,
+      });
+      try {
+        const goal = await deps.goals.planGoal({
+          department: args.department, title: args.title, request: args.request,
+          channel: deps.origin.channel, chatId: deps.origin.chatId,
+        });
+        return text(`Goal started: ${goal.id} (${goal.slug}) — the ${args.department} lead planned it; plan posted to chat. You will be notified on completion.`);
+      } catch (err) {
+        return text(`Refused: ${(err as Error).message}`);
+      }
     },
   );
 
@@ -167,7 +202,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     {},
     async () => {
       const byPillar = new Map<string, string[]>();
-      for (const p of deps.jobs.listPlaybooks()) {
+      for (const p of deps.goals.listPlaybooks()) {
         const key = p.pillar ?? "general";
         const arr = byPillar.get(key) ?? [];
         arr.push(`${p.name}: ${p.description}`);
@@ -381,7 +416,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     name: "aios",
     version: "0.1.0",
     tools: [
-      runPlaybook, codeTask, jobStatus, listPlaybooks, handOff,
+      runPlaybook, codeTask, goalStatus, planGoal, listPlaybooks, handOff,
       vaultWrite, vaultRead, vaultList, proposeAction,
       addReminder, listReminders, cancelReminder, addTriageRule,
       listInboxTool, readEmailTool,
