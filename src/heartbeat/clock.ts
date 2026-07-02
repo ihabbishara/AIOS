@@ -13,6 +13,8 @@ export interface ClockDeps {
   anchors: AnchorConfig[];
   onAnchor: (name: "morning" | "evening" | "dream" | "speculate") => Promise<void>;
   onReminderDue: (reminder: ReminderRow) => void;
+  /** Invoked at the end of every tick — cheap periodic work (e.g. budget-paused goal resume). */
+  onTick?: () => void;
   log?: (line: string) => void;
   /** Injectable clock for tests. */
   nowFn?: () => Date;
@@ -76,6 +78,8 @@ export class Clock {
           this.deps.log?.(`reminder ${reminder.id} dispatch failed: ${(err as Error).message}`);
         }
       }
+
+      this.deps.onTick?.();
     } catch (err) {
       this.deps.log?.(`heartbeat tick error: ${(err as Error).message}`);
     }

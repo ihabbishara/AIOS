@@ -1,9 +1,22 @@
 // src/engine/goals.ts — the unified GoalEngine: node runner (this half) + scheduler (Task 6).
-import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
-import type { VaultWriter } from "../vault/writer.js";
+import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import type { Store, GoalRow, TaskNodeRow, GoalStatus, NodeStatus, NewTaskNode } from "../store/db.js";
+import { slugify, type VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { ResolvedPack } from "../packs/resolve.js";
 import type { AiosEvent } from "../events.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
+import type { Playbook } from "./playbook.js";
+import { compilePlaybook, toNewTaskNodes } from "./compile.js";
+import { isUnsandboxedWrite } from "./jobs.js";
+import { assertInplaceTarget, resolveReal } from "../code/paths.js";
+import type { SpendGuard } from "./budget.js";
+
+export interface Planner {
+  plan(engine: GoalEngine, params: { department: string; title: string; request: string; channel: string; chatId: string }): Promise<GoalRow>;
+  replan(goal: GoalRow, failed: TaskNodeRow, error: string): Promise<void>;
+}
 
 const ARTIFACT_CHAR_LIMIT = 12_000;
 
@@ -186,5 +199,292 @@ export async function runNode(goal: GoalRow, node: TaskNodeRow, deps: NodeRunDep
     if (err instanceof SessionLimitError) throw err;
     deps.log?.(`node ${node.node_key}: failed (${(err as Error).message}), retrying once`);
     await runOnce(goal, node, deps);
+  }
+}
+
+export interface GoalOutcome {
+  goal: GoalRow; ok: boolean; error?: string; goalDirName: string; artifactFiles: string[];
+}
+
+export interface GoalEngineDeps extends Omit<NodeRunDeps, "resolvePack"> {
+  registry: LoadedRegistry;
+  playbooks: Map<string, Playbook>;
+  wallTimeMs: number;
+  maxConcurrentNodes: number;
+  spendGuard: SpendGuard;
+  onComplete: (o: GoalOutcome) => Promise<void>;
+  resolveDeptFor: (key: string, origin: { channel: string; chatId: string }, byAgent?: boolean,
+                   sandbox?: { taskDir: string; mode: "build" | "analyze" }) => ResolvedPack | undefined;
+  prepareSandbox?: (goal: GoalRow, opts: { playbook?: Playbook }) => Promise<{ taskDir: string; mode: "build" | "analyze" } | undefined>;
+  planner?: Planner;
+  replanCap?: number;
+  primaryChat?: { channel: string; chatId: string };
+  projectsRoot?: string;
+  workspaceRoot?: string;
+  pingBudgetPaused?: (text: string) => void;
+}
+
+const FACADE_PREFIX = "playbook:";
+
+export class GoalEngine {
+  private runningNodes = 0;
+  private sandboxes = new Map<string, { taskDir: string; mode: "build" | "analyze" }>();
+
+  constructor(private deps: GoalEngineDeps) {}
+
+  listPlaybooks(): Array<{ name: string; description: string; pillar?: string }> {
+    return [...this.deps.playbooks.values()].map((p) => ({
+      name: p.name, description: p.description, pillar: this.deps.registry.ownerOfPlaybook.get(p.name),
+    }));
+  }
+
+  private emit(e: AiosEvent): void { this.deps.onEvent?.(e); }
+  private setGoalStatus(id: string, status: GoalStatus, error?: string): void {
+    this.deps.store.updateGoalStatus(id, status, error);
+    this.emit({ type: "goal.status", goalId: id, status, error });
+  }
+  private setNodeStatus(goal: GoalRow, key: string, status: NodeStatus, agent: string, error?: string): void {
+    this.deps.store.updateNodeStatus(goal.id, key, status, error);
+    this.emit({ type: "node.status", goalId: goal.id, nodeKey: key, status, agent, error });
+  }
+
+  createFromPlaybook(params: {
+    playbook: string; title: string; request: string; projectDir?: string;
+    channel: string; chatId: string; inplace?: boolean;
+  }): GoalRow {
+    const pb = this.deps.playbooks.get(params.playbook);
+    if (!pb) throw new Error(`Unknown playbook: ${params.playbook}. Available: ${[...this.deps.playbooks.keys()].join(", ")}`);
+    if (pb.needsProjectDir && !params.projectDir) throw new Error(`Playbook ${pb.name} needs a project directory (project_dir).`);
+    if (isUnsandboxedWrite(pb, this.deps.registry.ownerOfPlaybook, this.deps.registry)) {
+      if (!params.inplace) throw new Error(`Refused: "${pb.name}" is an unsandboxed in-place coding path; run it via the code_task tool (mode:inplace).`);
+      if (!params.projectDir) throw new Error("Refused: inplace requires a project_dir.");
+      if (!this.deps.projectsRoot || !this.deps.workspaceRoot) throw new Error("Refused: inplace is not configured (no projectsRoot/workspaceRoot).");
+      assertInplaceTarget(params.projectDir, {
+        selfRoot: resolveReal(process.cwd()),
+        workspaceRoot: this.deps.workspaceRoot,
+        projectsRoot: this.deps.projectsRoot,
+      });
+    }
+    const dept = this.deps.registry.ownerOfPlaybook.get(params.playbook) ?? "operations";
+    const lead = this.deps.registry.departments.get(dept)?.lead ?? "hermes";
+    const goal = this.insertGoal({
+      title: params.title, request: params.request, department: dept, lead,
+      origin: { channel: params.channel, chatId: params.chatId },
+      projectDir: params.projectDir, planSummary: `${FACADE_PREFIX}${params.playbook}`,
+    });
+    this.deps.store.insertNodes(goal.id, toNewTaskNodes(compilePlaybook(pb)));
+    void this.startGoal(goal, pb);
+    return goal;
+  }
+
+  private insertGoal(p: {
+    title: string; request: string; department: string; lead: string;
+    origin: { channel: string; chatId: string }; projectDir?: string; planSummary: string;
+  }): GoalRow {
+    const id = randomUUID();
+    const slug = slugify(p.title);
+    this.deps.store.insertGoal({
+      id, slug, title: p.title, request: p.request, department: p.department, lead: p.lead,
+      origin_channel: p.origin.channel, origin_chat_id: p.origin.chatId,
+      status: "running", project_dir: p.projectDir ?? null, goal_dir: null,
+      plan_summary: p.planSummary, replans_used: 0, error: null,
+    });
+    const goal = this.deps.store.getGoal(id)!;
+    this.emit({ type: "goal.created", goalId: id, title: p.title, department: p.department });
+    return goal;
+  }
+
+  /** Workspace + goal.md, then pump. Errors fail the goal (port of the prepareSandbox path). */
+  private async startGoal(goal: GoalRow, pb?: Playbook): Promise<void> {
+    const { store, vault } = this.deps;
+    const goalDirName = vault.goalDirName(goal.slug);
+    store.setGoalDir(goal.id, goalDirName);
+    goal.goal_dir = goalDirName;
+    vault.writeGoalArtifact(goalDirName, "goal.md",
+      `# ${goal.title}\n\n- department: ${goal.department}\n- lead: ${goal.lead}\n- status: running\n\n## Request\n\n${goal.request}\n\n## Plan\n\n${goal.plan_summary}`,
+      { goal: goal.id, department: goal.department });
+    try {
+      const sandbox = await this.deps.prepareSandbox?.(goal, { playbook: pb });
+      if (sandbox) {
+        store.setGoalProjectDir(goal.id, sandbox.taskDir);
+        goal.project_dir = sandbox.taskDir;
+        this.sandboxes.set(goal.id, sandbox);
+      }
+      if (goal.project_dir) mkdirSync(goal.project_dir, { recursive: true });
+    } catch (err) {
+      const msg = `workspace setup failed: ${(err as Error).message}`;
+      this.setGoalStatus(goal.id, "failed", msg);
+      store.skipUnfinishedNodes(goal.id);
+      await this.complete(goal, false, msg);
+      return;
+    }
+    this.pump();
+  }
+
+  /** Core scheduler. Synchronous scan; async node runs re-enter via .finally(). */
+  pump(): void {
+    if (this.runningNodes >= this.deps.maxConcurrentNodes) return;
+    for (const goal of this.deps.store.unfinishedGoals()) {
+      if (goal.status !== "running") continue;
+      const nodes = this.deps.store.listNodes(goal.id);
+      if (Date.now() > new Date(goal.created_at).getTime() + this.deps.wallTimeMs) {
+        this.setGoalStatus(goal.id, "failed", "Goal wall-time budget exceeded");
+        this.deps.store.skipUnfinishedNodes(goal.id);
+        void this.complete(goal, false, "Goal wall-time budget exceeded");
+        continue;
+      }
+      const done = new Set(nodes.filter((n) => n.status === "done").map((n) => n.node_key));
+      for (const n of nodes) {
+        if (n.status === "pending" && (JSON.parse(n.depends_on) as string[]).every((d) => done.has(d))) {
+          this.setNodeStatus(goal, n.node_key, "ready", n.agent);
+          n.status = "ready";
+        }
+      }
+      for (const n of nodes.filter((x) => x.status === "ready")) {
+        if (this.runningNodes >= this.deps.maxConcurrentNodes) return;
+        if (!this.deps.spendGuard.allow()) { this.pauseForBudget(goal); break; }
+        this.launch(goal, n);
+      }
+      // all terminal?
+      const fresh = this.deps.store.listNodes(goal.id);
+      if (fresh.every((n) => n.status === "done")) {
+        this.setGoalStatus(goal.id, "done");
+        void this.complete(this.deps.store.getGoal(goal.id)!, true);
+      }
+    }
+  }
+
+  private pauseForBudget(goal: GoalRow): void {
+    this.setGoalStatus(goal.id, "paused-budget");
+    const date = new Date().toISOString().slice(0, 10);
+    const key = `budget:pinged:${date}`;
+    if (!this.deps.store.kvGet(key)) {
+      this.deps.store.kvSet(key, "1");
+      this.deps.pingBudgetPaused?.(`Daily budget reached — paused background goals; they resume tomorrow.`);
+    }
+  }
+
+  private launch(goal: GoalRow, node: TaskNodeRow): void {
+    this.runningNodes++;
+    this.setNodeStatus(goal, node.node_key, "running", node.agent);
+    const facade = goal.plan_summary.startsWith(FACADE_PREFIX);
+    const sandbox = this.sandboxes.get(goal.id);
+    const origin = { channel: goal.origin_channel, chatId: goal.origin_chat_id };
+    const resolvePack = () => facade
+      ? this.deps.resolveDeptFor(goal.plan_summary.slice(FACADE_PREFIX.length), origin, false, sandbox)
+      : this.deps.resolveDeptFor(node.agent, origin, true, sandbox);
+    runNode(this.deps.store.getGoal(goal.id)!, node, { ...this.deps, resolvePack })
+      .then(() => this.setNodeStatus(goal, node.node_key, "done", node.agent))
+      .catch(async (err: Error) => {
+        this.setNodeStatus(goal, node.node_key, "failed", node.agent, err.message);
+        await this.onNodeFailure(this.deps.store.getGoal(goal.id)!, node, err);
+      })
+      .finally(() => { this.runningNodes--; this.pump(); });
+  }
+
+  private async onNodeFailure(goal: GoalRow, node: TaskNodeRow, err: Error): Promise<void> {
+    if (err instanceof SessionLimitError) {
+      this.setGoalStatus(goal.id, "paused-user", err.message);
+      return;
+    }
+    const facade = goal.plan_summary.startsWith(FACADE_PREFIX);
+    const cap = this.deps.replanCap ?? 2;
+    if (facade || !this.deps.planner || goal.replans_used >= cap) {
+      const msg = `node ${node.node_key} failed: ${err.message}${!facade && goal.replans_used >= cap ? ` (re-plans exhausted: ${cap})` : ""}`;
+      this.setGoalStatus(goal.id, "failed", msg);
+      this.deps.store.skipUnfinishedNodes(goal.id);
+      await this.complete(goal, false, msg);
+      return;
+    }
+    // lead-planned: re-plan (Task 7 provides Planner.replan)
+    this.setGoalStatus(goal.id, "replanning");
+    this.deps.store.bumpReplans(goal.id);
+    try {
+      await this.deps.planner.replan(this.deps.store.getGoal(goal.id)!, node, err.message);
+      this.setGoalStatus(goal.id, "running");
+      this.pump();
+    } catch (planErr) {
+      const msg = `re-planning failed: ${(planErr as Error).message}`;
+      this.setGoalStatus(goal.id, "failed", msg);
+      this.deps.store.skipUnfinishedNodes(goal.id);
+      await this.complete(goal, false, msg);
+    }
+  }
+
+  private async complete(goal: GoalRow, ok: boolean, error?: string): Promise<void> {
+    const fresh = this.deps.store.getGoal(goal.id)!;
+    const files = this.deps.store.listNodes(goal.id).filter((n) => n.artifact).map((n) => n.artifact!);
+    try {
+      await this.deps.onComplete({ goal: fresh, ok, error, goalDirName: fresh.goal_dir ?? "", artifactFiles: files });
+    } catch (err) {
+      this.deps.log?.(`[${goal.slug}] onComplete failed: ${(err as Error).message}`);
+    }
+  }
+
+  private findGoal(idOrSlug: string): GoalRow | undefined {
+    return this.deps.store.getGoal(idOrSlug) ?? this.deps.store.getGoalBySlug(idOrSlug);
+  }
+
+  pauseGoal(idOrSlug: string): string {
+    const g = this.findGoal(idOrSlug);
+    if (!g) return `No goal "${idOrSlug}".`;
+    if (g.status !== "running" && g.status !== "replanning") return `Goal ${g.slug} is ${g.status} — nothing to pause.`;
+    this.setGoalStatus(g.id, "paused-user");
+    return `Goal ${g.slug} paused (running nodes finish; nothing new starts). /resume ${g.slug} to continue.`;
+  }
+
+  resumeGoal(idOrSlug: string): string {
+    const g = this.findGoal(idOrSlug);
+    if (!g) return `No goal "${idOrSlug}".`;
+    if (g.status !== "paused-user" && g.status !== "paused-budget") return `Goal ${g.slug} is ${g.status} — nothing to resume.`;
+    this.setGoalStatus(g.id, "running");
+    this.pump();
+    return `Goal ${g.slug} resumed.`;
+  }
+
+  abandonGoal(idOrSlug: string): string {
+    const g = this.findGoal(idOrSlug);
+    if (!g) return `No goal "${idOrSlug}".`;
+    if (["done", "failed", "abandoned"].includes(g.status)) return `Goal ${g.slug} is already ${g.status}.`;
+    this.setGoalStatus(g.id, "abandoned");
+    this.deps.store.skipUnfinishedNodes(g.id);
+    return `Goal ${g.slug} abandoned; unfinished nodes skipped.`;
+  }
+
+  /** Startup only — reset orphaned running nodes (they re-run) and pump unfinished goals. */
+  resumeUnfinished(): number {
+    this.deps.store.resetRunningNodes();
+    const goals = this.deps.store.unfinishedGoals();
+    for (const g of goals) if (g.status === "replanning" || g.status === "planning") this.setGoalStatus(g.id, "running");
+    this.pump();
+    return goals.length;
+  }
+
+  resumeBudgetPaused(): number {
+    if (!this.deps.spendGuard.allow()) return 0;
+    const paused = this.deps.store.pausedBudgetGoals();
+    for (const g of paused) this.setGoalStatus(g.id, "running");
+    if (paused.length) this.pump();
+    return paused.length;
+  }
+
+  async planGoal(params: { department: string; title: string; request: string; channel: string; chatId: string }): Promise<GoalRow> {
+    if (!this.deps.planner) throw new Error("planner not configured");
+    return this.deps.planner.plan(this, params);   // Task 7 implements; engine exposes insertGoalPlanned below
+  }
+
+  /** Used by the Planner (Task 7) to persist a validated plan and start it. */
+  startPlannedGoal(p: {
+    title: string; request: string; department: string; lead: string;
+    origin: { channel: string; chatId: string }; summary: string;
+    nodes: import("../store/db.js").NewTaskNode[]; projectDir?: string; needsWorkspace: string;
+  }): GoalRow {
+    const goal = this.insertGoal({
+      title: p.title, request: p.request, department: p.department, lead: p.lead,
+      origin: p.origin, projectDir: p.projectDir, planSummary: p.summary,
+    });
+    this.deps.store.insertNodes(goal.id, p.nodes);
+    void this.startGoal(goal);
+    return goal;
   }
 }
