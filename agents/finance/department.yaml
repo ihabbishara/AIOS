@@ -1,6 +1,6 @@
 department: finance
 mission: Personal money visibility (read-only) and the group expense ledger.
-lead: faris
+lead: midas
 memoDomain: money
 toolServer: money
 toolServers: [ledger]

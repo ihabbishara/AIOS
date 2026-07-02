@@ -1,6 +1,6 @@
 department: engineering
 mission: Build, test, review, and operate software safely in sandboxed workspaces.
-lead: kai
+lead: athena
 memoDomain: code
 vaultSection: code
 actions: [vault.write]
