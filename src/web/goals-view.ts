@@ -2,6 +2,7 @@
 import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpendGuard } from "../engine/budget.js";
+import { localParts } from "../heartbeat/clock.js";
 
 export interface GoalNodeView {
   key: string; type: string; agent: string; critic: string | null;
@@ -47,6 +48,7 @@ export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: stri
 }
 
 export function buildBudgetView(guard: SpendGuard, todayFn?: () => string) {
-  const date = (todayFn ?? (() => new Date().toISOString().slice(0, 10)))();
+  // Local date, not UTC — the ledger stamps localParts dates (mismatch showed 0 spend after local midnight).
+  const date = (todayFn ?? (() => localParts(new Date()).date))();
   return { date, spentCents: guard.spentCents(date), capCents: guard.capCents() };
 }
