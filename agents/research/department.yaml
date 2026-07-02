@@ -1,0 +1,8 @@
+department: research
+mission: Investigate deeply, verify sources, grow the knowledge base.
+lead: lina
+memoDomain: research
+vaultSection: knowledge
+toolServer: research
+actions: [vault.write]
+playbooks: [research-report, market-research, product-design]

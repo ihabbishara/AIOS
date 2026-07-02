@@ -1,0 +1,8 @@
+department: engineering
+mission: Build, test, review, and operate software safely in sandboxed workspaces.
+lead: kai
+memoDomain: code
+vaultSection: code
+actions: [vault.write]
+sandbox: true
+playbooks: [code-build, code-analyze]
