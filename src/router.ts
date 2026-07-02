@@ -1,6 +1,6 @@
 import type { InboundMessage } from "./channels/types.js";
 import type { Moderator } from "./moderator/session.js";
-import { DirectChats, parseDirectAddress, findAgentMention } from "./agents/direct.js";
+import { type DirectChats, parseDirectAddress, findAgentMention } from "./agents/direct.js";
 import type { FinanceAgent } from "./finance/agent.js";
 import type { ChatBinding } from "./config.js";
 import type { EventBus } from "./events.js";
@@ -48,7 +48,7 @@ export class MessageRouter {
       const roleName = resetCmd[1]?.toLowerCase();
       let replyText: string;
       if (roleName) {
-        const knownRoles = DirectChats.roleNames();
+        const knownRoles = directChats.names();
         if (!knownRoles.includes(roleName)) {
           replyText = `Unknown role "${roleName}". Available: ${knownRoles.join(", ")}.`;
         } else {
@@ -126,7 +126,7 @@ export class MessageRouter {
         reply = { text: `[${binding.agents[0]}]\n${result.text}`, attachments: result.attachments };
       }
     } else {
-      const direct = parseDirectAddress(msg.text);
+      const direct = parseDirectAddress(msg.text, directChats.names());
       if (direct) {
         const result = await agentTurn(direct.role, () =>
           directChats.handle(direct.role, msg.channel, msg.chatId, direct.text));

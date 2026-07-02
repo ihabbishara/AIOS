@@ -3,6 +3,7 @@ import { roles } from "../src/agents/roles/index.js";
 import { roleQueryOptions, packRunOptions } from "../src/agents/runner.js";
 import type { ResolvedPack } from "../src/packs/resolve.js";
 import { DirectChats } from "../src/agents/direct.js";
+import { testRegistry } from "./fixtures/registry.js";
 
 const fakePack: ResolvedPack = {
   pillar: "money",
@@ -33,6 +34,7 @@ describe("direct chat pack resolver", () => {
     const calls: string[] = [];
     const dc = new DirectChats({
       store: {} as never, bus: { emit() {} } as never, projectsRoot: "/tmp",
+      registry: testRegistry(),
       resolvePackFor: (role) => { calls.push(role); return undefined; },
     });
     expect(dc).toBeTruthy();

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { parseDirectAddress, findAgentMention } from "../src/agents/direct.js";
+import { testRegistry } from "./fixtures/registry.js";
+
+// Snapshot the registry names once so every assertion uses the live agent tree.
+const registryNames = [...testRegistry().agentOf.keys()];
 
 describe("findAgentMention", () => {
   const agents = ["finance", "halalo"];
@@ -30,38 +34,38 @@ describe("findAgentMention", () => {
 
 describe("parseDirectAddress", () => {
   it("parses @role prefix", () => {
-    expect(parseDirectAddress("@architect how should we structure the cache?")).toEqual({
+    expect(parseDirectAddress("@architect how should we structure the cache?", registryNames)).toEqual({
       role: "architect",
       text: "how should we structure the cache?",
     });
   });
 
   it("parses role: prefix without @", () => {
-    expect(parseDirectAddress("researcher: compare sqlite vs duckdb")).toEqual({
+    expect(parseDirectAddress("researcher: compare sqlite vs duckdb", registryNames)).toEqual({
       role: "researcher",
       text: "compare sqlite vs duckdb",
     });
   });
 
   it("is case-insensitive and handles hyphenated roles", () => {
-    expect(parseDirectAddress("@Code-Reviewer look at the last diff")).toEqual({
+    expect(parseDirectAddress("@Code-Reviewer look at the last diff", registryNames)).toEqual({
       role: "code-reviewer",
       text: "look at the last diff",
     });
   });
 
   it("parses the new specialist roles", () => {
-    expect(parseDirectAddress("@market-researcher size the meal-kit market in NL")?.role).toBe("market-researcher");
-    expect(parseDirectAddress("@ui-ux-designer sketch the onboarding flow")?.role).toBe("ui-ux-designer");
+    expect(parseDirectAddress("@market-researcher size the meal-kit market in NL", registryNames)?.role).toBe("market-researcher");
+    expect(parseDirectAddress("@ui-ux-designer sketch the onboarding flow", registryNames)?.role).toBe("ui-ux-designer");
   });
 
   it("returns undefined for normal moderator messages", () => {
-    expect(parseDirectAddress("let's build a new feature")).toBeUndefined();
-    expect(parseDirectAddress("@someoneelse hello")).toBeUndefined();
-    expect(parseDirectAddress("email architect@company.com about it")).toBeUndefined();
+    expect(parseDirectAddress("let's build a new feature", registryNames)).toBeUndefined();
+    expect(parseDirectAddress("@someoneelse hello", registryNames)).toBeUndefined();
+    expect(parseDirectAddress("email architect@company.com about it", registryNames)).toBeUndefined();
   });
 
   it("requires text after the role", () => {
-    expect(parseDirectAddress("@architect")).toBeUndefined();
+    expect(parseDirectAddress("@architect", registryNames)).toBeUndefined();
   });
 });

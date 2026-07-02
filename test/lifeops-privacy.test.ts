@@ -5,6 +5,7 @@ import { recall } from "../src/memory/recall.js";
 import { roles } from "../src/agents/roles/index.js";
 import { isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
 import { loadPacks } from "../src/packs/loader.js";
+import { testRegistry } from "./fixtures/registry.js";
 
 const PB = join(process.cwd(), "playbooks");
 
@@ -53,6 +54,7 @@ describe("lifeops privacy: jasmine refused from non-private origin", () => {
       store: {} as never,
       bus: { emit() {} } as never,
       projectsRoot: "/tmp",
+      registry: testRegistry(),
       primaryChat: { channel: "telegram", chatId: "123" },
     });
     // Send from a different chatId — jasmine must refuse.

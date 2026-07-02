@@ -1,11 +1,12 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { roles, type RoleDef } from "./roles/index.js";
+import type { RoleDef } from "./roles/index.js";
 import { guardOptions } from "./guards/index.js";
 import type { ResolvedPack } from "../packs/resolve.js";
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
+import type { LoadedRegistry } from "./registry/loader.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 
 const SKILLS_PLUGIN_PATH =
@@ -101,10 +102,11 @@ export type SpecialistRunFn = (
   opts: RunOptions,
 ) => Promise<SpecialistResult>;
 
-export function makeRunSpecialist(deps: { store: Store; bus: EventBus }): SpecialistRunFn {
+export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry: LoadedRegistry }): SpecialistRunFn {
   return async (roleName, brief, opts) => {
-    const role = roles[roleName];
-    if (!role) throw new Error(`Unknown role: ${roleName}`);
+    const canonical = deps.registry.agentOf.get(roleName) ?? roleName;
+    const role = deps.registry.agents.get(canonical)?.role;
+    if (!role) throw new Error(`Unknown agent: ${roleName}`);
 
     const abort = new AbortController();
     const onAbort = () => abort.abort();

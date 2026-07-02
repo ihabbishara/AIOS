@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { roles } from "./roles/index.js";
+import type { LoadedRegistry } from "./registry/loader.js";
 import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
@@ -21,6 +21,7 @@ export interface DirectChatsDeps {
   store: Store;
   bus: EventBus;
   projectsRoot: string;
+  registry: LoadedRegistry;
   model?: string;
   log?: (line: string) => void;
   /** Resolve a pack for a direct-addressed role (undefined = role has no/ambiguous pack). */
@@ -42,8 +43,9 @@ export class DirectChats {
 
   constructor(private deps: DirectChatsDeps) {}
 
-  static roleNames(): string[] {
-    return Object.keys(roles);
+  /** All addressable names (canonical names + aliases) from the registry. */
+  names(): string[] {
+    return [...this.deps.registry.agentOf.keys()];
   }
 
   async handle(
@@ -51,28 +53,30 @@ export class DirectChats {
     channel: string,
     chatId: string,
     userText: string,
+    sender?: { name?: string; username?: string },
   ): Promise<{ text: string; attachments: Attachment[] }> {
-    const def = roles[role];
-    if (!def) throw new Error(`Unknown specialist: ${role}`);
+    const canonical = this.deps.registry.agentOf.get(role);
+    const def = canonical ? this.deps.registry.agents.get(canonical)?.role : undefined;
+    if (!def || !canonical) throw new Error(`Unknown specialist: ${role}`);
 
     if (def.privateOnly && !isPrivateOrigin(this.deps.primaryChat, channel, chatId)) {
       return { text: "That's private — ask me from your private chat.", attachments: [] };
     }
 
-    const key = `direct-session:${role}:${channel}:${chatId}`;
+    const key = `direct-session:${canonical}:${channel}:${chatId}`;
     const prev = this.locks.get(key) ?? Promise.resolve();
     let release!: () => void;
     this.locks.set(key, new Promise((r) => (release = r)));
     await prev;
     try {
-      const pack = this.deps.resolvePackFor?.(role, { channel, chatId });
+      const pack = this.deps.resolvePackFor?.(canonical, { channel, chatId });
       const base = {
         ...roleQueryOptions(def, { cwd: this.deps.projectsRoot, model: this.deps.model }),
         systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
       };
       const withPack = pack ? packRunOptions(base, pack) : base;
-      const options = withEffectiveTools(withPack, role, this.deps.store);
-      const observed = withDenialObserver(options, role, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
+      const options = withEffectiveTools(withPack, canonical, this.deps.store);
+      const observed = withDenialObserver(options, canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
 
       // Attachment server: turn-scoped collector + in-process MCP server.
       const attachments: Attachment[] = [];
@@ -81,18 +85,24 @@ export class DirectChats {
         resolve("data/downloads"),
         HALALO_EXPORTS_DIR, // keep in sync with the halalo Write guard so generated exports are attachable
         "/tmp/aios-",       // prefix match — any /tmp/aios-* path is permitted
+        ...(def.attachDirs ?? []),
       ];
       const attachmentServer = buildAttachmentServer(attachments, safeDirs);
 
       // Halalo gets a read-only Cloudflare analytics tool: true edge visitor counts,
       // the source of truth its log-derived numbers undercount (CDN cache hits).
       const roleServers: Record<string, ReturnType<typeof buildCloudflareServer>> =
-        role === "halalo" ? { halalo_analytics: buildCloudflareServer() } : {};
+        canonical === "halalo" ? { halalo_analytics: buildCloudflareServer() } : {};
+
+      // Prefix the user text with sender identity when provided (group-chat attribution).
+      const prompt = sender
+        ? `[from: ${sender.name ?? "?"}${sender.username ? ` (@${sender.username})` : ""}]\n${userText}`
+        : userText;
 
       const text = await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
-        prompt: userText,
+        prompt,
         log: this.deps.log,
         options: {
           ...observed,
@@ -107,12 +117,14 @@ export class DirectChats {
   }
 
   resetSession(role: string, channel: string, chatId: string): void {
+    // Canonicalize so the key matches the one used in handle().
+    const canonical = this.deps.registry.agentOf.get(role) ?? role;
     // Intentionally bypasses the per-key lock: clearing the session key is a
     // single atomic KV write. However, if a turn is in-flight when this is called,
     // the completing turn will write the old session_id back, silently undoing the
     // reset. If that happens the user may need to issue /reset a second time once
     // the in-flight turn finishes.
-    this.deps.store.kvSet(`direct-session:${role}:${channel}:${chatId}`, "");
+    this.deps.store.kvSet(`direct-session:${canonical}:${channel}:${chatId}`, "");
   }
 }
 
@@ -131,9 +143,10 @@ export function parseAgentAddress(
 /**
  * Parses direct-address prefixes for specialist roles: "@architect how should we...".
  * Returns the role + remaining text, or undefined when the message is for the moderator.
+ * The caller (router) supplies the names list from the live registry.
  */
-export function parseDirectAddress(text: string): { role: string; text: string } | undefined {
-  return parseAgentAddress(text, Object.keys(roles));
+export function parseDirectAddress(text: string, names: string[]): { role: string; text: string } | undefined {
+  return parseAgentAddress(text, names);
 }
 
 /**

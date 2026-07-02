@@ -4,6 +4,8 @@ import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
 import { loadPacks, dropPack } from "./packs/loader.js";
 import { makeResolvePackFor } from "./packs/resolve.js";
+import { loadRegistry } from "./agents/registry/loader.js";
+import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
 import { randomUUID } from "node:crypto";
 import type { LoadedPacks } from "./packs/loader.js";
@@ -55,7 +57,18 @@ async function main(): Promise<void> {
 
   const store = new Store(config.dbPath);
   const bus = new EventBus(store);
-  const runSpecialist = makeRunSpecialist({ store, bus });
+  const registry = loadRegistry(
+    join(process.cwd(), "agents"),
+    config.playbooksDir,
+    buildExtras({
+      vaultPath: config.vaultPath,
+      vaultSubdir: config.vaultSubdir,
+      financeCompany: config.financeCompany,
+      financeMembers: config.financeMembers,
+    }),
+    log,
+  );
+  const runSpecialist = makeRunSpecialist({ store, bus, registry });
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
 
@@ -99,15 +112,15 @@ async function main(): Promise<void> {
   };
 
   // ---- action gate (the only door out) ----
-  const registry = new ExecutorRegistry();
-  registry.register(vaultWriteExecutor(vault));
-  registry.register(echoExecutor());
-  registry.register(trustPromoteExecutor(store, bus));
-  registry.register(permissionGrantExecutor(store, bus));
-  registry.register(permissionRevokeExecutor(store, bus));
+  const executors = new ExecutorRegistry();
+  executors.register(vaultWriteExecutor(vault));
+  executors.register(echoExecutor());
+  executors.register(trustPromoteExecutor(store, bus));
+  executors.register(permissionGrantExecutor(store, bus));
+  executors.register(permissionRevokeExecutor(store, bus));
 
   const gate = new ActionGate({
-    store, registry, policy: config.trustPolicy, bus, expiryMs: config.actionExpiryMs, log,
+    store, registry: executors, policy: config.trustPolicy, bus, expiryMs: config.actionExpiryMs, log,
   });
 
   // Startup recovery: actions stuck mid-execution from a previous daemon death.
@@ -138,7 +151,7 @@ async function main(): Promise<void> {
   if (!google.enabled()) {
     log(`google senses disabled: ${google.disabledReason()}`);
   } else {
-    for (const exec of emailExecutors(google)) registry.register(exec);
+    for (const exec of emailExecutors(google)) executors.register(exec);
     log(`google senses: ${google.accounts().map((a) => `${a.name} (${a.email})`).join(", ")}`);
   }
 
@@ -217,7 +230,7 @@ async function main(): Promise<void> {
     specialistModel: config.specialistModel,
     log,
     gate,
-    actionTypes: registry.types(),
+    actionTypes: executors.types(),
     google,
   });
 
@@ -225,6 +238,7 @@ async function main(): Promise<void> {
     store,
     bus,
     projectsRoot: config.projectsRoot,
+    registry,
     model: config.specialistModel,
     log,
     resolvePackFor: (role, origin) => resolvePackFor(role, origin, true),

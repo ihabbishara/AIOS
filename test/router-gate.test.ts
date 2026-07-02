@@ -22,7 +22,7 @@ function setup() {
   // Stubs: gate commands must short-circuit before any agent is consulted.
   const router = new MessageRouter({
     moderator: { handle: async () => "moderator-reply" } as never,
-    directChats: { handle: async () => ({ text: "direct-reply", attachments: [] }) } as never,
+    directChats: { handle: async () => ({ text: "direct-reply", attachments: [] }), names: () => [] } as never,
     finance: { handle: async () => "finance-reply" } as never,
     chatBindings: new Map(),
     gate,

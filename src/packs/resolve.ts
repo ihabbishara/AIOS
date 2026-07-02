@@ -3,6 +3,7 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { ToolCheck } from "../agents/guards/halalo-readonly.js";
 import type { Pack } from "./types.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { buildPackServer } from "./server.js";
 import { memoContextForDomain } from "../memory/memos.js";
 import { codeGuard, advisoryGuard } from "../code/guard.js";
@@ -83,6 +84,45 @@ export interface PackResolverReg {
   packs: Map<string, Pack>;
   pillarOf: Map<string, string>;
   roleOf: Map<string, string>;
+}
+
+/**
+ * Registry-driven resolver: playbook → owning department; agent (byAgent) → its department.
+ * Department pack shape is built from department + toolsUnion the same way resolvePack builds
+ * from a Pack manifest — so pillar, persona, memo, tools, toolServer, sandbox, actions all wire up.
+ */
+export function makeResolveDeptFor(
+  reg: LoadedRegistry,
+  deps: { store: Store; vault: VaultWriter; gate: ActionGate; toolServers?: Record<string, PackToolServerBuilder> },
+) {
+  return (
+    key: string,
+    origin: { channel: string; chatId: string },
+    byAgent = false,
+    workspace?: { taskDir: string; mode: "build" | "analyze" },
+  ): ResolvedPack | undefined => {
+    const deptName = byAgent
+      ? reg.agents.get(reg.agentOf.get(key) ?? key)?.department
+      : reg.ownerOfPlaybook.get(key);
+    if (!deptName) return undefined;
+    const d = reg.departments.get(deptName);
+    if (!d) return undefined;
+    return resolvePack(
+      {
+        pillar: d.department,
+        persona: d.mission,
+        memoDomain: d.memoDomain,
+        vaultSection: d.vaultSection,
+        toolServer: d.toolServer,
+        tools: d.toolsUnion,
+        actions: d.actions,
+        roles: [],
+        playbooks: d.playbooks,
+        sandbox: d.sandbox,
+      },
+      { store: deps.store, vault: deps.vault, gate: deps.gate, origin, toolServers: deps.toolServers, workspace },
+    );
+  };
 }
 
 /** Closure over the pack registry + shared deps: routes a playbook (or role) to its ResolvedPack. */
