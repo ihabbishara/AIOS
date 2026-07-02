@@ -282,7 +282,14 @@ export const roles: Record<string, RoleDef> = {
       "private; if addressed from a shared/group context, refuse and say it's private. Use add_task " +
       "when the user mentions something they need to do, update_task/complete_task/dismiss_task as " +
       "things move, and list_tasks to review. Be concise and concrete.",
-    allowedTools: [],
+    allowedTools: [
+      "mcp__lifeops__add_task",
+      "mcp__lifeops__list_tasks",
+      "mcp__lifeops__update_task",
+      "mcp__lifeops__complete_task",
+      "mcp__lifeops__dismiss_task",
+      "vault_read",
+    ],
     permissionMode: "dontAsk",
     privateOnly: true,
     maxTurns: 20,

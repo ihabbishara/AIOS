@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { JobManager } from "../src/engine/jobs.js";
-import { loadPacks } from "../src/packs/loader.js";
+import { loadRegistry } from "../src/agents/registry/loader.js";
 import { allocateWorkspace } from "../src/code/workspace.js";
-import { makeResolvePackFor } from "../src/packs/resolve.js";
+import { makeResolveDeptFor } from "../src/packs/resolve.js";
 import { ActionGate } from "../src/kernel/gate.js";
 import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
@@ -33,7 +33,7 @@ describe("code-analyze end-to-end (stubbed model)", () => {
     const store = new Store(":memory:");
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "vault-")), "AIOS");
     vault.init();
-    const { playbooks, packs, pillarOf, roleOf } = loadPacks(join(process.cwd(), "playbooks"));
+    const reg = loadRegistry(join(process.cwd(), "agents"), join(process.cwd(), "playbooks"));
 
     const bus = new EventBus(store);
     const registry = new ExecutorRegistry();
@@ -51,24 +51,24 @@ describe("code-analyze end-to-end (stubbed model)", () => {
       return { text: "assessment ok", costUsd: 0, numTurns: 1 };
     });
 
-    const resolvePackFor = makeResolvePackFor(
-      { packs, pillarOf, roleOf },
+    const resolveDeptFor = makeResolveDeptFor(
+      reg,
       { store, vault, gate },
     );
 
     const jobs = new JobManager({
-      store, vault, run, playbooks, wallTimeMs: 60_000, maxConcurrent: 1,
+      store, vault, run, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrent: 1,
       onComplete: async () => {},
-      pillarOf,
+      pillarOf: reg.ownerOfPlaybook,
       prepareSandbox: async (job) => {
-        if (pillarOf.get(job.playbook) !== "code") return undefined;
+        if (reg.ownerOfPlaybook.get(job.playbook) !== "engineering") return undefined;
         const { taskDir } = allocateWorkspace(
           { mode: "analyze", source: job.project_dir ?? undefined, slug: job.slug },
           { workspaceRoot: join(home, "ws"), readRoots: [projects], now: "2026-06-21", id: "deadbeef" },
         );
         return { taskDir, mode: "analyze" };
       },
-      resolvePackFor: (playbook, origin, sandbox) => resolvePackFor(playbook, origin, false, sandbox),
+      resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
     });
 
     const job = jobs.createJob({

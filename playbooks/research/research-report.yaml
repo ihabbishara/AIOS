@@ -6,8 +6,8 @@ needsProjectDir: false
 stages:
   - type: loop
     id: report
-    producer: researcher
-    critic: reviewer
+    producer: lina
+    critic: yara
     maxRounds: 2
     brief: >-
       Produce a thorough research report on the topic. The reviewer will check

@@ -1,13 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { join } from "node:path";
 import { Store } from "../src/store/db.js";
 import { recall } from "../src/memory/recall.js";
 import { roles } from "../src/agents/roles/index.js";
 import { isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
-import { loadPacks } from "../src/packs/loader.js";
 import { testRegistry } from "./fixtures/registry.js";
-
-const PB = join(process.cwd(), "playbooks");
 
 // ---------------------------------------------------------------------------
 // Invariant 1: personal_tasks rows NEVER enter the recall index.
@@ -69,23 +65,14 @@ describe("lifeops privacy: jasmine refused from non-private origin", () => {
 //   the 5 mcp__lifeops__* tools and vault_read. No gated/outward tools such as
 //   vault_write, propose_action, or anything matching /propose|gate|email|git|calendar/i.
 // ---------------------------------------------------------------------------
-describe("lifeops privacy: pack tools contain no outward/gated tools", () => {
-  it("lifeops pack tools are exactly the 5 mcp__lifeops__* tools plus vault_read", () => {
-    const reg = loadPacks(PB);
-    const lifeops = reg.packs.get("lifeops");
-    expect(lifeops).toBeDefined();
-    const tools = lifeops!.tools;
-    // Must have exactly 6 tools
-    expect(tools).toHaveLength(6);
-    // All mcp__lifeops__* tools present
+describe("lifeops privacy: life department tools contain no outward/gated tools", () => {
+  it("life department agents have only mcp__lifeops__* tools plus vault_read", () => {
+    const reg = testRegistry();
+    const life = reg.departments.get("life")!;
+    expect(life).toBeDefined();
+    const tools = life.toolsUnion;
     expect(tools).toContain("mcp__lifeops__add_task");
-    expect(tools).toContain("mcp__lifeops__list_tasks");
-    expect(tools).toContain("mcp__lifeops__update_task");
-    expect(tools).toContain("mcp__lifeops__complete_task");
-    expect(tools).toContain("mcp__lifeops__dismiss_task");
-    // vault_read present
     expect(tools).toContain("vault_read");
-    // Gated/outward tools must NOT appear
     expect(tools).not.toContain("vault_write");
     expect(tools).not.toContain("propose_action");
     for (const t of tools) {

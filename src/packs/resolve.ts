@@ -80,12 +80,6 @@ export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
   return { pillar: pack.pillar, contextBlock, tools, mcpServers, confinement };
 }
 
-export interface PackResolverReg {
-  packs: Map<string, Pack>;
-  pillarOf: Map<string, string>;
-  roleOf: Map<string, string>;
-}
-
 /**
  * Registry-driven resolver: playbook → owning department; agent (byAgent) → its department.
  * Department pack shape is built from department + toolsUnion the same way resolvePack builds
@@ -125,17 +119,3 @@ export function makeResolveDeptFor(
   };
 }
 
-/** Closure over the pack registry + shared deps: routes a playbook (or role) to its ResolvedPack. */
-export function makeResolvePackFor(
-  reg: PackResolverReg,
-  deps: { store: Store; vault: VaultWriter; gate: ActionGate; toolServers?: Record<string, PackToolServerBuilder> },
-) {
-  return (key: string, origin: { channel: string; chatId: string }, byRole = false, workspace?: { taskDir: string; mode: "build" | "analyze" }): ResolvedPack | undefined => {
-    const pillar = byRole ? reg.roleOf.get(key) : reg.pillarOf.get(key);
-    if (!pillar) return undefined;
-    const pack = reg.packs.get(pillar);
-    return pack
-      ? resolvePack(pack, { store: deps.store, vault: deps.vault, gate: deps.gate, origin, toolServers: deps.toolServers, workspace })
-      : undefined;
-  };
-}

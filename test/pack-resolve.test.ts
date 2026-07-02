@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { memoContextForDomain } from "../src/memory/memos.js";
-import { resolvePack, makeResolvePackFor, MCP_TOOL_NAMES } from "../src/packs/resolve.js";
+import { resolvePack, MCP_TOOL_NAMES } from "../src/packs/resolve.js";
 import { packSchema } from "../src/packs/types.js";
 import { EventBus } from "../src/events.js";
 import { ExecutorRegistry } from "../src/kernel/actions.js";
@@ -72,21 +72,3 @@ describe("resolvePack", () => {
   });
 });
 
-describe("makeResolvePackFor", () => {
-  it("routes by playbook and by role; undefined for unknown/ambiguous", () => {
-    const { root, vault } = freshVault();
-    const store = new Store(":memory:");
-    const bus = new EventBus(store);
-    const registry = new ExecutorRegistry();
-    registry.register(vaultWriteExecutor(vault));
-    const gate = new ActionGate({ store, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
-    const pack = packSchema.parse({ pillar: "money", persona: "p", memoDomain: "money", roles: ["finance"], playbooks: ["audit"] });
-    const reg = { packs: new Map([["money", pack]]), pillarOf: new Map([["audit", "money"]]), roleOf: new Map([["finance", "money"]]) };
-    const resolve = makeResolvePackFor(reg, { store, vault, gate });
-    expect(resolve("audit", { channel: "c", chatId: "x" })?.pillar).toBe("money");
-    expect(resolve("finance", { channel: "c", chatId: "x" }, true)?.pillar).toBe("money");
-    expect(resolve("unknown", { channel: "c", chatId: "x" })).toBeUndefined();
-    expect(resolve("nobody", { channel: "c", chatId: "x" }, true)).toBeUndefined();
-    rmSync(root, { recursive: true, force: true });
-  });
-});

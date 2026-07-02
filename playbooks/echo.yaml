@@ -6,7 +6,7 @@ needsProjectDir: false
 stages:
   - type: single
     id: echo
-    role: researcher
+    role: ziad
     brief: >-
       Do NOT browse the web. Simply restate the task in your own words and
       confirm the pipeline works. Two sentences maximum.

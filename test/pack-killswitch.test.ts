@@ -1,52 +1,66 @@
 // test/pack-killswitch.test.ts
 import { describe, it, expect } from "vitest";
-import type { LoadedPacks } from "../src/packs/loader.js";
-import { dropPack, dropCodePack } from "../src/packs/loader.js";
+import { loadRegistry, dropDepartment } from "../src/agents/registry/loader.js";
+import type { LoadedRegistry } from "../src/agents/registry/loader.js";
 
-function reg(): LoadedPacks {
+function reg(): LoadedRegistry {
+  const engineering = {
+    department: "engineering", mission: "Build software.", memoDomain: "code",
+    vaultSection: "code", sandbox: true, actions: ["vault.write"], playbooks: ["code-build"],
+    toolServer: undefined, toolsUnion: [],
+  };
+  const finance = {
+    department: "finance", mission: "Money.", memoDomain: "money",
+    vaultSection: "money", sandbox: false, actions: [], playbooks: [],
+    toolServer: undefined, toolsUnion: [],
+  };
+  const maya = {
+    manifest: { name: "maya", title: "Engineer", department: "engineering", charter: "c", persona: "p", prompt: "s",
+      tools: [], guards: [], skills: [], maxTurns: 80, permissionMode: "bypassPermissions" as const, visibility: "shared" as const, aliases: ["developer"] },
+    role: { name: "maya", description: "d", systemPrompt: "s", allowedTools: [], permissionMode: "bypassPermissions" as const, maxTurns: 80 },
+    department: "engineering",
+  };
+  const faris = {
+    manifest: { name: "faris", title: "CFO", department: "finance", charter: "c", persona: "p", prompt: "s",
+      tools: [], guards: [], skills: [], maxTurns: 20, permissionMode: "dontAsk" as const, visibility: "shared" as const, aliases: ["cfo"] },
+    role: { name: "faris", description: "d", systemPrompt: "s", allowedTools: [], permissionMode: "dontAsk" as const, maxTurns: 20 },
+    department: "finance",
+  };
   return {
-    packs: new Map([
-      ["code", { pillar: "code", roles: ["devops", "developer"], playbooks: ["code-build"] } as any],
-      ["money", { pillar: "money", roles: ["cfo"], playbooks: [] } as any],
-    ]),
-    pillarOf: new Map([["code-build", "code"]]),
-    roleOf: new Map([["devops", "code"], ["developer", "code"], ["cfo", "money"]]),
+    agents: new Map<string, any>([["maya", maya], ["faris", faris]]),
+    departments: new Map([["engineering", engineering], ["finance", finance]]),
+    agentOf: new Map([["maya", "maya"], ["developer", "maya"], ["faris", "faris"], ["cfo", "faris"]]),
+    ownerOfPlaybook: new Map([["code-build", "engineering"]]),
     playbooks: new Map([["code-build", {} as any]]),
   };
 }
 
-describe("dropPack", () => {
-  it("drops a named pillar's pack, playbooks, and roleOf entries; leaves others", () => {
+describe("dropDepartment", () => {
+  it("drops engineering: agents, aliases, playbooks; leaves finance", () => {
     const r = reg();
-    dropPack(r, "code");
-    expect(r.packs.has("code")).toBe(false);
+    dropDepartment(r, "engineering");
+    expect(r.departments.has("engineering")).toBe(false);
+    expect(r.agents.has("maya")).toBe(false);
+    expect(r.agentOf.has("developer")).toBe(false);
     expect(r.playbooks.has("code-build")).toBe(false);
-    expect(r.pillarOf.has("code-build")).toBe(false);
-    expect(r.roleOf.has("devops")).toBe(false);
-    expect(r.roleOf.has("developer")).toBe(false);
-    // money untouched
-    expect(r.packs.has("money")).toBe(true);
-    expect(r.roleOf.get("cfo")).toBe("money");
+    expect(r.ownerOfPlaybook.has("code-build")).toBe(false);
+    // finance untouched
+    expect(r.departments.has("finance")).toBe(true);
+    expect(r.agents.has("faris")).toBe(true);
+    expect(r.agentOf.get("cfo")).toBe("faris");
   });
 
-  it("drops money independently", () => {
+  it("drops finance independently", () => {
     const r = reg();
-    dropPack(r, "money");
-    expect(r.packs.has("money")).toBe(false);
-    expect(r.roleOf.has("cfo")).toBe(false);
-    expect(r.packs.has("code")).toBe(true);
+    dropDepartment(r, "finance");
+    expect(r.departments.has("finance")).toBe(false);
+    expect(r.agents.has("faris")).toBe(false);
+    expect(r.departments.has("engineering")).toBe(true);
   });
 
-  it("is a no-op for an absent pillar", () => {
+  it("is a no-op for an absent department", () => {
     const r = reg();
-    expect(() => dropPack(r, "nope")).not.toThrow();
-    expect(r.packs.size).toBe(2);
-  });
-
-  it("dropCodePack is dropPack(reg,'code')", () => {
-    const r = reg();
-    dropCodePack(r);
-    expect(r.packs.has("code")).toBe(false);
-    expect(r.packs.has("money")).toBe(true);
+    expect(() => dropDepartment(r, "nope")).not.toThrow();
+    expect(r.departments.size).toBe(2);
   });
 });

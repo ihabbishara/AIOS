@@ -4,9 +4,13 @@ import { join, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { Config } from "../config.js";
 import type { Store } from "../store/db.js";
-import { packSchema } from "../packs/types.js";
+import { agentSchema, departmentSchema } from "../agents/registry/types.js";
 import { loadPlaybook, playbookSchema } from "../engine/playbook.js";
-import { roles } from "../agents/roles/index.js";
+
+// Reverse-alias map: new dept name → legacy env name
+const DEPT_LEGACY_ENV: Record<string, string> = {
+  engineering: "CODE", finance: "MONEY", life: "LIFEOPS", research: "RESEARCH",
+};
 
 export interface PackRoleView {
   name: string;
@@ -43,48 +47,67 @@ export interface PackView {
   memoCount: number;
 }
 
-/**
- * Extract the primary role name from any stage type.
- * - single → role
- * - loop   → producer (the generating agent; critic is secondary)
- * - verify → runner (the executing agent; fixer is secondary)
- */
 function stageRole(s: { type: string; role?: string; producer?: string; runner?: string }): string {
   return s.role ?? s.producer ?? s.runner ?? "?";
 }
 
+function isDeptEnabled(deptName: string): boolean {
+  if (process.env[`AIOS_${deptName.toUpperCase()}_DISABLED`] === "1") return false;
+  const legacyKey = DEPT_LEGACY_ENV[deptName];
+  if (legacyKey && process.env[`AIOS_${legacyKey}_DISABLED`] === "1") return false;
+  return true;
+}
+
 export function buildPacksView(config: Config, store: Store): PackView[] {
   const out: PackView[] = [];
+  const agentsDir = (config as any).agentsDir ?? join(process.cwd(), "agents");
   let entries: string[];
-  try { entries = readdirSync(config.playbooksDir); } catch { return out; }
+  try { entries = readdirSync(agentsDir); } catch { return out; }
 
   const recentJobs = store.listJobs(500);
 
   for (const entry of entries) {
-    const manifestPath = join(config.playbooksDir, entry, "pack.yaml");
-    if (!existsSync(manifestPath)) continue;
-    let pack: ReturnType<typeof packSchema.parse>;
-    try { pack = packSchema.parse(parseYaml(readFileSync(manifestPath, "utf8"))); }
-    catch { continue; } // skip a malformed manifest, like the loader
+    const deptDir = join(agentsDir, entry);
+    let isDir = false;
+    try { isDir = statSync(deptDir).isDirectory(); } catch { continue; }
+    if (!isDir) continue;
 
-    const enabled = process.env[`AIOS_${pack.pillar.toUpperCase()}_DISABLED`] !== "1";
+    const deptPath = join(deptDir, "department.yaml");
+    if (!existsSync(deptPath)) continue;
 
-    const roleViews: PackRoleView[] = pack.roles.map((name) => {
-      const def = roles[name];
-      if (!def) return { name, description: "(missing role def)", privateOnly: false, advisoryInDirect: pack.sandbox, permissionMode: "?", allowedTools: [] };
-      return {
-        name,
-        description: def.description,
-        privateOnly: !!def.privateOnly,
-        advisoryInDirect: pack.sandbox,
-        permissionMode: def.permissionMode,
-        allowedTools: def.allowedTools,
-      };
-    });
+    let dept: ReturnType<typeof departmentSchema.parse>;
+    try { dept = departmentSchema.parse(parseYaml(readFileSync(deptPath, "utf8"))); }
+    catch { continue; }
+
+    const enabled = isDeptEnabled(dept.department);
+
+    // Load agents in this dept to build roles view + tools union
+    const roleViews: PackRoleView[] = [];
+    const toolsSet = new Set<string>();
+    for (const f of readdirSync(deptDir)) {
+      if (!/\.ya?ml$/.test(f) || f === "department.yaml") continue;
+      try {
+        const m = agentSchema.parse(parseYaml(readFileSync(join(deptDir, f), "utf8")));
+        if (m.department !== dept.department) continue;
+        for (const t of m.tools) toolsSet.add(t);
+        const desc = `${m.title} — ${m.charter.trim().split(/(?<=\.)\s/)[0]}`;
+        roleViews.push({
+          name: m.name,
+          description: desc,
+          privateOnly: m.visibility === "private",
+          advisoryInDirect: dept.sandbox,
+          permissionMode: m.permissionMode,
+          allowedTools: m.tools,
+        });
+      } catch { /* skip bad agent file */ }
+    }
 
     const playbookViews: PackPlaybookView[] = [];
-    for (const pbName of pack.playbooks) {
-      const pbPath = join(config.playbooksDir, entry, `${pbName}.yaml`);
+    for (const pbName of dept.playbooks) {
+      // Playbooks live in playbooksDir: try subdir first, then flat
+      const pbPath = existsSync(join(config.playbooksDir, entry, `${pbName}.yaml`))
+        ? join(config.playbooksDir, entry, `${pbName}.yaml`)
+        : join(config.playbooksDir, `${pbName}.yaml`);
       if (!existsSync(pbPath)) continue;
       try {
         const pb = loadPlaybook(pbPath);
@@ -94,16 +117,16 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
           needsProjectDir: !!pb.needsProjectDir,
           stages: pb.stages.map((s) => ({ id: s.id, type: s.type, role: stageRole(s as never) })),
         });
-      } catch { /* skip an unparseable playbook */ }
+      } catch { /* skip */ }
     }
 
-    const myJobs = recentJobs.filter((j) => pack.playbooks.includes(j.playbook)).slice(0, 10);
+    const myJobs = recentJobs.filter((j) => dept.playbooks.includes(j.playbook)).slice(0, 10);
     const jobViews: PackJobView[] = myJobs.map((j) => ({
       id: j.id, title: j.title, playbook: j.playbook, status: j.status, created_at: j.created_at, projectDir: j.project_dir,
     }));
 
     const workspaces: PackWorkspaceView[] = [];
-    if (pack.sandbox) {
+    if (dept.sandbox && config.workspaceRoot) {
       const seen = new Set<string>();
       for (const j of myJobs) {
         const dir = j.project_dir;
@@ -116,54 +139,54 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
     }
 
     out.push({
-      pillar: pack.pillar,
-      persona: pack.persona,
-      memoDomain: pack.memoDomain,
-      vaultSection: pack.vaultSection,
-      sandbox: pack.sandbox,
+      pillar: dept.department,
+      persona: dept.mission,
+      memoDomain: dept.memoDomain,
+      vaultSection: dept.vaultSection,
+      sandbox: dept.sandbox,
       enabled,
-      toolServer: pack.toolServer,
-      tools: pack.tools,
-      actions: pack.actions,
+      toolServer: dept.toolServer,
+      tools: [...toolsSet],
+      actions: dept.actions,
       roles: roleViews,
       playbooks: playbookViews,
       recentJobs: jobViews,
       workspaces,
-      memoCount: store.memoryStats(pack.memoDomain).count,
+      memoCount: store.memoryStats(dept.memoDomain).count,
     });
   }
   return out;
 }
 
-/** The env var that disables a pillar's pack at boot (consumed by index.ts's kill-switch loop). */
-export function packDisableKey(pillar: string): string {
-  return `AIOS_${pillar.toUpperCase()}_DISABLED`;
+/** The env var that disables a department at boot. */
+export function packDisableKey(dept: string): string {
+  return `AIOS_${dept.toUpperCase()}_DISABLED`;
 }
 
 export interface RunValidation { ok: boolean; error?: string; projectDir?: string; }
-
 export interface FileValidation { ok: boolean; error?: string; }
 
-/** Validate a pillar file before write: pack.yaml→packSchema, *.yaml→playbookSchema. Rejects traversal/non-yaml. */
+/** Validate a department or playbook file before write. department.yaml→departmentSchema, *.yaml→playbookSchema. */
 export function validatePackFile(name: string, yaml: string): FileValidation {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) return { ok: false, error: "illegal filename" };
   if (!/^[\w.-]+\.ya?ml$/.test(name)) return { ok: false, error: "must be a .yaml file" };
   try {
     const parsed = parseYaml(yaml);
-    if (name === "pack.yaml") packSchema.parse(parsed);
+    if (name === "department.yaml") departmentSchema.parse(parsed);
     else playbookSchema.parse(parsed);
     return { ok: true };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
 
-/** Validate a pack-run request against the on-disk manifest + the projects-root guard. */
-export function validateRunRequest(config: Config, pillar: string, playbook: string, projectDir?: string): RunValidation {
-  const manifestPath = join(config.playbooksDir, pillar, "pack.yaml");
-  if (!existsSync(manifestPath)) return { ok: false, error: `unknown pillar: ${pillar}` };
-  let pack: ReturnType<typeof packSchema.parse>;
-  try { pack = packSchema.parse(parseYaml(readFileSync(manifestPath, "utf8"))); }
+/** Validate a pack-run request against the on-disk department manifest + the projects-root guard. */
+export function validateRunRequest(config: Config, dept: string, playbook: string, projectDir?: string): RunValidation {
+  const agentsDir = (config as any).agentsDir ?? join(process.cwd(), "agents");
+  const deptPath = join(agentsDir, dept, "department.yaml");
+  if (!existsSync(deptPath)) return { ok: false, error: `unknown department: ${dept}` };
+  let deptManifest: ReturnType<typeof departmentSchema.parse>;
+  try { deptManifest = departmentSchema.parse(parseYaml(readFileSync(deptPath, "utf8"))); }
   catch (e) { return { ok: false, error: `bad manifest: ${(e as Error).message}` }; }
-  if (!pack.playbooks.includes(playbook)) return { ok: false, error: `playbook ${playbook} not in pillar ${pillar}` };
+  if (!deptManifest.playbooks.includes(playbook)) return { ok: false, error: `playbook ${playbook} not in department ${dept}` };
   if (projectDir) {
     const dir = resolve(projectDir);
     const root = resolve(config.projectsRoot);

@@ -9,6 +9,7 @@ export interface Config {
   dataDir: string;
   dbPath: string;
   playbooksDir: string;
+  agentsDir: string;
   projectsRoot: string;
   workspaceRoot: string;
   codeReadRoots: string[];
@@ -172,6 +173,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     dataDir,
     dbPath: join(dataDir, "aios.sqlite"),
     playbooksDir: process.env.AIOS_PLAYBOOKS_DIR ?? join(root, "playbooks"),
+    agentsDir: env.AIOS_AGENTS_DIR ?? join(root, "agents"),
     projectsRoot,
     workspaceRoot: env.AIOS_WORKSPACE_ROOT ?? join(home, "projects", "AIOS-Workspace"),
     codeReadRoots: (env.AIOS_CODE_READ_ROOTS ?? projectsRoot)

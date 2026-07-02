@@ -6,6 +6,7 @@ import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
 import { VaultWriter, slugify } from "../vault/writer.js";
 import { assertInplaceTarget, resolveReal } from "../code/paths.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
 
 /** All role names a stage references, across every stage shape. */
 export function stageRoles(stage: Stage): string[] {
@@ -20,9 +21,15 @@ export function stageRoles(stage: Stage): string[] {
  *  overrides the role's permissionMode) AND a stage uses a bypassPermissions role. Such a
  *  playbook runs with raw role options (Bash/Write + allowDangerouslySkipPermissions) on the
  *  real filesystem — the in-place coding path that must be gated. */
-export function isUnsandboxedWrite(pb: Playbook, pillarOf?: Map<string, string>): boolean {
-  if (pillarOf?.get(pb.name)) return false; // has a pillar → pack-confined, not raw
-  return pb.stages.some((s) => stageRoles(s).some((r) => roles[r]?.permissionMode === "bypassPermissions"));
+export function isUnsandboxedWrite(pb: Playbook, pillarOf?: Map<string, string>, registry?: LoadedRegistry): boolean {
+  if (pillarOf?.get(pb.name)) return false;
+  return pb.stages.some((s) => stageRoles(s).some((r) => {
+    if (registry) {
+      const agentName = registry.agentOf.get(r) ?? r;
+      return registry.agents.get(agentName)?.role.permissionMode === "bypassPermissions";
+    }
+    return roles[r]?.permissionMode === "bypassPermissions";
+  }));
 }
 
 export interface JobOutcome {
@@ -54,6 +61,7 @@ export interface JobManagerDeps {
   prepareSandbox?: (job: JobRow, playbook: Playbook) => Promise<{ taskDir: string; mode: "build" | "analyze" } | undefined>;
   /** playbook name -> pillar (from the pack loader); packless playbooks are absent. */
   pillarOf?: Map<string, string>;
+  registry?: LoadedRegistry;
   /** Root under which user project directories live. Used by the inplace gate. */
   projectsRoot?: string;
   /** Sandbox workspace root. In-place targets must not be inside here. */
@@ -88,7 +96,7 @@ export class JobManager {
     }
     // Inplace gate: unsandboxed-write playbooks (packless + bypassPermissions role) must be
     // explicitly opted in with inplace:true AND the target must pass assertInplaceTarget.
-    if (isUnsandboxedWrite(pb, this.deps.pillarOf)) {
+    if (isUnsandboxedWrite(pb, this.deps.pillarOf, this.deps.registry)) {
       if (!params.inplace) {
         throw new Error(`Refused: "${pb.name}" is an unsandboxed in-place coding path; run it via the code_task tool (mode:inplace).`);
       }

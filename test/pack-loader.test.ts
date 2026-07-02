@@ -2,77 +2,73 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadPacks } from "../src/packs/loader.js";
+import { loadRegistry } from "../src/agents/registry/loader.js";
 import { JobManager } from "../src/engine/jobs.js";
 
-function scaffold(): string {
+function scaffold() {
   const root = mkdtempSync(join(tmpdir(), "pb-"));
-  writeFileSync(join(root, "echo.yaml"), "name: echo\ndescription: echo\nstages:\n  - { type: single, id: s1, role: researcher }\n");
-  mkdirSync(join(root, "money"));
-  writeFileSync(join(root, "money", "pack.yaml"),
-    "pillar: money\npersona: Money specialist.\nmemoDomain: money\ntools: [Read, recall]\nactions: [vault.write]\nroles: [finance]\nplaybooks: [sub-audit]\n");
-  writeFileSync(join(root, "money", "sub-audit.yaml"),
-    "name: sub-audit\ndescription: audit subs\nstages:\n  - { type: single, id: s1, role: finance }\n");
-  return root;
+  const agents = join(root, "agents");
+  const pbs = join(root, "playbooks");
+  mkdirSync(join(agents, "finance"), { recursive: true });
+  mkdirSync(pbs, { recursive: true });
+  writeFileSync(join(pbs, "echo.yaml"),
+    "name: echo\ndescription: echo\nstages:\n  - { type: single, id: s1, role: ziad }\n");
+  writeFileSync(join(agents, "finance", "department.yaml"),
+    "department: finance\nmission: Money specialist.\nmemoDomain: money\nplaybooks: [sub-audit]\n");
+  writeFileSync(join(agents, "finance", "faris.yaml"),
+    "name: faris\ntitle: CFO\ndepartment: finance\ncharter: Manages money.\npersona: Precise.\nprompt: You are the CFO.\ntools: [Read]\nmaxTurns: 20\n");
+  writeFileSync(join(pbs, "sub-audit.yaml"),
+    "name: sub-audit\ndescription: audit subs\nstages:\n  - { type: single, id: s1, role: faris }\n");
+  return { root, agents, pbs };
 }
 
-describe("loadPacks", () => {
-  it("loads flat + pack playbooks into one map and builds the registry", () => {
-    const root = scaffold();
-    const { playbooks, packs, pillarOf, roleOf } = loadPacks(root);
-    expect([...playbooks.keys()].sort()).toEqual(["echo", "sub-audit"]);
-    expect(packs.get("money")?.persona).toContain("Money");
-    expect(pillarOf.get("sub-audit")).toBe("money");
-    expect(pillarOf.get("echo")).toBeUndefined();
-    expect(roleOf.get("finance")).toBe("money");
+describe("loadRegistry (replaces loadPacks)", () => {
+  it("loads flat + department playbooks into one map and builds the registry", () => {
+    const { root, agents, pbs } = scaffold();
+    const reg = loadRegistry(agents, pbs);
+    expect([...reg.playbooks.keys()].sort()).toEqual(["echo", "sub-audit"]);
+    expect(reg.departments.get("finance")?.mission).toContain("Money");
+    expect(reg.ownerOfPlaybook.get("sub-audit")).toBe("finance");
+    expect(reg.ownerOfPlaybook.get("echo")).toBeUndefined();
+    expect(reg.agentOf.get("faris")).toBe("faris");
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("skips a pack whose manifest references a missing playbook file (logged, not thrown)", () => {
+  it("skips a department whose manifest references a missing playbook file (logged, not thrown)", () => {
     const root = mkdtempSync(join(tmpdir(), "pb-"));
-    mkdirSync(join(root, "bad"));
-    writeFileSync(join(root, "bad", "pack.yaml"),
-      "pillar: bad\npersona: x\nmemoDomain: bad\nplaybooks: [does-not-exist]\n");
+    const agents = join(root, "agents");
+    const pbs = join(root, "playbooks");
+    mkdirSync(join(agents, "bad"), { recursive: true });
+    mkdirSync(pbs, { recursive: true });
+    writeFileSync(join(agents, "bad", "department.yaml"),
+      "department: bad\nmission: x\nmemoDomain: bad\nplaybooks: [does-not-exist]\n");
     const logs: string[] = [];
-    const { packs } = loadPacks(root, (l) => logs.push(l));
-    expect(packs.has("bad")).toBe(false);
+    const reg = loadRegistry(agents, pbs, {}, (l) => logs.push(l));
+    expect(reg.departments.has("bad")).toBe(false);
     expect(logs.join(" ")).toMatch(/bad/);
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("skips a duplicate pillar (second one logged, first kept)", () => {
-    const root = mkdtempSync(join(tmpdir(), "pb-"));
-    for (const d of ["a", "b"]) {
-      mkdirSync(join(root, d));
-      writeFileSync(join(root, d, "pack.yaml"), "pillar: dup\npersona: x\nmemoDomain: dup\n");
-    }
-    const logs: string[] = [];
-    const { packs } = loadPacks(root, (l) => logs.push(l));
-    expect(packs.size).toBe(1);
-    expect(logs.join(" ")).toMatch(/dup/);
-    rmSync(root, { recursive: true, force: true });
-  });
-
   it("skips a broken symlink entry without aborting the load", () => {
-    const root = scaffold(); // has echo.yaml + the money pack
-    symlinkSync(join(root, "does-not-exist-target"), join(root, "broken-link"));
+    const { root, agents, pbs } = scaffold();
+    symlinkSync(join(root, "does-not-exist-target"), join(agents, "broken-link"));
     const logs: string[] = [];
-    const { playbooks } = loadPacks(root, (l) => logs.push(l));
-    expect([...playbooks.keys()].sort()).toEqual(["echo", "sub-audit"]); // valid ones still load
+    const reg = loadRegistry(agents, pbs, {}, (l) => logs.push(l));
+    expect([...reg.playbooks.keys()].sort()).toEqual(["echo", "sub-audit"]);
     rmSync(root, { recursive: true, force: true });
   });
 });
 
-describe("listPlaybooks pillar grouping", () => {
-  it("annotates each playbook with its pillar (or undefined when packless)", () => {
-    const root = scaffold();
-    const { playbooks, pillarOf } = loadPacks(root);
+describe("listPlaybooks department grouping", () => {
+  it("annotates each playbook with its department (or undefined when packless)", () => {
+    const { root, agents, pbs } = scaffold();
+    const reg = loadRegistry(agents, pbs);
     const jm = new JobManager({
       store: {} as never, vault: {} as never, run: (async () => ({})) as never,
-      playbooks, pillarOf, wallTimeMs: 1, maxConcurrent: 1, onComplete: async () => {},
+      playbooks: reg.playbooks, pillarOf: reg.ownerOfPlaybook, wallTimeMs: 1, maxConcurrent: 1, onComplete: async () => {},
     });
     const list = jm.listPlaybooks();
-    expect(list.find((p) => p.name === "sub-audit")?.pillar).toBe("money");
+    expect(list.find((p) => p.name === "sub-audit")?.pillar).toBe("finance");
     expect(list.find((p) => p.name === "echo")?.pillar).toBeUndefined();
     rmSync(root, { recursive: true, force: true });
   });

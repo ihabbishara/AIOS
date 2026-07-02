@@ -1,18 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { dropCodePack } from "../src/packs/loader.js";
+import { dropDepartment } from "../src/agents/registry/loader.js";
+import type { LoadedRegistry } from "../src/agents/registry/loader.js";
 
-describe("kill-switch removes the code pack from the registry", () => {
-  it("dropCodePack deletes pillar + its playbooks + roleOf entries", () => {
-    const reg = {
-      packs: new Map([["code", { pillar: "code", roles: ["devops"], playbooks: ["code-build"] } as any]]),
-      pillarOf: new Map([["code-build", "code"]]),
-      roleOf: new Map([["devops", "code"]]),
+describe("kill-switch removes the engineering department from the registry", () => {
+  it("dropDepartment('engineering') deletes dept + its agents + aliases + playbooks", () => {
+    const maya = {
+      manifest: { name: "maya", title: "t", department: "engineering", charter: "c", persona: "p", prompt: "s",
+        tools: [], guards: [], skills: [], maxTurns: 80, permissionMode: "bypassPermissions" as const, visibility: "shared" as const, aliases: ["developer"] },
+      role: { name: "maya", description: "d", systemPrompt: "s", allowedTools: [], permissionMode: "bypassPermissions" as const, maxTurns: 80 },
+      department: "engineering",
+    };
+    const reg: LoadedRegistry = {
+      agents: new Map([["maya", maya]]),
+      departments: new Map([["engineering", {
+        department: "engineering", mission: "m", memoDomain: "code", vaultSection: "code",
+        sandbox: true, actions: ["vault.write"], playbooks: ["code-build"], toolsUnion: [],
+      }]]),
+      agentOf: new Map([["maya", "maya"], ["developer", "maya"]]),
+      ownerOfPlaybook: new Map([["code-build", "engineering"]]),
       playbooks: new Map([["code-build", {} as any]]),
     };
-    dropCodePack(reg as any);
-    expect(reg.packs.has("code")).toBe(false);
+    dropDepartment(reg, "engineering");
+    expect(reg.departments.has("engineering")).toBe(false);
+    expect(reg.agents.has("maya")).toBe(false);
+    expect(reg.agentOf.has("developer")).toBe(false);
     expect(reg.playbooks.has("code-build")).toBe(false);
-    expect(reg.pillarOf.has("code-build")).toBe(false);
-    expect(reg.roleOf.has("devops")).toBe(false);
+    expect(reg.ownerOfPlaybook.has("code-build")).toBe(false);
   });
 });

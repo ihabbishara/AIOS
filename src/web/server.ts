@@ -340,8 +340,9 @@ export function startWebServer(deps: WebDeps, port: number): void {
         const enabledMatch = /^\/api\/packs\/([\w-]+)\/enabled$/.exec(path);
         if (enabledMatch && req.method === "POST") {
           const pillar = enabledMatch[1];
-          if (!existsSync(join(config.playbooksDir, pillar, "pack.yaml"))) {
-            return json(res, 404, { error: `unknown pillar: ${pillar}` });
+          const agentsDir2 = (config as any).agentsDir ?? join(process.cwd(), "agents");
+          if (!existsSync(join(agentsDir2, pillar, "department.yaml"))) {
+            return json(res, 404, { error: `unknown department: ${pillar}` });
           }
           const body = JSON.parse(await readBody(req)) as { enabled?: boolean };
           updateEnvFile(deps.envPath, packDisableKey(pillar), body.enabled === false ? "1" : "");
@@ -353,21 +354,23 @@ export function startWebServer(deps: WebDeps, port: number): void {
 
         const filesMatch = /^\/api\/packs\/([\w-]+)\/files$/.exec(path);
         if (filesMatch && req.method === "GET") {
-          const dir = join(config.playbooksDir, filesMatch[1]);
-          if (!existsSync(join(dir, "pack.yaml"))) return json(res, 404, { error: "unknown pillar" });
-          const out = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))
-            .map((f) => ({ file: f, yaml: readFileSync(join(dir, f), "utf8") }));
+          const agentsDir3 = (config as any).agentsDir ?? join(process.cwd(), "agents");
+          const deptDir = join(agentsDir3, filesMatch[1]);
+          if (!existsSync(join(deptDir, "department.yaml"))) return json(res, 404, { error: "unknown department" });
+          const out = readdirSync(deptDir).filter((f) => /\.ya?ml$/.test(f))
+            .map((f) => ({ file: f, yaml: readFileSync(join(deptDir, f), "utf8") }));
           return json(res, 200, out);
         }
         const fileMatch = /^\/api\/packs\/([\w-]+)\/files\/([\w.-]+\.ya?ml)$/.exec(path);
         if (fileMatch && req.method === "PUT") {
           const [, pillar, file] = fileMatch;
-          const dir = join(config.playbooksDir, pillar);
-          if (!existsSync(join(dir, "pack.yaml"))) return json(res, 404, { error: "unknown pillar" });
+          const agentsDir4 = (config as any).agentsDir ?? join(process.cwd(), "agents");
+          const deptDir2 = join(agentsDir4, pillar);
+          if (!existsSync(join(deptDir2, "department.yaml"))) return json(res, 404, { error: "unknown department" });
           const body = JSON.parse(await readBody(req)) as { yaml: string };
           const v = validatePackFile(file, body.yaml);
           if (!v.ok) return json(res, 400, { error: `invalid ${file}: ${v.error}` });
-          writeFileSync(join(dir, file), body.yaml);
+          writeFileSync(join(deptDir2, file), body.yaml);
           reloadPacks();
           return json(res, 200, { ok: true, reloaded: true });
         }

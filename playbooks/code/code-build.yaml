@@ -6,29 +6,29 @@ needsProjectDir: false
 stages:
   - type: single
     id: research
-    role: researcher
+    role: ziad
     brief: >-
       Research what is needed to build this task well in the workspace: libraries, patterns,
       pitfalls. If a source repo is present in the working directory, study it first.
   - type: loop
     id: design
-    producer: architect
-    critic: reviewer
+    producer: kai
+    critic: nadia
     maxRounds: 3
     brief: Design the solution using the research brief.
   - type: single
     id: implement
-    role: developer
+    role: maya
     brief: >-
       Implement the approved design in the working directory using mcp__code__sh for any shell
       step. End your summary with the absolute workspace path and the output of `git status`/diff.
   - type: verify
     id: test
-    runner: tester
-    fixer: developer
+    runner: tarek
+    fixer: maya
     maxRounds: 2
     brief: Build and run the tests in the workspace via mcp__code__sh.
   - type: single
     id: code-review
-    role: code-reviewer
+    role: nadia
     brief: Review the implementation in the workspace (use mcp__code__sh `git diff`).

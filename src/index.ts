@@ -2,13 +2,11 @@ import { join } from "node:path";
 import { loadConfig, assertAuth } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { loadPacks, dropPack } from "./packs/loader.js";
-import { makeResolvePackFor } from "./packs/resolve.js";
-import { loadRegistry } from "./agents/registry/loader.js";
+import { makeResolveDeptFor } from "./packs/resolve.js";
+import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
 import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
 import { randomUUID } from "node:crypto";
-import type { LoadedPacks } from "./packs/loader.js";
 import { localParts } from "./heartbeat/clock.js";
 import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { makeRunSpecialist } from "./agents/runner.js";
@@ -58,7 +56,7 @@ async function main(): Promise<void> {
   const store = new Store(config.dbPath);
   const bus = new EventBus(store);
   const registry = loadRegistry(
-    join(process.cwd(), "agents"),
+    config.agentsDir,
     config.playbooksDir,
     buildExtras({
       vaultPath: config.vaultPath,
@@ -85,30 +83,31 @@ async function main(): Promise<void> {
       log(`memory index (write-time) failed: ${(err as Error).message}`);
     }
   });
-  const { playbooks, packs, pillarOf, roleOf } = loadPacks(config.playbooksDir, log);
-  for (const pillar of [...packs.keys()]) {
-    if (process.env[`AIOS_${pillar.toUpperCase()}_DISABLED`] === "1") {
-      dropPack({ playbooks, packs, pillarOf, roleOf } as LoadedPacks, pillar);
-    }
-  }
-  log(`playbooks: ${[...playbooks.keys()].join(", ")}`);
-  log(`packs: ${[...packs.keys()].join(", ") || "(none)"}`);
+  for (const d of disabledDepartments(process.env, registry.departments.keys())) dropDepartment(registry, d);
+  log(`playbooks: ${[...registry.playbooks.keys()].join(", ")}`);
+  log(`departments: ${[...registry.departments.keys()].sort().join(", ") || "(none)"}`);
 
-  // Reload the WHOLE registry in place (after a UI playbook edit). Mutates the same Map
-  // instances JobManager + resolvePackFor hold by reference, so packs/pillarOf/roleOf
-  // stay in sync — the old flat reload only refreshed top-level playbooks.
-  const reloadPacks = () => {
-    const fresh = loadPacks(config.playbooksDir, log);
-    for (const pillar of [...fresh.packs.keys()]) {
-      if (process.env[`AIOS_${pillar.toUpperCase()}_DISABLED`] === "1") {
-        dropPack(fresh, pillar);
-      }
-    }
-    playbooks.clear(); for (const [k, v] of fresh.playbooks) playbooks.set(k, v);
-    packs.clear();     for (const [k, v] of fresh.packs) packs.set(k, v);
-    pillarOf.clear();  for (const [k, v] of fresh.pillarOf) pillarOf.set(k, v);
-    roleOf.clear();    for (const [k, v] of fresh.roleOf) roleOf.set(k, v);
-    log(`packs reloaded: ${[...packs.keys()].join(", ") || "(none)"}`);
+  // Reload the WHOLE registry in place (after a UI file edit). Mutates the same Map
+  // instances JobManager + resolveDeptFor hold by reference, so they stay in sync.
+  const reloadRegistry = () => {
+    const fresh = loadRegistry(
+      config.agentsDir,
+      config.playbooksDir,
+      buildExtras({
+        vaultPath: config.vaultPath,
+        vaultSubdir: config.vaultSubdir,
+        financeCompany: config.financeCompany,
+        financeMembers: config.financeMembers,
+      }),
+      log,
+    );
+    for (const d of disabledDepartments(process.env, fresh.departments.keys())) dropDepartment(fresh, d);
+    registry.agents.clear(); for (const [k, v] of fresh.agents) registry.agents.set(k, v);
+    registry.departments.clear(); for (const [k, v] of fresh.departments) registry.departments.set(k, v);
+    registry.agentOf.clear(); for (const [k, v] of fresh.agentOf) registry.agentOf.set(k, v);
+    registry.ownerOfPlaybook.clear(); for (const [k, v] of fresh.ownerOfPlaybook) registry.ownerOfPlaybook.set(k, v);
+    registry.playbooks.clear(); for (const [k, v] of fresh.playbooks) registry.playbooks.set(k, v);
+    log(`registry reloaded: ${[...registry.departments.keys()].sort().join(", ") || "(none)"}`);
   };
 
   // ---- action gate (the only door out) ----
@@ -167,7 +166,7 @@ async function main(): Promise<void> {
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
   const prepareSandbox = async (job: import("./store/db.js").JobRow, _pb: unknown) => {
-    if (pillarOf.get(job.playbook) !== "code") return undefined;
+    if (registry.ownerOfPlaybook.get(job.playbook) !== "engineering") return undefined;
     const mode: "build" | "analyze" = job.playbook === "code-analyze" ? "analyze" : "build";
     const wsMode = mode === "analyze" ? "analyze" : (job.project_dir ? "worktree" : "greenfield");
     const { taskDir } = allocateWorkspace(
@@ -177,10 +176,10 @@ async function main(): Promise<void> {
     return { taskDir, mode };
   };
 
-  // Resolve a pack for a playbook (JobManager) or a role (direct @role chats).
+  // Resolve a department context for a playbook (JobManager) or an agent (direct @role chats).
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
-  const resolvePackFor = makeResolvePackFor(
-    { packs, pillarOf, roleOf },
+  const resolveDeptFor = makeResolveDeptFor(
+    registry,
     { store, vault, gate, toolServers: {
       money: (d) => buildMoneyServer({ store: d.store, categorize }),
       research: (d) => buildResearchServer({ store: d.store }),
@@ -205,18 +204,19 @@ async function main(): Promise<void> {
     store,
     vault,
     run: runSpecialist,
-    playbooks,
+    playbooks: registry.playbooks,
     wallTimeMs: config.jobWallTimeMs,
     maxConcurrent: config.maxConcurrentJobs,
     model: config.specialistModel,
     onComplete: onJobComplete,
     onEvent: (e) => bus.emit(e),
     log,
-    pillarOf,
+    pillarOf: registry.ownerOfPlaybook,
+    registry,
     projectsRoot: config.projectsRoot,
     workspaceRoot: config.workspaceRoot,
     prepareSandbox,
-    resolvePackFor: (playbook, origin, sandbox) => resolvePackFor(playbook, origin, false, sandbox),
+    resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
   });
 
   const moderator = new Moderator({
@@ -241,7 +241,7 @@ async function main(): Promise<void> {
     registry,
     model: config.specialistModel,
     log,
-    resolvePackFor: (role, origin) => resolvePackFor(role, origin, true),
+    resolvePackFor: (role, origin) => resolveDeptFor(role, origin, true),
     primaryChat: config.primaryChat,
   });
 
@@ -556,7 +556,7 @@ async function main(): Promise<void> {
   }
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, finance, gate, voice, reloadPacks, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, jobs, vault, config, router, finance, gate, voice, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 
