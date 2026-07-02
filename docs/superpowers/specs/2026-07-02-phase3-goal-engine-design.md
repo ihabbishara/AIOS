@@ -79,7 +79,7 @@ GRAPH_SCHEMA = {
 
 **Code-side validation, fail-closed (`validateGraph` in `src/engine/plan.ts`):**
 - every `agent`/`critic` resolves via `registry.agentOf` to a member of the lead's department (single-dept v1; hermes/operations excluded as node agents);
-- `loop`/`verify` nodes: `critic` present and its compiled RoleDef carries the VERDICT output schema;
+- `loop` nodes: `critic` present and its manifest carries `outputSchema: verdict`; `verify` nodes: `critic` (fixer) present and the `agent` (runner) manifest carries `outputSchema: test-report` — the faithful port of today's critic invariants;
 - `deps` reference existing keys; topological sort succeeds (no cycles);
 - node count ≤ 12; `key` matches `[a-z][a-z0-9-]*`;
 - `projectDir` (when present) passes the existing inplace/projectsRoot assertions.
@@ -103,7 +103,7 @@ Invalid plan → one retry with the validation error appended → still invalid 
 - **Workspace:** allocated once per goal at start (`allocateWorkspace` modes unchanged); all nodes share `project_dir` (as stages share cwd today). Unsandboxed-write gate (`isUnsandboxedWrite`, registry-required fail-closed) checked at goal creation exactly as at job creation today. **Inplace mode is facade-only:** `code_task(mode: inplace)` keeps its existing gate + `assertInplaceTarget` path; lead-planned goals cannot request inplace (GRAPH_SCHEMA's `needsWorkspace` deliberately omits it — sandboxed modes only).
 - **Completion:** `onComplete` posts outcome + artifact list to the origin chat (same UX as jobs today).
 - **Events:** `goal.created {goalId,title,department}`, `goal.status {goalId,status,error?}`, `node.status {goalId,nodeKey,status,agent,error?}` — new `AiosEvent` members. `stage.start/finish`, `job.created/status` retired with the old engine.
-- **Restart recovery:** startup-only sweep (mirrors gate `failStaleExecuting`): nodes `running` at boot → `failed` ("daemon restarted mid-run"); their goals enter the normal re-plan path. `pending`/`ready` nodes of `running` goals resume via pump. Never run the sweep on an interval.
+- **Restart recovery:** startup-only sweep (mirrors gate `failStaleExecuting`'s startup-only rule): nodes `running` at boot reset to `pending` — they simply re-run, preserving today's resume-and-re-run-the-incomplete-stage behavior; goals in `running`/`replanning` resume via pump. Re-plans are reserved for genuine node failures, never burned by a restart. Never run the sweep on an interval.
 
 ### 6. Budget enforcement
 
