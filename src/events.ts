@@ -22,7 +22,10 @@ export type AiosEvent =
   | { type: "calendar.reminder"; account: string; eventId: string; summary: string; start: string; minutesUntil: number; link: string | null }
   | { type: "permission.changed"; role: string; tool: string; allow: boolean; by: string }
   | { type: "tool.denied"; role: string; tool: string }
-  | { type: "route.decision"; to: string; via: "mention" | "binding" | "handoff" | "default" | "verdict" | "reset"; reason: string; channel: string; chatId: string };
+  | { type: "route.decision"; to: string; via: "mention" | "binding" | "handoff" | "default" | "verdict" | "reset" | "plan"; reason: string; channel: string; chatId: string }
+  | { type: "goal.created"; goalId: string; title: string; department: string }
+  | { type: "goal.status"; goalId: string; status: string; error?: string }
+  | { type: "node.status"; goalId: string; nodeKey: string; status: string; agent: string; error?: string };
 
 export interface StoredEvent {
   id: number;

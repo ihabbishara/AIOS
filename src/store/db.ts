@@ -32,6 +32,58 @@ export interface StageRow {
   finished_at: string | null;
 }
 
+export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "replanning" | "done" | "failed" | "abandoned";
+export type NodeStatus = "pending" | "ready" | "running" | "done" | "failed" | "skipped";
+
+export interface GoalRow {
+  id: string;
+  slug: string;
+  title: string;
+  request: string;
+  department: string;
+  lead: string;
+  origin_channel: string;
+  origin_chat_id: string;
+  status: GoalStatus;
+  project_dir: string | null;
+  /** The vault directory `<date>-<slug>` under goals/ where artifacts live; stamped at start. */
+  goal_dir: string | null;
+  plan_summary: string;
+  replans_used: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskNodeRow {
+  goal_id: string;
+  node_key: string;
+  type: "run" | "loop" | "verify";
+  agent: string;
+  critic: string | null;
+  brief: string;
+  /** JSON array of node_keys. */
+  depends_on: string;
+  max_rounds: number;
+  status: NodeStatus;
+  artifact: string | null;
+  cost_cents: number;
+  rounds_used: number;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface NewTaskNode {
+  node_key: string;
+  type: "run" | "loop" | "verify";
+  agent: string;
+  critic: string | null;
+  brief: string;
+  depends_on: string[];
+  max_rounds: number;
+}
+
 export interface ReminderRow {
   id: number;
   text: string;
@@ -145,6 +197,46 @@ export class Store {
         started_at TEXT NOT NULL,
         finished_at TEXT,
         PRIMARY KEY (job_id, stage_id)
+      );
+      CREATE TABLE IF NOT EXISTS goals (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        request TEXT NOT NULL,
+        department TEXT NOT NULL,
+        lead TEXT NOT NULL,
+        origin_channel TEXT NOT NULL,
+        origin_chat_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        project_dir TEXT,
+        goal_dir TEXT,
+        plan_summary TEXT NOT NULL DEFAULT '',
+        replans_used INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS task_nodes (
+        goal_id TEXT NOT NULL,
+        node_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        critic TEXT,
+        brief TEXT NOT NULL,
+        depends_on TEXT NOT NULL,
+        max_rounds INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        artifact TEXT,
+        cost_cents INTEGER NOT NULL DEFAULT 0,
+        rounds_used INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        started_at TEXT,
+        finished_at TEXT,
+        UNIQUE (goal_id, node_key)
+      );
+      CREATE TABLE IF NOT EXISTS budget_ledger (
+        date TEXT PRIMARY KEY,
+        spent_cents INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS kv (
         key TEXT PRIMARY KEY,
@@ -456,6 +548,136 @@ export class Store {
       .prepare("SELECT stage_id FROM stages WHERE job_id = ? AND status = 'done'")
       .all(jobId) as unknown as Array<{ stage_id: string }>;
     return new Set(rows.map((r) => r.stage_id));
+  }
+
+  insertGoal(g: Omit<GoalRow, "created_at" | "updated_at">): void {
+    const now = new Date().toISOString();
+    this.db.prepare(
+      `INSERT INTO goals (id, slug, title, request, department, lead, origin_channel, origin_chat_id,
+                          status, project_dir, goal_dir, plan_summary, replans_used, error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(g.id, g.slug, g.title, g.request, g.department, g.lead, g.origin_channel, g.origin_chat_id,
+          g.status, g.project_dir, g.goal_dir, g.plan_summary, g.replans_used, g.error, now, now);
+  }
+
+  getGoal(id: string): GoalRow | undefined {
+    return this.db.prepare("SELECT * FROM goals WHERE id = ?").get(id) as GoalRow | undefined;
+  }
+
+  getGoalBySlug(slug: string): GoalRow | undefined {
+    return this.db.prepare("SELECT * FROM goals WHERE slug = ? ORDER BY created_at DESC LIMIT 1")
+      .get(slug) as GoalRow | undefined;
+  }
+
+  listGoals(limit = 20): GoalRow[] {
+    return this.db.prepare("SELECT * FROM goals ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as unknown as GoalRow[];
+  }
+
+  unfinishedGoals(): GoalRow[] {
+    return this.db.prepare(
+      "SELECT * FROM goals WHERE status IN ('planning','running','replanning') ORDER BY created_at ASC",
+    ).all() as unknown as GoalRow[];
+  }
+
+  pausedBudgetGoals(): GoalRow[] {
+    return this.db.prepare("SELECT * FROM goals WHERE status = 'paused-budget' ORDER BY created_at ASC")
+      .all() as unknown as GoalRow[];
+  }
+
+  updateGoalStatus(id: string, status: GoalStatus, error?: string): void {
+    this.db.prepare("UPDATE goals SET status = ?, error = ?, updated_at = ? WHERE id = ?")
+      .run(status, error ?? null, new Date().toISOString(), id);
+  }
+
+  setGoalProjectDir(id: string, dir: string): void {
+    this.db.prepare("UPDATE goals SET project_dir = ?, updated_at = ? WHERE id = ?")
+      .run(dir, new Date().toISOString(), id);
+  }
+
+  setGoalDir(id: string, dir: string): void {
+    this.db.prepare("UPDATE goals SET goal_dir = ?, updated_at = ? WHERE id = ?")
+      .run(dir, new Date().toISOString(), id);
+  }
+
+  setGoalPlanSummary(id: string, summary: string): void {
+    this.db.prepare("UPDATE goals SET plan_summary = ?, updated_at = ? WHERE id = ?")
+      .run(summary, new Date().toISOString(), id);
+  }
+
+  bumpReplans(id: string): void {
+    this.db.prepare("UPDATE goals SET replans_used = replans_used + 1, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
+  }
+
+  insertNodes(goalId: string, nodes: NewTaskNode[]): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO task_nodes (goal_id, node_key, type, agent, critic, brief, depends_on, max_rounds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const n of nodes) {
+      stmt.run(goalId, n.node_key, n.type, n.agent, n.critic, n.brief, JSON.stringify(n.depends_on), n.max_rounds);
+    }
+  }
+
+  replaceNode(goalId: string, key: string, node: NewTaskNode): void {
+    this.db.prepare("DELETE FROM task_nodes WHERE goal_id = ? AND node_key = ?").run(goalId, key);
+    this.insertNodes(goalId, [node]);
+  }
+
+  listNodes(goalId: string): TaskNodeRow[] {
+    return this.db.prepare("SELECT * FROM task_nodes WHERE goal_id = ? ORDER BY rowid ASC")
+      .all(goalId) as unknown as TaskNodeRow[];
+  }
+
+  updateNodeStatus(goalId: string, key: string, status: NodeStatus, error?: string): void {
+    const now = new Date().toISOString();
+    const stamps =
+      status === "running" ? ", started_at = ?" :
+      status === "done" || status === "failed" || status === "skipped" ? ", finished_at = ?" : "";
+    const sql = `UPDATE task_nodes SET status = ?, error = ?${stamps} WHERE goal_id = ? AND node_key = ?`;
+    const args: SQLInputValue[] = stamps ? [status, error ?? null, now, goalId, key] : [status, error ?? null, goalId, key];
+    this.db.prepare(sql).run(...args);
+  }
+
+  addNodeCost(goalId: string, key: string, cents: number): void {
+    this.db.prepare("UPDATE task_nodes SET cost_cents = cost_cents + ? WHERE goal_id = ? AND node_key = ?")
+      .run(cents, goalId, key);
+  }
+
+  setNodeArtifact(goalId: string, key: string, file: string): void {
+    this.db.prepare("UPDATE task_nodes SET artifact = ? WHERE goal_id = ? AND node_key = ?").run(file, goalId, key);
+  }
+
+  setNodeRounds(goalId: string, key: string, rounds: number): void {
+    this.db.prepare("UPDATE task_nodes SET rounds_used = ? WHERE goal_id = ? AND node_key = ?").run(rounds, goalId, key);
+  }
+
+  skipUnfinishedNodes(goalId: string): void {
+    this.db.prepare(
+      "UPDATE task_nodes SET status = 'skipped', finished_at = ? WHERE goal_id = ? AND status IN ('pending','ready')",
+    ).run(new Date().toISOString(), goalId);
+  }
+
+  /** Startup-only sweep: re-run nodes orphaned mid-flight by a daemon restart. */
+  resetRunningNodes(): string[] {
+    const rows = this.db.prepare("SELECT DISTINCT goal_id FROM task_nodes WHERE status = 'running'")
+      .all() as unknown as Array<{ goal_id: string }>;
+    this.db.prepare("UPDATE task_nodes SET status = 'pending', started_at = NULL WHERE status = 'running'").run();
+    return rows.map((r) => r.goal_id);
+  }
+
+  budgetAdd(date: string, cents: number): void {
+    this.db.prepare(
+      `INSERT INTO budget_ledger (date, spent_cents) VALUES (?, ?)
+       ON CONFLICT(date) DO UPDATE SET spent_cents = spent_cents + excluded.spent_cents`,
+    ).run(date, cents);
+  }
+
+  budgetSpentCents(date: string): number {
+    const r = this.db.prepare("SELECT spent_cents FROM budget_ledger WHERE date = ?").get(date) as
+      | { spent_cents: number } | undefined;
+    return r?.spent_cents ?? 0;
   }
 
   addExpense(e: {
