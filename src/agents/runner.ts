@@ -142,10 +142,15 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
 
     try {
       const merged = specialistOptions(role, canonical, opts, deps.store);
-      const observed = withDenialObserver(merged, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
-      // Structured output arrives via the SDK's StructuredOutput tool — a clamped allowlist
-      // that omits it silently yields structured: undefined (observed live: planner + critics).
+      // Structured output arrives via the SDK's StructuredOutput tool. Widen the allowlist
+      // BEFORE the denial observer wraps it — the observer's PreToolUse hook denies from the
+      // list it captures at wrap time (observed live: tool.denied athena StructuredOutput →
+      // structured: undefined for planner leads and verdict critics).
       const schema = role.outputSchema ?? opts.outputSchema;
+      const withSchema = schema
+        ? { ...merged, allowedTools: [...new Set([...(merged.allowedTools ?? []), "StructuredOutput"])] }
+        : merged;
+      const observed = withDenialObserver(withSchema, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
       const q = query({
         prompt: brief,
         options: {
@@ -154,10 +159,7 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
           persistSession: false,
           abortController: abort,
           ...(schema
-            ? {
-                outputFormat: { type: "json_schema" as const, schema: schema as Record<string, unknown> },
-                allowedTools: [...new Set([...(observed.allowedTools ?? []), "StructuredOutput"])],
-              }
+            ? { outputFormat: { type: "json_schema" as const, schema: schema as Record<string, unknown> } }
             : {}),
         },
       });
