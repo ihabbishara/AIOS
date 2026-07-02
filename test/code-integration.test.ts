@@ -4,9 +4,10 @@ import { mkdtempSync, mkdirSync, readdirSync, writeFileSync, realpathSync } from
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Store } from "../src/store/db.js";
+import { Store, type GoalRow } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
-import { JobManager } from "../src/engine/jobs.js";
+import { GoalEngine } from "../src/engine/goals.js";
+import { SpendGuard } from "../src/engine/budget.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { allocateWorkspace } from "../src/code/workspace.js";
 import { makeResolveDeptFor } from "../src/packs/resolve.js";
@@ -56,34 +57,34 @@ describe("code-analyze end-to-end (stubbed model)", () => {
       { store, vault, gate },
     );
 
-    const jobs = new JobManager({
-      store, vault, run, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrent: 1,
+    const goals = new GoalEngine({
+      store, vault, run: run as never, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrentNodes: 1,
+      spendGuard: new SpendGuard({ store }),
       onComplete: async () => {},
-      pillarOf: reg.ownerOfPlaybook,
       registry: reg,
-      prepareSandbox: async (job) => {
-        if (reg.ownerOfPlaybook.get(job.playbook) !== "engineering") return undefined;
+      prepareSandbox: async (goal: GoalRow) => {
+        if (goal.department !== "engineering") return undefined;
         const { taskDir } = allocateWorkspace(
-          { mode: "analyze", source: job.project_dir ?? undefined, slug: job.slug },
+          { mode: "analyze", source: goal.project_dir ?? undefined, slug: goal.slug },
           { workspaceRoot: join(home, "ws"), readRoots: [projects], now: "2026-06-21", id: "deadbeef" },
         );
-        return { taskDir, mode: "analyze" };
+        return { taskDir, mode: "analyze" as const };
       },
-      resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
+      resolveDeptFor: (key, origin, byAgent, sandbox) => resolveDeptFor(key, origin, byAgent, sandbox),
     });
 
-    const job = jobs.createJob({
+    const job = goals.createFromPlaybook({
       playbook: "code-analyze", title: "audit target", request: "assess this repo",
       projectDir: repo, channel: "system", chatId: "test",
     });
 
-    await vi.waitFor(() => expect(store.getJob(job.id)!.status).toBe("done"), { timeout: 10_000 });
+    await vi.waitFor(() => expect(store.getGoal(job.id)!.status).toBe("done"), { timeout: 10_000 });
 
     // Wiring asserts surfaced after the job is done → clear messages, no timeout-masking.
     expect(run).toHaveBeenCalled();
     expect(capturedOpts.cwd).toBe(realRepo); // analyze → taskDir = resolveReal(source)
     expect(capturedOpts.pack?.confinement?.guard).toBeTruthy(); // pack resolved WITH confinement
-    expect(store.getJob(job.id)!.project_dir).toBe(realRepo); // rewritten to analyze taskDir = resolveReal(source)
+    expect(store.getGoal(job.id)!.project_dir).toBe(realRepo); // rewritten to analyze taskDir = resolveReal(source)
     expect(readdirSync(realRepo).sort()).toEqual(repoFilesBefore); // analyzed repo untouched
   }, 15_000);
 });

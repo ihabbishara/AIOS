@@ -6,7 +6,8 @@ import { playbookSchema } from "../engine/playbook.js";
 import { parse as parseYaml } from "yaml";
 import type { Store } from "../store/db.js";
 import type { EventBus, AiosEvent } from "../events.js";
-import type { JobManager } from "../engine/jobs.js";
+import type { GoalEngine } from "../engine/goals.js";
+import type { SpendGuard } from "../engine/budget.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { Config } from "../config.js";
 import type { MessageRouter } from "../router.js";
@@ -62,7 +63,8 @@ export function isChiefOfStaff(target?: string): boolean {
 export interface WebDeps {
   store: Store;
   bus: EventBus;
-  jobs: JobManager;
+  goals: GoalEngine;
+  spendGuard: SpendGuard;
   vault: VaultWriter;
   config: Config;
   router: MessageRouter;
@@ -110,12 +112,9 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): void {
-  const { store, bus, jobs, vault, config, router, gate, voice, registry, reloadPacks, log = () => {} } = deps;
+  const { store, bus, goals, vault, config, router, gate, voice, registry, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
-
-  const jobDirName = (job: { slug: string; created_at: string }) =>
-    `${job.created_at.slice(0, 10)}-${job.slug}`;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -150,26 +149,36 @@ export function startWebServer(deps: WebDeps, port: number): void {
                   skills: a.role.skills ?? [], guarded: !!a.role.toolChecks, cwd: a.role.cwd,
                 })),
             ],
-            playbooks: jobs.listPlaybooks(),
+            playbooks: goals.listPlaybooks(),
             bindings: [...config.chatBindings.entries()].map(([chatKey, b]) => ({ chatKey, ...b })),
           });
         }
 
+        // Transitional compat: the board UI reads /api/jobs until plan 3b lands the goals tab.
+        const goalAsJob = (g: import("../store/db.js").GoalRow) => ({
+          id: g.id, slug: g.slug, title: g.title, playbook: g.plan_summary, request: g.request,
+          project_dir: g.project_dir, job_dir: g.goal_dir, channel: g.origin_channel, chat_id: g.origin_chat_id,
+          status: g.status, error: g.error, created_at: g.created_at, updated_at: g.updated_at,
+          stages: store.listNodes(g.id).map((n) => ({
+            stage_id: n.node_key, status: n.status, started_at: n.started_at ?? "", finished_at: n.finished_at,
+          })),
+        });
+
         if (path === "/api/jobs" && req.method === "GET") {
-          const rows = store.listJobs(Number(url.searchParams.get("limit") ?? 50));
-          return json(res, 200, rows.map((j) => ({ ...j, stages: store.listStages(j.id) })));
+          const rows = store.listGoals(Number(url.searchParams.get("limit") ?? 50));
+          return json(res, 200, rows.map(goalAsJob));
         }
 
         const jobMatch = /^\/api\/jobs\/([0-9a-f-]+)$/.exec(path);
         if (jobMatch && req.method === "GET") {
-          const job = store.getJob(jobMatch[1]);
-          if (!job) return json(res, 404, { error: "no such job" });
-          const dir = jobDirName(job);
-          const files = vault.listNotes(`jobs/${dir}`).map((rel) => {
+          const goal = store.getGoal(jobMatch[1]);
+          if (!goal) return json(res, 404, { error: "no such goal" });
+          const dir = goal.goal_dir ?? "";
+          const files = !dir ? [] : vault.listNotes(`goals/${dir}`).map((rel) => {
             const file = rel.split("/").pop()!;
-            return { file, content: vault.readJobArtifact(dir, file) ?? "" };
+            return { file, content: vault.readGoalArtifact(dir, file) ?? "" };
           });
-          return json(res, 200, { ...job, stages: store.listStages(job.id), artifacts: files, vaultDir: `jobs/${dir}` });
+          return json(res, 200, { ...goalAsJob(goal), artifacts: files, vaultDir: `goals/${dir}` });
         }
 
         if (path === "/api/events" && req.method === "GET") {
@@ -326,14 +335,14 @@ export function startWebServer(deps: WebDeps, port: number): void {
           const v = validateRunRequest(config, runMatch[1], body.playbook, body.project_dir);
           if (!v.ok) return json(res, 400, { error: v.error });
           try {
-            const job = jobs.createJob({
+            const goal = goals.createFromPlaybook({
               playbook: body.playbook,
               title: `${body.playbook}: ${v.projectDir ?? "new workspace"}`,
               request: `Run ${body.playbook} from the Packs view${v.projectDir ? ` on ${v.projectDir}` : ""}.`,
               projectDir: v.projectDir,
               channel: "web", chatId: "packs-view",
             });
-            return json(res, 200, { id: job.id });
+            return json(res, 200, { id: goal.id });
           } catch (e) {
             return json(res, 400, { error: (e as Error).message });
           }

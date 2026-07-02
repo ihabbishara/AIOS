@@ -5,7 +5,7 @@ import { usePoll } from "../hooks.js";
 
 export function Packs({ events }: { events: StoredEvent[] }) {
   const lastEvt = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("job.") || e.event.type.startsWith("stage.")).at(-1)?.id,
+    () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
     [events],
   );
   const { data: packs } = usePoll(() => api.packs(), [lastEvt]);

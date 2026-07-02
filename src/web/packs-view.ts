@@ -64,7 +64,7 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
   let entries: string[];
   try { entries = readdirSync(agentsDir); } catch { return out; }
 
-  const recentJobs = store.listJobs(500);
+  const recentGoals = store.listGoals(500);
 
   for (const entry of entries) {
     const deptDir = join(agentsDir, entry);
@@ -120,9 +120,9 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
       } catch { /* skip */ }
     }
 
-    const myJobs = recentJobs.filter((j) => dept.playbooks.includes(j.playbook)).slice(0, 10);
-    const jobViews: PackJobView[] = myJobs.map((j) => ({
-      id: j.id, title: j.title, playbook: j.playbook, status: j.status, created_at: j.created_at, projectDir: j.project_dir,
+    const myJobs = recentGoals.filter((g) => g.department === dept.department).slice(0, 10);
+    const jobViews: PackJobView[] = myJobs.map((g) => ({
+      id: g.id, title: g.title, playbook: g.plan_summary.replace(/^playbook:/, ""), status: g.status, created_at: g.created_at, projectDir: g.project_dir,
     }));
 
     const workspaces: PackWorkspaceView[] = [];

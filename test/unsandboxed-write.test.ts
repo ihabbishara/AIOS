@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isUnsandboxedWrite, stageRoles } from "../src/engine/jobs.js";
+import { isUnsandboxedWrite, stageRoles } from "../src/engine/goals.js";
 import type { Playbook } from "../src/engine/playbook.js";
 import { testRegistry } from "./fixtures/registry.js";
 

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { JobManager } from "../src/engine/jobs.js";
+import { GoalEngine } from "../src/engine/goals.js";
 
 function scaffold() {
   const root = mkdtempSync(join(tmpdir(), "pb-"));
@@ -63,9 +63,10 @@ describe("listPlaybooks department grouping", () => {
   it("annotates each playbook with its department (or undefined when packless)", () => {
     const { root, agents, pbs } = scaffold();
     const reg = loadRegistry(agents, pbs);
-    const jm = new JobManager({
-      store: {} as never, vault: {} as never, run: (async () => ({})) as never,
-      playbooks: reg.playbooks, pillarOf: reg.ownerOfPlaybook, wallTimeMs: 1, maxConcurrent: 1, onComplete: async () => {},
+    const jm = new GoalEngine({
+      store: {} as never, vault: {} as never, run: (async () => ({})) as never, registry: reg,
+      playbooks: reg.playbooks, wallTimeMs: 1, maxConcurrentNodes: 0,
+      spendGuard: {} as never, onComplete: async () => {}, resolveDeptFor: () => undefined,
     });
     const list = jm.listPlaybooks();
     expect(list.find((p) => p.name === "sub-audit")?.pillar).toBe("finance");

@@ -1,19 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
-import type { JobRow } from "../src/store/db.js";
+import type { GoalStatus } from "../src/store/db.js";
 import { assembleBrief, renderBriefNote, isEmptyBrief } from "../src/heartbeat/briefs.js";
 import { localParts } from "../src/heartbeat/clock.js";
 
 const NOW = "2026-06-17T07:30:00.000Z"; // morning; same local date as the speculate stamp
 const TODAY = localParts(new Date(NOW)).date;
 
-/** Insert a job row directly so the brief's getJob(id) can resolve status. */
-function insertJob(s: Store, id: string, slug: string, status: JobRow["status"], jobDir?: string) {
-  s.insertJob({
-    id, slug, title: slug[0].toUpperCase() + slug.slice(1), playbook: "research-report", request: "q",
-    project_dir: null, channel: "system", chat_id: "speculate", status, error: null,
+/** Insert a goal row directly so the brief's getGoal(id) can resolve status. */
+function insertJob(s: Store, id: string, slug: string, status: GoalStatus, jobDir?: string) {
+  s.insertGoal({
+    id, slug, title: slug[0].toUpperCase() + slug.slice(1), request: "q", department: "research", lead: "clio",
+    origin_channel: "system", origin_chat_id: "speculate", status, project_dir: null,
+    goal_dir: null, plan_summary: "playbook:research-report", replans_used: 0, error: null,
   });
-  if (jobDir) s.setJobDir(id, jobDir);
+  if (jobDir) s.setGoalDir(id, jobDir);
 }
 
 function seedSpeculate(s: Store, date: string, tasks: Array<{ title: string; slug: string; id: string }>) {
@@ -33,13 +34,13 @@ describe("speculate section in the morning brief", () => {
     ]);
     const data = assembleBrief(s, "morning", NOW, null);
     expect(data.speculateResults).toEqual([
-      { title: "Alpha", status: "done", ref: `jobs/${TODAY}-alpha/report.md` },
+      { title: "Alpha", status: "done", ref: `goals/${TODAY}-alpha/report.md` },
       { title: "Beta", status: "failed", ref: null },
       { title: "Gamma", status: "running", ref: null },
     ]);
     const note = renderBriefNote(data, "narration");
     expect(note).toMatch(/## Speculate — researched overnight/);
-    expect(note).toMatch(new RegExp(`Alpha — jobs/${TODAY}-alpha/report.md`));
+    expect(note).toMatch(new RegExp(`Alpha — goals/${TODAY}-alpha/report.md`));
     expect(note).toMatch(/Beta — failed/);
     expect(note).toMatch(/Gamma — still running/);
   });
@@ -88,7 +89,7 @@ describe("speculate section in the morning brief", () => {
     insertJob(s, "id-done", "alpha", "done", "2099-01-01-alpha"); // job_dir date != TODAY
     s.kvSet("speculate:latest", JSON.stringify({ date: TODAY, tasks: [{ title: "Alpha", slug: "alpha", id: "id-done" }] }));
     const data = assembleBrief(s, "morning", new Date(`${TODAY}T07:30:00.000Z`).toISOString(), null);
-    expect(data.speculateResults![0].ref).toBe("jobs/2099-01-01-alpha/report.md");
+    expect(data.speculateResults![0].ref).toBe("goals/2099-01-01-alpha/report.md");
   });
 
   it("a done job with no job_dir renders title-only — no dead link", () => {

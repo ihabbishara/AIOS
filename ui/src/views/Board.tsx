@@ -12,7 +12,7 @@ const COLUMNS: Array<{ key: string; title: string; accent: string }> = [
 
 export function Board({ events }: { events: StoredEvent[] }) {
   const lastJobEvent = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("job.") || e.event.type.startsWith("stage.")).at(-1)?.id,
+    () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
     [events],
   );
   const { data: jobs } = usePoll(() => api.jobs(), [lastJobEvent]);

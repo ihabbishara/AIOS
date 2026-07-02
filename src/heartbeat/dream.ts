@@ -90,8 +90,8 @@ export function collectObservations(store: Store, now: Date): string {
   for (const row of safe(() => store.listEventsSince(dayAgo), [] as Array<{ id: number; ts: string; payload: string }>)) {
     let e: AiosEvent;
     try { e = JSON.parse(row.payload) as AiosEvent; } catch { continue; }
-    if (e.type === "job.status" && e.status === "failed") {
-      failed.push(`  failed: ${store.getJob(e.jobId)?.title ?? e.jobId} — ${e.error ?? "unknown"}`);
+    if (e.type === "goal.status" && e.status === "failed") {
+      failed.push(`  failed: ${store.getGoal(e.goalId)?.title ?? e.goalId} — ${e.error ?? "unknown"}`);
     }
   }
   if (failed.length) sections.push(`JOBS:\n${failed.join("\n")}`);

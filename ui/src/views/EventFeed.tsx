@@ -2,10 +2,9 @@ import { useEffect, useRef } from "react";
 import type { StoredEvent } from "../api.js";
 
 const COLOR: Record<string, string> = {
-  "job.created": "text-cyan",
-  "job.status": "text-cyan",
-  "stage.start": "text-amber",
-  "stage.finish": "text-phosphor",
+  "goal.created": "text-cyan",
+  "goal.status": "text-cyan",
+  "node.status": "text-amber",
   "agent.start": "text-amber",
   "agent.end": "text-phosphor",
   "chat.in": "text-violet",
@@ -15,10 +14,9 @@ const COLOR: Record<string, string> = {
 function describe(e: StoredEvent): string {
   const v = e.event;
   switch (v.type) {
-    case "job.created": return `job ▸ ${v.title}`;
-    case "job.status": return `job ${String(v.status).toUpperCase()}${v.error ? ` — ${v.error}` : ""}`;
-    case "stage.start": return `stage ▸ ${v.stageId}`;
-    case "stage.finish": return `stage ${v.stageId} ${v.status}`;
+    case "goal.created": return `goal ▸ ${v.title}`;
+    case "goal.status": return `goal ${String(v.status).toUpperCase()}${v.error ? ` — ${v.error}` : ""}`;
+    case "node.status": return `node ${v.nodeKey} ${v.status} · ${v.agent}`;
     case "agent.start": return `${v.agent} engaged · ${String(v.context).replace(/^(job|chat):/, "")}`;
     case "agent.end": return `${v.agent} ${v.ok ? "done" : "FAILED"}${v.costUsd ? ` · $${Number(v.costUsd).toFixed(3)}` : ""}`;
     case "chat.in": return `← ${v.channel}${v.sender ? ` (${v.sender})` : ""}: ${v.text}`;

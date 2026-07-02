@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
-import { JobManager } from "../src/engine/jobs.js";
+import { GoalEngine } from "../src/engine/goals.js";
+import { SpendGuard } from "../src/engine/budget.js";
 import type { Playbook } from "../src/engine/playbook.js";
 import type { LoadedRegistry } from "../src/agents/registry/loader.js";
 import { testRegistry } from "./fixtures/registry.js";
@@ -48,18 +49,24 @@ function makeManager(
   const root = mkdtempSync(join(tmpdir(), "aios-vault-"));
   const vault = new VaultWriter(root, "AIOS");
   vault.init();
-  return new JobManager({
+  const registry = opts.registry ?? (undefined as unknown as LoadedRegistry);
+  // pillar-mapped playbooks: the ownership map now lives on the registry
+  if (registry && opts.pillarOf) for (const [pb, dept] of opts.pillarOf) registry.ownerOfPlaybook.set(pb, dept);
+  return new GoalEngine({
     store,
     vault,
     run: (async () => ({ text: "ok", costUsd: 0, numTurns: 1 })) as never,
+    registry,
     playbooks,
     wallTimeMs: 60_000,
-    // maxConcurrent: 0 → pump() returns immediately; job is enqueued but never executed.
-    // createJob returns the row synchronously. Refusals throw BEFORE insert, so run/vault
-    // stubs are never invoked.
-    maxConcurrent: 0,
+    // maxConcurrentNodes: 0 → pump() schedules nothing; the goal row is created synchronously.
+    // Refusals throw BEFORE insert, so run stubs are never invoked.
+    maxConcurrentNodes: 0,
+    spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
-    ...opts,
+    resolveDeptFor: () => undefined,
+    projectsRoot: opts.projectsRoot,
+    workspaceRoot: opts.workspaceRoot,
   });
 }
 
@@ -72,7 +79,7 @@ describe("createJob inplace gate", () => {
       registry: testRegistry(),
     });
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "code-inplace",
         title: "Fix bug",
         request: "fix the bug",
@@ -92,7 +99,7 @@ describe("createJob inplace gate", () => {
       registry: testRegistry(),
     });
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "code-inplace",
         title: "Fix bug",
         request: "fix the bug",
@@ -111,7 +118,7 @@ describe("createJob inplace gate", () => {
       registry: testRegistry(),
     });
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "code-inplace",
         title: "Fix bug",
         request: "fix the bug",
@@ -132,7 +139,7 @@ describe("createJob inplace gate", () => {
     });
     const outside = mkdtempSync(join(tmpdir(), "outside-"));
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "code-inplace",
         title: "Fix bug",
         request: "fix the bug",
@@ -163,7 +170,7 @@ describe("createJob inplace gate", () => {
       },
     );
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "code-build",
         title: "Build",
         request: "build it",
@@ -181,7 +188,7 @@ describe("createJob inplace gate", () => {
       registry: testRegistry(),
     });
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "research-report",
         title: "Research",
         request: "research it",
@@ -200,7 +207,7 @@ describe("createJob inplace gate", () => {
       registry: testRegistry(),
     });
     expect(() =>
-      jm.createJob({
+      jm.createFromPlaybook({
         playbook: "code-inplace",
         title: "Fix bug",
         request: "fix the bug",

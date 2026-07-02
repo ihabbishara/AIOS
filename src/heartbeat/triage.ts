@@ -28,17 +28,16 @@ export function defaultVerdict(event: AiosEvent): TriageVerdict | undefined {
       return event.auto ? "batch" : "ignore"; // approved ones were confirmed in chat already
     case "trust.changed":
       return "batch";
-    case "job.status":
-      return "ignore"; // job completion AND failure already narrated by the moderator flow
+    case "goal.status":
+      return "ignore"; // goal completion AND failure already narrated by the moderator flow
     case "calendar.reminder":
       return "notify_now";
     case "calendar.changed":
       return "batch";
     case "mail.received":
       return undefined; // model decides — quiet posture prompt below
-    case "job.created":
-    case "stage.start":
-    case "stage.finish":
+    case "goal.created":
+    case "node.status":
     case "agent.start":
     case "agent.end":
     case "chat.in":

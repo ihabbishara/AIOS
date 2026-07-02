@@ -71,8 +71,8 @@ export function assembleBrief(
       }
       if (event.type === "action.executed" && event.auto && event.ok) {
         autoCounts.set(event.actionType, (autoCounts.get(event.actionType) ?? 0) + 1);
-      } else if (event.type === "job.status") {
-        const title = store.getJob(event.jobId)?.title ?? event.jobId;
+      } else if (event.type === "goal.status") {
+        const title = store.getGoal(event.goalId)?.title ?? event.goalId;
         if (event.status === "failed") jobsFailed.push({ title, error: event.error ?? "unknown" });
         else if (event.status === "done") jobsFinished.push({ title, status: event.status });
       } else if (event.type === "trust.changed") {
@@ -139,12 +139,12 @@ export function assembleBrief(
         const parsed = JSON.parse(raw) as { date?: string; tasks?: Array<{ title: string; slug: string; id: string }> };
         if (parsed.date === localDateOf(nowIso) && parsed.tasks?.length) {
           speculateResults = parsed.tasks.map((t) => {
-            const job = store.getJob(t.id);
+            const goal = store.getGoal(t.id);
             // queued, running, or job not yet written → "running" (brief shows in-progress)
             const status: "done" | "failed" | "running" =
-              job?.status === "done" ? "done" : job?.status === "failed" ? "failed" : "running";
+              goal?.status === "done" ? "done" : goal?.status === "failed" ? "failed" : "running";
             // Use the job's real persisted dir — never reconstruct from a date (UTC vs local drift).
-            const ref = status === "done" && job?.job_dir ? `jobs/${job.job_dir}/report.md` : null;
+            const ref = status === "done" && goal?.goal_dir ? `goals/${goal.goal_dir}/report.md` : null;
             return { title: t.title, status, ref };
           });
         }

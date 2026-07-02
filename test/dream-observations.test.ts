@@ -50,7 +50,7 @@ describe("collectObservations", () => {
 
   it("includes failed jobs from recent events", () => {
     const s = new Store(":memory:");
-    s.addEvent(JSON.stringify({ type: "job.status", jobId: "j1", status: "failed", error: "timeout" }));
+    s.addEvent(JSON.stringify({ type: "goal.status", goalId: "g1", status: "failed", error: "timeout" }));
     const d = collectObservations(s, NOW);
     expect(d).toMatch(/JOBS:/);
     expect(d).toMatch(/failed:.*timeout/);

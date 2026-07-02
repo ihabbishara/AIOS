@@ -73,9 +73,10 @@ describe("buildPacksView", () => {
     const config = fixtureConfig();
     const store = new Store(":memory:");
     const taskDir = join(config.workspaceRoot, "2026-06-22-x-ab12");
-    store.insertJob({ id: "j1", slug: "x", title: "build x", playbook: "code-build", request: "r",
-      project_dir: taskDir, channel: "web", chat_id: "packs-view", status: "queued", error: null } as any);
-    store.updateJobStatus("j1", "done");
+    store.insertGoal({ id: "j1", slug: "x", title: "build x", request: "r", department: "engineering",
+      lead: "athena", origin_channel: "web", origin_chat_id: "packs-view", status: "running",
+      project_dir: taskDir, goal_dir: null, plan_summary: "playbook:code-build", replans_used: 0, error: null });
+    store.updateGoalStatus("j1", "done");
     const view = buildPacksView(config, store);
     const eng = view.find((p) => p.pillar === "engineering")!;
     expect(eng.recentJobs.map((j) => j.id)).toContain("j1");

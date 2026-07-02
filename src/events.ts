@@ -2,10 +2,6 @@ import { EventEmitter } from "node:events";
 import type { Store } from "./store/db.js";
 
 export type AiosEvent =
-  | { type: "job.created"; jobId: string; title: string; playbook: string }
-  | { type: "job.status"; jobId: string; status: string; error?: string }
-  | { type: "stage.start"; jobId: string; stageId: string; kind: string }
-  | { type: "stage.finish"; jobId: string; stageId: string; status: string }
   | { type: "agent.start"; agent: string; context: string }
   | { type: "agent.end"; agent: string; context: string; costUsd?: number; turns?: number; ok: boolean }
   | { type: "chat.in"; channel: string; chatId: string; text: string; sender?: string }

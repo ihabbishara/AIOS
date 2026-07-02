@@ -9,9 +9,29 @@ import type { AiosEvent } from "../events.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import type { Playbook } from "./playbook.js";
 import { compilePlaybook, toNewTaskNodes } from "./compile.js";
-import { isUnsandboxedWrite } from "./jobs.js";
+import type { Stage } from "./playbook.js";
 import { assertInplaceTarget, resolveReal } from "../code/paths.js";
 import type { SpendGuard } from "./budget.js";
+
+/** All role names a stage references, across every stage shape. */
+export function stageRoles(stage: Stage): string[] {
+  switch (stage.type) {
+    case "single": return [stage.role];
+    case "loop": return [stage.producer, stage.critic];
+    case "verify": return [stage.runner, stage.fixer];
+  }
+}
+
+/** A playbook is "unsandboxed-write" iff it is packless (no owning department) AND a stage uses a
+ *  bypassPermissions role — the in-place coding path that must be gated. */
+export function isUnsandboxedWrite(pb: Playbook, ownerOf?: Map<string, string>, registry?: LoadedRegistry): boolean {
+  if (!registry) throw new Error("isUnsandboxedWrite: registry is required (fail-closed)");
+  if (ownerOf?.get(pb.name)) return false;
+  return pb.stages.some((st) => stageRoles(st).some((r) => {
+    const agentName = registry.agentOf.get(r) ?? r;
+    return registry.agents.get(agentName)?.role.permissionMode === "bypassPermissions";
+  }));
+}
 
 export interface Planner {
   plan(engine: GoalEngine, params: { department: string; title: string; request: string; channel: string; chatId: string }): Promise<GoalRow>;

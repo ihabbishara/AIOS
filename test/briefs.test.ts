@@ -36,15 +36,16 @@ describe("assembleBrief", () => {
 
   it("digests events since the window start", () => {
     const store = new Store(":memory:");
-    store.insertJob({
-      id: "j1", slug: "demo", title: "Demo job", playbook: "echo", request: "r",
-      project_dir: null, channel: "cli", chat_id: "local", status: "done", error: null,
+    store.insertGoal({
+      id: "j1", slug: "demo", title: "Demo job", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "cli", origin_chat_id: "local", status: "done", project_dir: null,
+      goal_dir: null, plan_summary: "playbook:echo", replans_used: 0, error: null,
     });
     store.addEvent(JSON.stringify({ type: "action.executed", actionId: "x", actionType: "vault.write", auto: true, ok: true }));
     store.addEvent(JSON.stringify({ type: "action.executed", actionId: "y", actionType: "vault.write", auto: true, ok: true }));
     store.addEvent(JSON.stringify({ type: "action.executed", actionId: "z", actionType: "vault.write", auto: false, ok: true }));
-    store.addEvent(JSON.stringify({ type: "job.status", jobId: "j1", status: "done" }));
-    store.addEvent(JSON.stringify({ type: "job.status", jobId: "j1", status: "failed", error: "boom" }));
+    store.addEvent(JSON.stringify({ type: "goal.status", goalId: "j1", status: "done" }));
+    store.addEvent(JSON.stringify({ type: "goal.status", goalId: "j1", status: "failed", error: "boom" }));
     store.addEvent(JSON.stringify({ type: "trust.changed", actionType: "test.echo", state: "graduating" }));
     const data = assembleBrief(store, "evening", NOW, "2020-01-01T00:00:00.000Z");
     expect(data.autonomousDigest).toEqual([{ type: "vault.write", count: 2 }]); // auto only

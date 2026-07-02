@@ -8,7 +8,6 @@ import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
 import { randomUUID } from "node:crypto";
 import { localParts } from "./heartbeat/clock.js";
-import { JobManager, type JobOutcome } from "./engine/jobs.js";
 import { GoalEngine, type GoalOutcome } from "./engine/goals.js";
 import { SpendGuard, attachBudgetLedger } from "./engine/budget.js";
 import { makePlanner } from "./engine/plan.js";
@@ -171,18 +170,7 @@ async function main(): Promise<void> {
   if (bunq.enabled()) log(`bunq sense: enabled (${config.bunqEnv})`);
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
-  const prepareSandbox = async (job: import("./store/db.js").JobRow, _pb: unknown) => {
-    if (registry.ownerOfPlaybook.get(job.playbook) !== "engineering") return undefined;
-    const mode: "build" | "analyze" = job.playbook === "code-analyze" ? "analyze" : "build";
-    const wsMode = mode === "analyze" ? "analyze" : (job.project_dir ? "worktree" : "greenfield");
-    const { taskDir } = allocateWorkspace(
-      { mode: wsMode, source: job.project_dir ?? undefined, slug: job.slug },
-      { workspaceRoot: config.workspaceRoot, readRoots: config.codeReadRoots, now: localParts(new Date()).date, id: randomUUID().slice(0, 8) },
-    );
-    return { taskDir, mode };
-  };
-
-  // Resolve a department context for a playbook (JobManager) or an agent (direct @role chats).
+  // Resolve a department context for a playbook (GoalEngine facade) or an agent (direct @role chats).
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
   const resolveDeptFor = makeResolveDeptFor(
     registry,
@@ -195,36 +183,6 @@ async function main(): Promise<void> {
   );
 
   const channels = new Map<string, ChannelAdapter>();
-
-  const onJobComplete = async (outcome: JobOutcome): Promise<void> => {
-    const { job } = outcome;
-    const channel = channels.get(job.channel);
-    const notice = outcome.ok
-      ? `[JOB-COMPLETE] Job "${job.title}" (${job.id}) finished. Artifacts in vault under jobs/${outcome.jobDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.`
-      : `[JOB-FAILED] Job "${job.title}" (${job.id}) failed: ${outcome.error}. Partial artifacts under jobs/${outcome.jobDirName}/. Tell the user what happened and suggest next steps.`;
-    const report = await moderator.handle(job.channel, job.chat_id, notice);
-    await channel?.send(job.chat_id, report);
-    bus.emit({ type: "chat.out", channel: job.channel, chatId: job.chat_id, text: report.slice(0, 300) });
-  };
-
-  const jobs = new JobManager({
-    store,
-    vault,
-    run: runSpecialist,
-    playbooks: registry.playbooks,
-    wallTimeMs: config.jobWallTimeMs,
-    maxConcurrent: config.maxConcurrentJobs,
-    model: config.specialistModel,
-    onComplete: onJobComplete,
-    onEvent: (e) => bus.emit(e),
-    log,
-    pillarOf: registry.ownerOfPlaybook,
-    registry,
-    projectsRoot: config.projectsRoot,
-    workspaceRoot: config.workspaceRoot,
-    prepareSandbox,
-    resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
-  });
 
   const spendGuard = new SpendGuard({ store, capUsd: config.dailyBudgetUsd });
   attachBudgetLedger(bus, store);
@@ -458,8 +416,8 @@ async function main(): Promise<void> {
     }
     if (!config.primaryChat) return;
     const summary =
-      e.type === "job.status"
-        ? `🔔 Job ${e.jobId} ${e.status}${e.error ? `: ${e.error.slice(0, 200)}` : ""}`
+      e.type === "goal.status"
+        ? `🔔 Goal ${e.goalId} ${e.status}${e.error ? `: ${e.error.slice(0, 200)}` : ""}`
         : `🔔 ${e.type}: ${JSON.stringify(e).slice(0, 200)}`;
     await sendVia(config.primaryChat.channel, config.primaryChat.chatId, summary);
   };
@@ -492,16 +450,18 @@ async function main(): Promise<void> {
     ],
     onAnchor: async (name) => {
       if (name === "dream") {
+        if (!spendGuard.allow()) { log("budget: skipping dream"); return; }
         // fire-and-forget: the ranker's LLM call must not block the clock tick / reminders.
         void runDreamCycle({ store, rank: dreamRankLLM(config.dreamModel), topN: config.dreamTopN, log })
           .catch((err) => log(`dream cycle failed: ${(err as Error).message}`));
         return;
       }
       if (name === "speculate") {
+        if (!spendGuard.allow()) { log("budget: skipping speculate"); return; }
         // fire-and-forget: the planner's LLM call + enqueue must not block the clock tick / reminders.
         void runSpeculate({
           store,
-          jobs,
+          jobs: { createJob: (p) => goals.createFromPlaybook(p) },
           plan: speculatePlanLLM(config.speculateModel, config.speculateMaxJobs),
           maxJobs: config.speculateMaxJobs,
           log,
@@ -541,6 +501,7 @@ async function main(): Promise<void> {
           .catch((err) => log(`distill failed: ${(err as Error).message}`));
       }
     },
+    onTick: () => goals.resumeBudgetPaused(),
     onReminderDue: (r) =>
       bus.emit({ type: "reminder.due", id: r.id, text: r.text, channel: r.origin_channel, chatId: r.origin_chat_id }),
     log,
@@ -620,11 +581,11 @@ async function main(): Promise<void> {
   }
 
   startWebServer(
-    { store, bus, jobs, vault, config, router, gate, voice, registry, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 
-  const resumed = jobs.resumeUnfinished();
+  const resumed = goals.resumeUnfinished();
   if (resumed) log(`resumed ${resumed} unfinished job(s)`);
 
   const shutdown = async () => {
