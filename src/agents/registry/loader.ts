@@ -73,6 +73,7 @@ function compile(m: AgentManifest, x: AgentExtras = {}): RoleDef {
 /** Scan playbooksDir like loadPacks: top-level *.yaml + one subdir level; manifest files ignored. */
 function scanPlaybooks(dir: string, log: (l: string) => void): Map<string, Playbook> {
   const out = new Map<string, Playbook>();
+  if (!existsSync(dir)) return out;
   const tryLoad = (full: string, label: string) => {
     try { const pb = loadPlaybook(full); out.set(pb.name, pb); }
     catch (err) { log(`playbook ${label} skipped: ${(err as Error).message}`); }

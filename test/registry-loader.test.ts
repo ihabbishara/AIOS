@@ -93,4 +93,11 @@ describe("loadRegistry", () => {
     );
     expect(out).toEqual(new Set(["engineering", "finance"]));
   });
+
+  it("tolerates a missing playbooks directory", () => {
+    const reg = loadRegistry(t.agents, join(t.root, "no-such-playbooks"));
+    expect(reg.playbooks.size).toBe(0);
+    expect(reg.departments.size).toBe(0);
+    expect(reg.agents.size).toBe(0);
+  });
 });
