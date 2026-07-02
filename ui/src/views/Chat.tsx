@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type StateInfo } from "../api.js";
+import { api, type StateInfo, type StoredEvent } from "../api.js";
 
 interface Msg { who: "you" | string; text: string; pending?: boolean; pendingId?: string; audio?: string }
 
@@ -13,8 +13,12 @@ function loadLog(): Msg[] {
   }
 }
 
-export function Chat({ state }: { state: StateInfo | undefined }) {
-  const [target, setTarget] = useState("moderator");
+export function Chat({ state, events, target, setTarget }: {
+  state: StateInfo | undefined;
+  events: StoredEvent[];
+  target: string;
+  setTarget: (t: string) => void;
+}) {
   const [input, setInput] = useState("");
   const [log, setLog] = useState<Msg[]>(loadLog);
   const [recording, setRecording] = useState<MediaRecorder | null>(null);
@@ -28,7 +32,12 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
-  const targets = ["moderator", ...(state?.agents.filter((a) => a.kind !== "moderator").map((a) => a.name) ?? [])];
+  const targets = ["hermes", ...(state?.agents.filter((a) => a.kind !== "moderator").map((a) => a.name) ?? [])];
+
+  // Inline routing trail — decisions made for this web cockpit chat.
+  const trail = events.filter(
+    (e) => e.event.type === "route.decision" && e.event.channel === "web" && e.event.chatId === "ui",
+  ).slice(-3);
 
   const send = async () => {
     const text = input.trim();
@@ -134,6 +143,18 @@ export function Chat({ state }: { state: StateInfo | undefined }) {
             </div>
           </div>
         ))}
+        {trail.length > 0 && (
+          <div className="mt-1 flex flex-col gap-0.5">
+            {trail.map((e) => {
+              const v = e.event as unknown as { to: string; via: string; reason: string };
+              return (
+                <div key={e.id} className="text-[10px] text-dim self-center">
+                  ⇢ hermes → <span className="text-phosphor">{v.to}</span> ({v.via}) — {v.reason}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div ref={bottom} />
       </div>
 

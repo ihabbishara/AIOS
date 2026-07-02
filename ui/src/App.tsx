@@ -17,6 +17,7 @@ type Tab = (typeof TABS)[number];
 
 export function App() {
   const [tab, setTab] = useState<Tab>("board");
+  const [chatTarget, setChatTarget] = useState("hermes");
   const { events, connected } = useEvents();
   const { data: state, error, reload } = usePoll(() => api.state(), []);
 
@@ -82,7 +83,7 @@ export function App() {
           <div className={tab === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
           <div className={tab === "agents" ? "" : "hidden"}><Agents state={state} events={events} /></div>
           <div className={tab === "packs" ? "" : "hidden"}><Packs events={events} /></div>
-          <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} /></div>
+          <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
           <div className={tab === "config" ? "h-full" : "hidden"}><Config /></div>
           <div className={tab === "costs" ? "" : "hidden"}><Costs events={events} /></div>
         </main>
