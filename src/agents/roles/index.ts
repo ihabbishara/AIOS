@@ -26,6 +26,8 @@ export interface RoleDef {
   skills?: string[];
   /** When true, this role is refused from any origin other than the configured primary (private) chat. */
   privateOnly?: boolean;
+  /** Extra absolute dirs the attachment server may serve from for this role (e.g. vault receipts). */
+  attachDirs?: string[];
   maxTurns: number;
 }
 
