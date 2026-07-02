@@ -127,7 +127,7 @@ export class MessageRouter {
         const canonicalTo = directChats.canonical(addressed.role) ?? addressed.role;
         routed(canonicalTo, "mention", `mention of ${addressed.role} in bound chat`);
         const result = await agentTurn(addressed.role, () =>
-          directChats.handle(addressed.role, msg.channel, msg.chatId, addressed.text, msg.sender));
+          directChats.handle(addressed.role, msg.channel, msg.chatId, addressed.text, msg.sender, msg.attachments));
         reply = { text: `[${addressed.role}]\n${result.text}`, attachments: result.attachments };
       } else if (binding.mentionOnly && !hasAttachments) {
         reply = null; // mention-only chat: stay silent for unaddressed chatter
@@ -135,7 +135,7 @@ export class MessageRouter {
         const canonicalTo = directChats.canonical(binding.agents[0]) ?? binding.agents[0];
         routed(canonicalTo, "binding", "first bound agent");
         const result = await agentTurn(binding.agents[0], () =>
-          directChats.handle(binding.agents[0], msg.channel, msg.chatId, msg.text, msg.sender));
+          directChats.handle(binding.agents[0], msg.channel, msg.chatId, msg.text, msg.sender, msg.attachments));
         reply = { text: `[${binding.agents[0]}]\n${result.text}`, attachments: result.attachments };
       }
     } else {
@@ -144,7 +144,7 @@ export class MessageRouter {
         const canonicalTo = directChats.canonical(direct.role) ?? direct.role;
         routed(canonicalTo, "mention", `@${direct.role} addressed`);
         const result = await agentTurn(direct.role, () =>
-          directChats.handle(direct.role, msg.channel, msg.chatId, direct.text, msg.sender));
+          directChats.handle(direct.role, msg.channel, msg.chatId, direct.text, msg.sender, msg.attachments));
         reply = { text: `[${direct.role}]\n${result.text}`, attachments: result.attachments };
       } else {
         routed("rami", "default", "no mention — chief of staff");

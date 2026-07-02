@@ -1,14 +1,14 @@
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { computeSettlement, renderSettlement, toCents, formatCents } from "./ledger.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { FinanceMember } from "../config.js";
 
-const EXPORTS_DIR = "/tmp/aios-exports";
+const EXPORTS_DIR = resolve("data/downloads/exports");
 
 function csvEscape(v: string): string {
   return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
@@ -120,7 +120,7 @@ export function buildLedgerServer(
 
   const exportCsv = tool(
     "export_csv",
-    "Generate a CSV report of the expenses (optionally one month) and send it into this chat as a file.",
+    "Write the ledger as a CSV file and attach it to the chat (call attach_file with the returned path).",
     { month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("YYYY-MM; omit for all time") },
     async (a) => {
       const rows = store.listExpenses(ledger, a.month);
@@ -131,9 +131,9 @@ export function buildLedgerServer(
           [r.id, r.date, csvEscape(r.payer), (r.amount_cents / 100).toFixed(2), r.currency, csvEscape(r.description)].join(","),
         ),
       ].join("\n");
-      const month = a.month ?? currentMonth();
+      const label = a.month ?? "all-time";
       mkdirSync(EXPORTS_DIR, { recursive: true });
-      const filePath = join(EXPORTS_DIR, `${ledgerSlug}-${month}.csv`);
+      const filePath = join(EXPORTS_DIR, `${ledgerSlug}-${label}.csv`);
       writeFileSync(filePath, `${csv}\n`);
       return text(`CSV written to ${filePath}. Call attach_file with this exact path to deliver it into the chat.`);
     },
@@ -141,7 +141,7 @@ export function buildLedgerServer(
 
   const sendReceipt = tool(
     "send_receipt",
-    "Send the archived receipt/invoice file of an expense into this chat.",
+    "Return the archived receipt's path — call attach_file with it to share the file in this chat.",
     { id: z.number().int().describe("Expense id") },
     async (a) => {
       const row = store.listExpenses(ledger).find((r) => r.id === a.id);

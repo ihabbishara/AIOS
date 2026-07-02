@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { existsSync, readFileSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
@@ -9,6 +9,8 @@ import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { buildLedgerServer } from "../src/finance/server.js";
+import { buildAttachmentServer } from "../src/agents/attachment-server.js";
+import type { Attachment } from "../src/agents/attachment.js";
 
 const MEMBERS = [
   { name: "Ihab", handle: "ihab" },
@@ -105,7 +107,7 @@ describe("ledger toolServer", () => {
     expect(listB).toContain("Ledger is empty");
   });
 
-  it("export_csv writes under /tmp/aios-exports and instructs attach_file", async () => {
+  it("export_csv writes under data/downloads/exports and instructs attach_file", async () => {
     const t = handlers(store, { channel: "slack", chatId: "C123" });
     await callText(t.add_expense, {
       payer: "Ihab",
@@ -117,17 +119,18 @@ describe("ledger toolServer", () => {
 
     const result = await callText(t.export_csv, { month: "2026-06" });
 
-    // Must mention the path and attach_file
-    expect(result).toContain("/tmp/aios-exports");
+    // Must mention attach_file and the path must NOT be under /tmp
     expect(result).toContain("attach_file");
+    expect(result).not.toContain("/tmp/aios-exports");
 
-    // Extract path and verify file exists
-    const match = /(\/tmp\/aios-exports\/[^\s]+\.csv)/.exec(result);
+    // Extract path and verify file exists under data/downloads
+    const match = /([^\s]+\.csv)/.exec(result);
     expect(match).not.toBeNull();
     const csvPath = match![1];
+    expect(csvPath).toContain("data/downloads/exports");
     expect(existsSync(csvPath)).toBe(true);
 
-    // First line must be the exact CSV header used by FinanceAgent
+    // First line must be the exact CSV header
     const content = readFileSync(csvPath, "utf8");
     expect(content.split("\n")[0]).toBe("id,date,payer,amount,currency,description");
 
@@ -135,5 +138,54 @@ describe("ledger toolServer", () => {
     expect(content).toContain("Ihab");
     expect(content).toContain("42.50");
     expect(content).toContain("Lunch");
+  });
+
+  it("export_csv path is attachable via buildAttachmentServer (darwin-safe attach pin)", async () => {
+    // This test verifies the /tmp symlink bug cannot regress:
+    // on macOS /tmp is a symlink to /private/tmp; isSafe() calls realpathSync,
+    // so any path under /tmp/aios-* would fail the data/downloads safe-dir check.
+    // By writing under data/downloads/exports we stay realpath-stable on all platforms.
+    const t = handlers(store, { channel: "telegram", chatId: "C456" });
+    await callText(t.add_expense, {
+      payer: "Amr",
+      amount: 99,
+      currency: "EUR",
+      description: "Server",
+      date: "2026-07-01",
+    });
+
+    // export_csv returns the file path
+    const result = await callText(t.export_csv, { month: "2026-07" });
+    const match = /([^\s]+\.csv)/.exec(result);
+    expect(match).not.toBeNull();
+    const csvPath = match![1];
+
+    // Build attachment server the same way DirectChats does
+    const collected: Attachment[] = [];
+    const server = buildAttachmentServer(collected, [resolve("data/downloads")]);
+    const inst = (server as unknown as { instance: { _registeredTools: Record<string, { handler: (a: unknown) => Promise<{ content: Array<{ text: string }> }> }> } }).instance;
+    const handler = inst._registeredTools["attach_file"].handler;
+
+    const attachResult = await handler({ path: csvPath });
+
+    // Must succeed — NOT a refusal
+    expect(attachResult.content[0].text).not.toContain("Refused");
+    expect(attachResult.content[0].text).toContain("Queued for delivery");
+    expect(collected).toHaveLength(1);
+    expect(collected[0].path).toBe(csvPath);
+  });
+
+  it("export_csv uses 'all-time' label when no month given", async () => {
+    const t = handlers(store, { channel: "slack", chatId: "C789" });
+    await callText(t.add_expense, {
+      payer: "Ihab",
+      amount: 10,
+      currency: "EUR",
+      description: "Coffee",
+      date: "2026-06-01",
+    });
+
+    const result = await callText(t.export_csv, {});
+    expect(result).toContain("all-time");
   });
 });

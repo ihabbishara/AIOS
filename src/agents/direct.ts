@@ -59,6 +59,7 @@ export class DirectChats {
     chatId: string,
     userText: string,
     sender?: { name?: string; username?: string },
+    attachments?: Array<{ path: string; fileName: string }>,
   ): Promise<{ text: string; attachments: Attachment[] }> {
     const canonical = this.deps.registry.agentOf.get(role);
     const def = canonical ? this.deps.registry.agents.get(canonical)?.role : undefined;
@@ -84,7 +85,7 @@ export class DirectChats {
       const observed = withDenialObserver(options, canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
 
       // Attachment server: turn-scoped collector + in-process MCP server.
-      const attachments: Attachment[] = [];
+      const collected: Attachment[] = [];
       const safeDirs = [
         resolve(def.cwd ?? this.deps.projectsRoot),
         resolve("data/downloads"),
@@ -92,7 +93,7 @@ export class DirectChats {
         "/tmp/aios-",       // prefix match — any /tmp/aios-* path is permitted
         ...(def.attachDirs ?? []),
       ];
-      const attachmentServer = buildAttachmentServer(attachments, safeDirs);
+      const attachmentServer = buildAttachmentServer(collected, safeDirs);
 
       // Halalo gets a read-only Cloudflare analytics tool: true edge visitor counts,
       // the source of truth its log-derived numbers undercount (CDN cache hits).
@@ -100,9 +101,15 @@ export class DirectChats {
         canonical === "halalo" ? { halalo_analytics: buildCloudflareServer() } : {};
 
       // Prefix the user text with sender identity when provided (group-chat attribution).
-      const prompt = sender
-        ? `[from: ${sender.name ?? "?"}${sender.username ? ` (@${sender.username})` : ""}]\n${userText}`
-        : userText;
+      // Attachment markers follow the sender prefix so the agent sees evidence before the text.
+      const from = sender
+        ? `[from: ${sender.name ?? "?"}${sender.username ? ` (@${sender.username})` : ""}]\n`
+        : "";
+      const attachmentLines = (attachments ?? []).map((a) => `[attached file stored at: ${a.path}]`);
+      const prompt =
+        from +
+        (attachmentLines.length ? `${attachmentLines.join("\n")}\n` : "") +
+        userText;
 
       const text = await resumableTurn({
         store: this.deps.store,
@@ -115,7 +122,7 @@ export class DirectChats {
         },
       });
 
-      return { text, attachments };
+      return { text, attachments: collected };
     } finally {
       release();
     }

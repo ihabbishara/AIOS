@@ -189,3 +189,87 @@ describe("route.decision", () => {
     expect(events.some((e) => e.event.type === "route.decision")).toBe(false);
   });
 });
+
+// ── router forwards attachments to directChats.handle ────────────────────────
+describe("router attachment forwarding", () => {
+  it("passes msg.attachments to directChats.handle for direct address", async () => {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    let capturedAttachments: unknown;
+
+    const directChats = {
+      names: () => ["maya"],
+      canonical: (n: string) => (n === "maya" ? "maya" : undefined),
+      handle: async (
+        _role: string,
+        _channel: string,
+        _chatId: string,
+        _text: string,
+        _sender: unknown,
+        attachments: unknown,
+      ) => {
+        capturedAttachments = attachments;
+        return { text: "reply", attachments: [] };
+      },
+      resetSession: () => {},
+    };
+
+    const router = new MessageRouter({
+      moderator: { handle: async () => "mod", resetSession: () => {} } as never,
+      directChats: directChats as never,
+      chatBindings: new Map(),
+      bus,
+    });
+
+    const fakeAttachments = [{ path: "/vault/inv.pdf", fileName: "inv.pdf" }];
+    await router.handle({
+      channel: "cli",
+      chatId: "c",
+      text: "@maya here is my invoice",
+      attachments: fakeAttachments,
+    });
+
+    expect(capturedAttachments).toEqual(fakeAttachments);
+  });
+
+  it("passes msg.attachments to directChats.handle for binding route", async () => {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    let capturedAttachments: unknown;
+
+    const directChats = {
+      names: () => ["maya"],
+      canonical: (n: string) => (n === "maya" ? "maya" : undefined),
+      handle: async (
+        _role: string,
+        _channel: string,
+        _chatId: string,
+        _text: string,
+        _sender: unknown,
+        attachments: unknown,
+      ) => {
+        capturedAttachments = attachments;
+        return { text: "reply", attachments: [] };
+      },
+      resetSession: () => {},
+    };
+
+    const chatBindings = new Map([["tg:g", { agents: ["maya"], mentionOnly: false }]]);
+    const router = new MessageRouter({
+      moderator: { handle: async () => "mod", resetSession: () => {} } as never,
+      directChats: directChats as never,
+      chatBindings,
+      bus,
+    });
+
+    const fakeAttachments = [{ path: "/vault/receipt.pdf", fileName: "receipt.pdf" }];
+    await router.handle({
+      channel: "tg",
+      chatId: "g",
+      text: "here is the receipt",
+      attachments: fakeAttachments,
+    });
+
+    expect(capturedAttachments).toEqual(fakeAttachments);
+  });
+});
