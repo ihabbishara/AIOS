@@ -6,12 +6,12 @@ import type { LoadedRegistry } from "../src/agents/registry/loader.js";
 function reg(): LoadedRegistry {
   const engineering = {
     department: "engineering", mission: "Build software.", memoDomain: "code",
-    vaultSection: "code", sandbox: true, actions: ["vault.write"], playbooks: ["code-build"],
+    vaultSection: "code", tools: [], sandbox: true, actions: ["vault.write"], playbooks: ["code-build"],
     toolServer: undefined, toolsUnion: [],
   };
   const finance = {
     department: "finance", mission: "Money.", memoDomain: "money",
-    vaultSection: "money", sandbox: false, actions: [], playbooks: [],
+    vaultSection: "money", tools: [], sandbox: false, actions: [], playbooks: [],
     toolServer: undefined, toolsUnion: [],
   };
   const maya = {

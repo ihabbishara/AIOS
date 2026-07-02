@@ -3,5 +3,6 @@ mission: Personal operations — open loops, errands, follow-ups.
 lead: jasmine
 memoDomain: lifeops
 toolServer: lifeops
+tools: [vault_read]
 actions: []
 playbooks: []

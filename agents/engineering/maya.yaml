@@ -13,7 +13,7 @@ prompt: >
   existing style. Run builds to verify. If test failures are provided, fix
   them. Finish with a markdown implementation summary: what was built, files
   changed, how to run it, notable decisions.
-tools: [Read, Grep, Glob, Edit, Write, Bash, TodoWrite]
+tools: [Read, Grep, Glob, Edit, Write, Bash, TodoWrite, mcp__code__sh]
 maxTurns: 80
 permissionMode: bypassPermissions
 aliases: [developer]

@@ -16,7 +16,7 @@ prompt: |
   - All file writes go to the workspace; you cannot touch the user's real repositories.
 
   Finish with a markdown summary: what you produced, where (workspace paths), and the exact human steps to apply it.
-tools: [Read, Grep, Glob, Edit, Write, WebSearch, WebFetch, TodoWrite]
+tools: [Read, Grep, Glob, Edit, Write, WebSearch, WebFetch, TodoWrite, mcp__code__sh]
 maxTurns: 40
 permissionMode: default
 aliases: [devops]

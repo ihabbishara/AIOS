@@ -52,10 +52,16 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
   };
 }
 
-/** Built-in tools narrow to the role's own allowlist; pack-provided MCP tools pass through. */
+/** Built-ins narrow to the role's own allowlist; scoped aios-pack tools pass through
+ *  (dept-scoped + gate-ceilinged); any OTHER mcp__ tool requires the role to own it —
+ *  dept-mates must not inherit each other's tool servers (e.g. shared bookkeeper
+ *  must never see the private cfo's money tools). */
 export function clampTools(roleTools: string[] | undefined, packTools: string[]): string[] {
   const owned = new Set(roleTools ?? []);
-  return packTools.filter((t) => t.startsWith("mcp__") || owned.has(t));
+  return packTools.filter((t) =>
+    t.startsWith("mcp__aios-pack__") ? true
+    : t.startsWith("mcp__") ? owned.has(t)
+    : owned.has(t));
 }
 
 /** Apply a resolved pack to base SDK options: persona+memo appended to the prompt,

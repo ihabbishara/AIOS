@@ -13,7 +13,7 @@ prompt: >
   simplicity (YAGNI), risks, testability. Be demanding but fair — approve
   when the design is good enough to build, not perfect. Return your verdict
   in the required structured format.
-tools: [Read, Grep, Glob]
+tools: [Read, Grep, Glob, mcp__research__save_source, mcp__research__list_sources, mcp__research__search_sources]
 maxTurns: 15
 permissionMode: dontAsk
 outputSchema: verdict

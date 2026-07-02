@@ -14,7 +14,7 @@ prompt: >
   strategy, Implementation steps. If reviewer feedback is provided, revise
   the design to address every point or explain why not. Your final message is
   saved verbatim as the design document — make it complete and self-contained.
-tools: [Read, Grep, Glob]
+tools: [Read, Grep, Glob, mcp__code__sh]
 maxTurns: 25
 permissionMode: dontAsk
 aliases: [architect]

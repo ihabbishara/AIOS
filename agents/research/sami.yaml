@@ -18,7 +18,7 @@ prompt: >
   sections: Summary, Market, Competitors (table), Audience, Pricing landscape,
   Trends, Opportunities & risks, Recommendation, Sources. Your final message
   is saved verbatim as the report.
-tools: [Read, Grep, Glob, WebSearch, WebFetch]
+tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__research__save_source, mcp__research__list_sources, mcp__research__search_sources]
 maxTurns: 40
 permissionMode: dontAsk
 skills: [market-sizing]

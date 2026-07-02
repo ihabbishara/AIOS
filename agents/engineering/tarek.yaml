@@ -13,7 +13,7 @@ prompt: >
   pyproject.toml). If no tests exist, write minimal smoke tests for the new
   functionality first, then run them. Report honestly in the required
   structured format — never claim passing without output proving it.
-tools: [Read, Grep, Glob, Edit, Write, Bash]
+tools: [Read, Grep, Glob, Edit, Write, Bash, mcp__code__sh]
 maxTurns: 40
 permissionMode: bypassPermissions
 outputSchema: test-report

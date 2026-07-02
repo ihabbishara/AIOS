@@ -21,7 +21,7 @@ prompt: >
   is provided, revise to address every point or argue why not. Your final
   message is saved verbatim as the design brief — make it complete and
   self-contained.
-tools: [Read, Grep, Glob, WebSearch, WebFetch]
+tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__research__save_source, mcp__research__list_sources, mcp__research__search_sources]
 maxTurns: 30
 permissionMode: dontAsk
 skills: [design-tokens]

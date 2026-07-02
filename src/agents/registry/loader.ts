@@ -145,7 +145,7 @@ export function loadRegistry(
 
       departments.set(dept.department, {
         ...dept,
-        toolsUnion: [...new Set(members.flatMap((a) => a.manifest.tools))],
+        toolsUnion: [...new Set([...dept.tools, ...members.flatMap((a) => a.manifest.tools)])],
       });
       for (const pb of dept.playbooks) ownerOfPlaybook.set(pb, dept.department);
     } catch (err) {

@@ -33,6 +33,10 @@ export interface RoleDef {
 
 const READ_TOOLS = ["Read", "Grep", "Glob"];
 const WEB_TOOLS = ["WebSearch", "WebFetch"];
+/** Sandboxed code server — replaces raw Bash for engineering agents in code jobs. */
+const CODE_SHELL = ["mcp__code__sh"];
+/** Research source management — all research dept members can save/query sources. */
+const RESEARCH_MCP_TOOLS = ["mcp__research__save_source", "mcp__research__list_sources", "mcp__research__search_sources"];
 
 export const VERDICT_SCHEMA = {
   type: "object",
@@ -133,7 +137,7 @@ export const roles: Record<string, RoleDef> = {
       "and any provided files. Produce a concise markdown research brief with sections: " +
       "Summary, Key findings, Recommended direction, Risks, Sources. Cite URLs. " +
       "Your final message is saved verbatim as research.md — make it the complete brief.",
-    allowedTools: [...READ_TOOLS, ...WEB_TOOLS],
+    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...CODE_SHELL],
     permissionMode: "dontAsk",
     maxTurns: 30,
   },
@@ -146,7 +150,7 @@ export const roles: Record<string, RoleDef> = {
       "Interfaces, Error handling, Testing strategy, Implementation steps. If reviewer feedback " +
       "is provided, revise the design to address every point or explain why not. " +
       "Your final message is saved verbatim as the design document — make it complete and self-contained.",
-    allowedTools: READ_TOOLS,
+    allowedTools: [...READ_TOOLS, ...CODE_SHELL],
     permissionMode: "dontAsk",
     maxTurns: 25,
   },
@@ -158,7 +162,7 @@ export const roles: Record<string, RoleDef> = {
       "against the original request: completeness, correctness, simplicity (YAGNI), risks, testability. " +
       "Be demanding but fair — approve when the design is good enough to build, not perfect. " +
       "Return your verdict in the required structured format.",
-    allowedTools: READ_TOOLS,
+    allowedTools: [...READ_TOOLS, ...RESEARCH_MCP_TOOLS],
     permissionMode: "dontAsk",
     outputSchema: VERDICT_SCHEMA as unknown as Record<string, unknown>,
     maxTurns: 15,
@@ -171,7 +175,7 @@ export const roles: Record<string, RoleDef> = {
       "directory. Write clean, idiomatic code matching the existing style. Run builds to verify. " +
       "If test failures are provided, fix them. Finish with a markdown implementation summary: " +
       "what was built, files changed, how to run it, notable decisions.",
-    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", "TodoWrite"],
+    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", "TodoWrite", ...CODE_SHELL],
     permissionMode: "bypassPermissions",
     maxTurns: 80,
   },
@@ -183,7 +187,7 @@ export const roles: Record<string, RoleDef> = {
       "in the working directory (look at package.json / Makefile / pyproject.toml). If no tests exist, " +
       "write minimal smoke tests for the new functionality first, then run them. " +
       "Report honestly in the required structured format — never claim passing without output proving it.",
-    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash"],
+    allowedTools: [...READ_TOOLS, "Edit", "Write", "Bash", ...CODE_SHELL],
     permissionMode: "bypassPermissions",
     outputSchema: TEST_REPORT_SCHEMA as unknown as Record<string, unknown>,
     maxTurns: 40,
@@ -200,7 +204,7 @@ export const roles: Record<string, RoleDef> = {
       "Distinguish facts from your inference. Produce a markdown report with sections: " +
       "Summary, Market, Competitors (table), Audience, Pricing landscape, Trends, Opportunities & risks, " +
       "Recommendation, Sources. Your final message is saved verbatim as the report.",
-    allowedTools: [...READ_TOOLS, ...WEB_TOOLS],
+    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...RESEARCH_MCP_TOOLS],
     permissionMode: "dontAsk",
     skills: ["market-sizing"],
     maxTurns: 40,
@@ -218,7 +222,7 @@ export const roles: Record<string, RoleDef> = {
       "propose a distinctive direction grounded in the product's audience and brand. " +
       "If reviewer feedback is provided, revise to address every point or argue why not. " +
       "Your final message is saved verbatim as the design brief — make it complete and self-contained.",
-    allowedTools: [...READ_TOOLS, ...WEB_TOOLS],
+    allowedTools: [...READ_TOOLS, ...WEB_TOOLS, ...RESEARCH_MCP_TOOLS],
     permissionMode: "dontAsk",
     skills: ["design-tokens"],
     maxTurns: 30,
@@ -231,7 +235,7 @@ export const roles: Record<string, RoleDef> = {
       "directory (use `git diff`/`git log` for recent changes). Report every issue you find with " +
       "file:line, severity (critical/major/minor), and a suggested fix. Do not filter for importance — " +
       "coverage over confidence. End with a short overall assessment. Read-only: do not modify files.",
-    allowedTools: [...READ_TOOLS, "Bash"],
+    allowedTools: [...READ_TOOLS, "Bash", ...CODE_SHELL],
     permissionMode: "dontAsk",
     maxTurns: 30,
   },
@@ -253,7 +257,7 @@ export const roles: Record<string, RoleDef> = {
       "- All file writes go to the workspace; you cannot touch the user's real repositories.\n\n" +
       "Finish with a markdown summary: what you produced, where (workspace paths), and the exact " +
       "human steps to apply it.",
-    allowedTools: ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "WebFetch", "TodoWrite"],
+    allowedTools: ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch", "WebFetch", "TodoWrite", ...CODE_SHELL],
     permissionMode: "default",
     maxTurns: 40,
   },
@@ -267,7 +271,18 @@ export const roles: Record<string, RoleDef> = {
       "user in private; if anyone else is present or you are addressed from a shared/group context, refuse " +
       "and say money topics are private. Be concise and concrete: amounts, categories, trends. Use " +
       "set_category_rule when the user corrects a categorization so you learn it.",
-    allowedTools: [],
+    allowedTools: [
+      "mcp__money__spending_summary",
+      "mcp__money__list_transactions",
+      "mcp__money__list_subscriptions",
+      "mcp__money__confirm_subscription",
+      "mcp__money__dismiss_subscription",
+      "mcp__money__add_subscription",
+      "mcp__money__set_budget",
+      "mcp__money__list_budgets",
+      "mcp__money__budget_status",
+      "mcp__money__set_category_rule",
+    ],
     permissionMode: "dontAsk",
     privateOnly: true,
     maxTurns: 20,

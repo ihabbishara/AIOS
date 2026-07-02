@@ -3,5 +3,6 @@ mission: Personal money visibility (read-only) and the group expense ledger.
 lead: faris
 memoDomain: money
 toolServer: money
+tools: [recall, vault_read]
 actions: []
 playbooks: []
