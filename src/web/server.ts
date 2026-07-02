@@ -17,6 +17,7 @@ import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
 import { buildOrgView, buildAgentProfile } from "./org-view.js";
+import { buildGoalsView, buildGoalDetail, buildBudgetView } from "./goals-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -429,6 +430,32 @@ export function startWebServer(deps: WebDeps, port: number): void {
           const profile = buildAgentProfile(agentMatch[1], registry, store, bus);
           if (!profile) return json(res, 404, { error: "unknown agent" });
           return json(res, 200, profile);
+        }
+
+        // ---- goals ----
+        if (path === "/api/goals" && req.method === "GET") {
+          return json(res, 200, buildGoalsView(store, Number(url.searchParams.get("limit") ?? 50)));
+        }
+
+        const goalMatch = /^\/api\/goals\/([\w-]+)$/.exec(path);
+        if (goalMatch && req.method === "GET") {
+          const detail = buildGoalDetail(store, vault, goalMatch[1]);
+          if (!detail) return json(res, 404, { error: "unknown goal" });
+          return json(res, 200, detail);
+        }
+
+        const goalCtl = /^\/api\/goals\/([\w-]+)\/(pause|resume|abandon)$/.exec(path);
+        if (goalCtl && req.method === "POST") {
+          const [, ref, verb] = goalCtl;
+          const message =
+            verb === "pause" ? goals.pauseGoal(ref)
+            : verb === "resume" ? goals.resumeGoal(ref)
+            : goals.abandonGoal(ref);
+          return json(res, 200, { message });
+        }
+
+        if (path === "/api/budget" && req.method === "GET") {
+          return json(res, 200, buildBudgetView(deps.spendGuard));
         }
 
         if (path === "/api/permissions" && req.method === "GET") {
