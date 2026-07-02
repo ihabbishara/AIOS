@@ -6,6 +6,7 @@ import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { JobManager } from "../src/engine/jobs.js";
 import type { Playbook } from "../src/engine/playbook.js";
+import { testRegistry } from "./fixtures/registry.js";
 
 function seedJob(s: Store, id: string) {
   s.insertJob({
@@ -51,6 +52,7 @@ describe("job_dir persistence", () => {
       playbooks: new Map([["research-report", pb]]),
       wallTimeMs: 60_000, maxConcurrent: 1,
       onComplete: async () => { done(); },
+      registry: testRegistry(),
     });
     const job = jm.createJob({ playbook: "research-report", title: "Alpha", request: "q", channel: "system", chatId: "x" });
     await finished;

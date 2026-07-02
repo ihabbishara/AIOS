@@ -60,7 +60,7 @@ function isDeptEnabled(deptName: string): boolean {
 
 export function buildPacksView(config: Config, store: Store): PackView[] {
   const out: PackView[] = [];
-  const agentsDir = (config as any).agentsDir ?? join(process.cwd(), "agents");
+  const agentsDir = config.agentsDir;
   let entries: string[];
   try { entries = readdirSync(agentsDir); } catch { return out; }
 
@@ -165,22 +165,38 @@ export function packDisableKey(dept: string): string {
 
 export interface RunValidation { ok: boolean; error?: string; projectDir?: string; }
 export interface FileValidation { ok: boolean; error?: string; }
+export type PackFileType = "department" | "agent" | "playbook";
 
-/** Validate a department or playbook file before write. department.yaml→departmentSchema, *.yaml→playbookSchema. */
-export function validatePackFile(name: string, yaml: string): FileValidation {
+/** Validate a department, agent, or playbook file before write.
+ *  fileType drives schema selection; "agent" additionally checks dept + name/filename alignment. */
+export function validatePackFile(
+  name: string,
+  yaml: string,
+  fileType: PackFileType,
+  dept?: string,
+): FileValidation {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) return { ok: false, error: "illegal filename" };
   if (!/^[\w.-]+\.ya?ml$/.test(name)) return { ok: false, error: "must be a .yaml file" };
   try {
     const parsed = parseYaml(yaml);
-    if (name === "department.yaml") departmentSchema.parse(parsed);
-    else playbookSchema.parse(parsed);
+    if (fileType === "department") {
+      departmentSchema.parse(parsed);
+    } else if (fileType === "agent") {
+      if (!dept) return { ok: false, error: "dept is required for agent validation" };
+      const manifest = agentSchema.parse(parsed);
+      if (manifest.department !== dept) return { ok: false, error: `manifest.department must be "${dept}"` };
+      const stem = name.replace(/\.ya?ml$/, "");
+      if (manifest.name !== stem) return { ok: false, error: `manifest.name must be "${stem}"` };
+    } else {
+      playbookSchema.parse(parsed);
+    }
     return { ok: true };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
 
 /** Validate a pack-run request against the on-disk department manifest + the projects-root guard. */
 export function validateRunRequest(config: Config, dept: string, playbook: string, projectDir?: string): RunValidation {
-  const agentsDir = (config as any).agentsDir ?? join(process.cwd(), "agents");
+  const agentsDir = config.agentsDir;
   const deptPath = join(agentsDir, dept, "department.yaml");
   if (!existsSync(deptPath)) return { ok: false, error: `unknown department: ${dept}` };
   let deptManifest: ReturnType<typeof departmentSchema.parse>;

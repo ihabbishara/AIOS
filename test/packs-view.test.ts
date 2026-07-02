@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
-import { buildPacksView } from "../src/web/packs-view.js";
+import { buildPacksView, validatePackFile } from "../src/web/packs-view.js";
 
 function fixtureConfig(overrides: Record<string, unknown> = {}) {
   const root = mkdtempSync(join(tmpdir(), "pv-"));
@@ -82,5 +82,31 @@ describe("buildPacksView", () => {
     expect(eng.workspaces.map((w) => w.taskDir)).toContain(taskDir);
     expect(eng.workspaces[0].exists).toBe(false);
     expect(typeof eng.memoCount).toBe("number");
+  });
+});
+
+describe("validatePackFile schema routing", () => {
+  const agentYaml = `name: maya\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns code.\npersona: Terse.\nprompt: You are maya.\ntools: []\nmaxTurns: 80\n`;
+  const playbookYaml = `name: code-build\ndescription: build\nneedsProjectDir: false\nstages:\n  - type: single\n    id: implement\n    role: maya\n    brief: do it\n`;
+
+  it("(a) valid agent manifest passes as agent", () => {
+    expect(validatePackFile("maya.yaml", agentYaml, "agent", "engineering")).toMatchObject({ ok: true });
+  });
+
+  it("(b) playbook-shaped YAML to agent filename is rejected", () => {
+    expect(validatePackFile("maya.yaml", playbookYaml, "agent", "engineering").ok).toBe(false);
+  });
+
+  it("(c) playbook YAML passes as playbook", () => {
+    expect(validatePackFile("code-build.yaml", playbookYaml, "playbook")).toMatchObject({ ok: true });
+  });
+
+  it("(d) agent dept mismatch rejected", () => {
+    const wrongDeptYaml = agentYaml.replace("department: engineering", "department: finance");
+    expect(validatePackFile("maya.yaml", wrongDeptYaml, "agent", "engineering").ok).toBe(false);
+  });
+
+  it("(d) agent name/filename mismatch rejected", () => {
+    expect(validatePackFile("other.yaml", agentYaml, "agent", "engineering").ok).toBe(false);
   });
 });

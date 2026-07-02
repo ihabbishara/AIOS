@@ -80,6 +80,9 @@ describe("live agents/ tree", () => {
   });
 });
 
+// SECURITY: the effective-surface pins in this block are the security guard; they
+// must stay green. The "compiled roles preserve the legacy security surface" parity
+// test above only pins YAML↔legacy-map drift, not the gate itself.
 describe("tool ownership pins (regression guard against pack.yaml deletion)", () => {
   const MONEY_TOOLS = [
     "mcp__money__spending_summary", "mcp__money__list_transactions", "mcp__money__list_subscriptions",

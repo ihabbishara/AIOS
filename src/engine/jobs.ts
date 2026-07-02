@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { type Playbook, type Stage } from "./playbook.js";
-import { roles } from "../agents/roles/index.js";
 import { PlaybookExecutor, type JobContext } from "./executor.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { Store, JobRow } from "../store/db.js";
@@ -22,13 +21,11 @@ export function stageRoles(stage: Stage): string[] {
  *  playbook runs with raw role options (Bash/Write + allowDangerouslySkipPermissions) on the
  *  real filesystem — the in-place coding path that must be gated. */
 export function isUnsandboxedWrite(pb: Playbook, pillarOf?: Map<string, string>, registry?: LoadedRegistry): boolean {
+  if (!registry) throw new Error("isUnsandboxedWrite: registry is required (fail-closed)");
   if (pillarOf?.get(pb.name)) return false;
   return pb.stages.some((s) => stageRoles(s).some((r) => {
-    if (registry) {
-      const agentName = registry.agentOf.get(r) ?? r;
-      return registry.agents.get(agentName)?.role.permissionMode === "bypassPermissions";
-    }
-    return roles[r]?.permissionMode === "bypassPermissions";
+    const agentName = registry.agentOf.get(r) ?? r;
+    return registry.agents.get(agentName)?.role.permissionMode === "bypassPermissions";
   }));
 }
 

@@ -6,6 +6,8 @@ import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { JobManager } from "../src/engine/jobs.js";
 import type { Playbook } from "../src/engine/playbook.js";
+import type { LoadedRegistry } from "../src/agents/registry/loader.js";
+import { testRegistry } from "./fixtures/registry.js";
 
 // A packless playbook that uses a bypassPermissions role → isUnsandboxedWrite = true
 const inplacePb: Playbook = {
@@ -40,7 +42,7 @@ function makeRoots() {
 
 function makeManager(
   playbooks: Map<string, Playbook>,
-  opts: { projectsRoot?: string; workspaceRoot?: string; pillarOf?: Map<string, string> } = {},
+  opts: { projectsRoot?: string; workspaceRoot?: string; pillarOf?: Map<string, string>; registry?: LoadedRegistry } = {},
 ) {
   const store = new Store(":memory:");
   const root = mkdtempSync(join(tmpdir(), "aios-vault-"));
@@ -67,6 +69,7 @@ describe("createJob inplace gate", () => {
     const jm = makeManager(new Map([["code-inplace", inplacePb]]), {
       projectsRoot,
       workspaceRoot,
+      registry: testRegistry(),
     });
     expect(() =>
       jm.createJob({
@@ -86,6 +89,7 @@ describe("createJob inplace gate", () => {
     const jm = makeManager(new Map([["code-inplace", inplacePb]]), {
       projectsRoot,
       workspaceRoot,
+      registry: testRegistry(),
     });
     expect(() =>
       jm.createJob({
@@ -104,6 +108,7 @@ describe("createJob inplace gate", () => {
     const jm = makeManager(new Map([["code-inplace", inplacePb]]), {
       projectsRoot,
       workspaceRoot,
+      registry: testRegistry(),
     });
     expect(() =>
       jm.createJob({
@@ -123,6 +128,7 @@ describe("createJob inplace gate", () => {
     const jm = makeManager(new Map([["code-inplace", inplacePb]]), {
       projectsRoot,
       workspaceRoot,
+      registry: testRegistry(),
     });
     const outside = mkdtempSync(join(tmpdir(), "outside-"));
     expect(() =>
@@ -153,6 +159,7 @@ describe("createJob inplace gate", () => {
         projectsRoot,
         workspaceRoot,
         pillarOf: new Map([["code-build", "code"]]),
+        registry: testRegistry(),
       },
     );
     expect(() =>
@@ -171,6 +178,7 @@ describe("createJob inplace gate", () => {
     const jm = makeManager(new Map([["research-report", safePb]]), {
       projectsRoot,
       workspaceRoot,
+      registry: testRegistry(),
     });
     expect(() =>
       jm.createJob({
@@ -189,6 +197,7 @@ describe("createJob inplace gate", () => {
     const jm = makeManager(new Map([["code-inplace", inplacePb]]), {
       workspaceRoot,
       // projectsRoot: undefined
+      registry: testRegistry(),
     });
     expect(() =>
       jm.createJob({

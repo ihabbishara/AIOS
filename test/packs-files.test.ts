@@ -4,18 +4,18 @@ import { validatePackFile } from "../src/web/packs-view.js";
 
 describe("validatePackFile", () => {
   it("validates department.yaml with departmentSchema", () => {
-    const ok = validatePackFile("department.yaml", `department: engineering\nmission: Build software.\nmemoDomain: code\n`);
+    const ok = validatePackFile("department.yaml", `department: engineering\nmission: Build software.\nmemoDomain: code\n`, "department");
     expect(ok.ok).toBe(true);
-    expect(validatePackFile("department.yaml", `mission: p\n`).ok).toBe(false); // missing department
+    expect(validatePackFile("department.yaml", `mission: p\n`, "department").ok).toBe(false); // missing department
   });
   it("validates a playbook file with playbookSchema", () => {
     const ok = validatePackFile("code-build.yaml",
-      `name: code-build\ndescription: d\nstages:\n  - type: single\n    id: x\n    role: maya\n    brief: b\n`);
+      `name: code-build\ndescription: d\nstages:\n  - type: single\n    id: x\n    role: maya\n    brief: b\n`, "playbook");
     expect(ok.ok).toBe(true);
-    expect(validatePackFile("code-build.yaml", `name: x\n`).ok).toBe(false);
+    expect(validatePackFile("code-build.yaml", `name: x\n`, "playbook").ok).toBe(false);
   });
   it("rejects a non-yaml or traversal filename", () => {
-    expect(validatePackFile("../escape.yaml", `x: 1`).ok).toBe(false);
-    expect(validatePackFile("notes.txt", `x: 1`).ok).toBe(false);
+    expect(validatePackFile("../escape.yaml", `x: 1`, "playbook").ok).toBe(false);
+    expect(validatePackFile("notes.txt", `x: 1`, "playbook").ok).toBe(false);
   });
 });

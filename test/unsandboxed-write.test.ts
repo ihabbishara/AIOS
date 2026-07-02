@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { isUnsandboxedWrite, stageRoles } from "../src/engine/jobs.js";
 import type { Playbook } from "../src/engine/playbook.js";
+import { testRegistry } from "./fixtures/registry.js";
 
 const inplacePb: Playbook = {
   name: "code-inplace",
@@ -27,12 +28,12 @@ describe("stageRoles", () => {
 
 describe("isUnsandboxedWrite", () => {
   it("flags a packless playbook that uses a bypassPermissions write role", () => {
-    expect(isUnsandboxedWrite(inplacePb, new Map())).toBe(true);
-    expect(isUnsandboxedWrite(inplacePb, undefined)).toBe(true);
+    expect(isUnsandboxedWrite(inplacePb, new Map(), testRegistry())).toBe(true);
+    expect(isUnsandboxedWrite(inplacePb, undefined, testRegistry())).toBe(true);
   });
 
   it("does NOT flag a playbook that has a pack pillar", () => {
-    expect(isUnsandboxedWrite(inplacePb, new Map([["code-inplace", "code"]]))).toBe(false);
+    expect(isUnsandboxedWrite(inplacePb, new Map([["code-inplace", "code"]]), testRegistry())).toBe(false);
   });
 
   it("does NOT flag a packless playbook with only read/dontAsk roles", () => {
@@ -40,6 +41,18 @@ describe("isUnsandboxedWrite", () => {
       name: "echo", description: "x", needsProjectDir: false,
       stages: [{ type: "single", id: "a", role: "researcher" }],
     };
-    expect(isUnsandboxedWrite(readOnly, new Map())).toBe(false);
+    expect(isUnsandboxedWrite(readOnly, new Map(), testRegistry())).toBe(false);
+  });
+
+  it("pin: canonical name 'maya' (bypassPermissions) is classified as unsandboxed write via registry", () => {
+    const canonicalPb: Playbook = {
+      name: "canonical-test", description: "x", needsProjectDir: false,
+      stages: [{ type: "single", id: "impl", role: "maya" }],
+    };
+    expect(isUnsandboxedWrite(canonicalPb, new Map(), testRegistry())).toBe(true);
+  });
+
+  it("throws when called without registry (fail-closed)", () => {
+    expect(() => isUnsandboxedWrite(inplacePb, new Map())).toThrow(/registry is required/);
   });
 });

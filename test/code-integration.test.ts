@@ -60,6 +60,7 @@ describe("code-analyze end-to-end (stubbed model)", () => {
       store, vault, run, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrent: 1,
       onComplete: async () => {},
       pillarOf: reg.ownerOfPlaybook,
+      registry: reg,
       prepareSandbox: async (job) => {
         if (reg.ownerOfPlaybook.get(job.playbook) !== "engineering") return undefined;
         const { taskDir } = allocateWorkspace(
