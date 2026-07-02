@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import type { JobManager } from "../engine/jobs.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
-import { roles } from "../agents/roles/index.js";
 import type { ActionGate } from "../kernel/gate.js";
 import { listInbox, readEmail } from "../senses/google/read.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
@@ -54,8 +53,10 @@ export interface ModeratorToolsDeps {
   projectsRoot: string;
   /** Origin of the message currently being handled — set before each query. */
   origin: { channel: string; chatId: string };
-  /** One-shot specialist consultation (synchronous — used by ask_specialist). */
-  consult: (role: string, question: string) => Promise<{ text: string }>;
+  /** Hand a task off to a named agent inline (full tool set — same path as @mention). */
+  handOff: (agent: string, task: string) => Promise<{ text: string }>;
+  /** Agent names from the registry — used to build the hand_off tool's enum. */
+  agentNames: string[];
   gate: ActionGate;
   /** Registered executor types, for the tool description. */
   actionTypes: string[];
@@ -144,18 +145,18 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     },
   );
 
-  const askSpecialist = tool(
-    "ask_specialist",
-    "Consult one specialist directly with a single question and get their answer inline. " +
-      "Use for quick opinions/analysis — NOT for executing work (use run_playbook for that). " +
-      "Can take a few minutes.",
+  const handOff = tool(
+    "hand_off",
+    "Hand a task to a named agent and get their answer inline. The agent runs with their FULL " +
+      "tools (same capability as when the user @-mentions them). Use for consultations and " +
+      "delegations that fit in one sitting — NOT for multi-stage pipelines (use run_playbook/code_task).",
     {
-      role: z.enum(Object.keys(roles) as [string, ...string[]]),
-      question: z.string().describe("The question, with all context the specialist needs"),
+      agent: z.enum(deps.agentNames as [string, ...string[]]),
+      task: z.string().describe("The task/question, with all context the agent needs"),
     },
     async (args) => {
-      const res = await deps.consult(args.role, args.question);
-      return text(`[${args.role}]\n${res.text}`);
+      const res = await deps.handOff(args.agent, args.task);
+      return text(`[${args.agent}]\n${res.text}`);
     },
   );
 
@@ -379,7 +380,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     name: "aios",
     version: "0.1.0",
     tools: [
-      runPlaybook, codeTask, jobStatus, listPlaybooks, askSpecialist,
+      runPlaybook, codeTask, jobStatus, listPlaybooks, handOff,
       vaultWrite, vaultRead, vaultList, proposeAction,
       addReminder, listReminders, cancelReminder, addTriageRule,
       listInboxTool, readEmailTool,

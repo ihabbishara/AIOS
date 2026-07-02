@@ -73,8 +73,8 @@ export function permissionRoleCatalog(): CatalogEntry[] {
   return [
     ...codeRoles,
     {
-      role: "moderator",
-      description: "Top-level orchestrator — routes work and talks to you.",
+      role: "rami",
+      description: "Chief of Staff — routes work, talks to you, and hands off to specialists.",
       permissionMode: "dontAsk",
       toolCheckFallback: "allow",
       skills: [],

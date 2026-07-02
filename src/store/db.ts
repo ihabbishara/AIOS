@@ -329,6 +329,12 @@ export class Store {
         UNIQUE(role, tool)
       );
     `);
+    // Migration: rename pseudo-role "moderator" to "rami" (Task 7 rename).
+    try {
+      this.db.exec("UPDATE role_permissions SET role='rami' WHERE role='moderator'");
+    } catch {
+      /* noop */
+    }
   }
 
   insertJob(job: Omit<JobRow, "created_at" | "updated_at" | "job_dir">): void {

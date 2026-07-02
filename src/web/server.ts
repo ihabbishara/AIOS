@@ -127,9 +127,9 @@ export function startWebServer(deps: WebDeps, port: number): void {
             voice: deps.voice.available(),
             agents: [
               {
-                name: "moderator", kind: "moderator",
-                description: "Orchestrator — discusses, routes, runs playbooks, reports.",
-                tools: ["run_playbook", "ask_specialist", "job_status", "vault"], guarded: false,
+                name: "rami", kind: "moderator",
+                description: "Chief of Staff — discusses, routes, runs playbooks, hands off, reports.",
+                tools: ["run_playbook", "hand_off", "job_status", "vault"], guarded: false,
               },
               ...Object.values(roles).map((r) => ({
                 name: r.name, kind: "specialist", description: r.description,

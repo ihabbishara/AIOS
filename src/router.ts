@@ -72,7 +72,7 @@ export class MessageRouter {
       }
       // Only emit route.decision if reset actually happened (valid role or moderator)
       if (resetOccurred) {
-        const resetTarget = roleName ? (directChats.canonical(roleName) ?? roleName) : "moderator";
+        const resetTarget = roleName ? (directChats.canonical(roleName) ?? roleName) : "rami";
         routed(resetTarget, "reset", "session reset");
       }
       bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
@@ -166,7 +166,7 @@ export class MessageRouter {
         reply = { text: `[${direct.role}]\n${result.text}`, attachments: result.attachments };
       } else {
         routed("rami", "default", "no mention — chief of staff");
-        const text = await agentTurn("moderator", () =>
+        const text = await agentTurn("rami", () =>
           moderator.handle(msg.channel, msg.chatId, msg.text, msg.attachments));
         reply = textOnly(text);
       }

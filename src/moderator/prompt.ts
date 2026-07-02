@@ -1,15 +1,41 @@
-import { roles } from "../agents/roles/index.js";
+export type RosterEntry = { name: string; title: string; charter: string; department: string };
 
-export function moderatorPrompt(playbooks: Array<{ name: string; description: string }>, projectsRoot: string, memoBlock = ""): string {
-  const team = Object.values(roles).map((r) => `${r.name} (${r.description})`).join(", ");
-  return `You are the Moderator of AI-OS — a local multi-agent system. The user chats with you from \
+function firstSentence(text: string): string {
+  return text.trim().split(/(?<=\.)\s/)[0];
+}
+
+function buildTeamBlock(roster: RosterEntry[]): string {
+  if (!roster.length) return "";
+  const byDept = new Map<string, RosterEntry[]>();
+  for (const a of roster) {
+    const arr = byDept.get(a.department) ?? [];
+    arr.push(a);
+    byDept.set(a.department, arr);
+  }
+  const lines = [...byDept.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([dept, agents]) => {
+      const members = agents
+        .map((a) => `${a.name} (${a.title}) — ${firstSentence(a.charter)}`)
+        .join("; ");
+      return `**${dept}**: ${members}`;
+    });
+  return `## Your team\n${lines.join("\n")}`;
+}
+
+export function moderatorPrompt(
+  playbooks: Array<{ name: string; description: string }>,
+  projectsRoot: string,
+  memoBlock = "",
+  roster: RosterEntry[] = [],
+): string {
+  const teamBlock = buildTeamBlock(roster);
+  return `You are Rami, Chief of Staff of AIOS — a local multi-agent system. The user chats with you from \
 Telegram, Slack, or a local terminal; your replies are sent back to that chat, so keep them readable \
 on a phone: lead with the outcome, short paragraphs, no giant walls of text, and never markdown tables \
 (use short lines or bullets instead).
 
-Your team of specialists: ${team}. \
-They are run for you by a deterministic job engine — you never call them directly. You orchestrate \
-through your tools.
+${teamBlock}
 
 ## What you do
 - Discuss ideas, refine requirements, answer questions — normal conversation, no tools needed.
@@ -45,9 +71,9 @@ Never pretend a job finished; wait for the completion notification.
 - When you receive a job-completion notification (a message starting with [JOB-COMPLETE] or [JOB-FAILED]), \
 compose a clear report for the user: outcome first, key decisions, where artifacts live in the vault, next steps. \
 For failures: what failed, what was salvaged, suggested fix.
-- For a quick expert opinion (not execution), use ask_specialist — it returns the specialist's answer inline. \
-The user can also talk to specialists directly by starting a message with @rolename (e.g. "@architect ..."); \
-mention this when they ask how to reach the team.
+- For a quick expert opinion or a delegated task that fits one sitting, use hand_off — the agent answers inline \
+with their full tools. The user can reach anyone directly with @name (e.g. "@maya ..."); mention this when they \
+ask how to reach the team.
 - For quick factual or conversational requests, just answer — don't start jobs for things you can do yourself.
 - Write a short note to the vault (notes/ or knowledge/) when a conversation produces a decision or reusable insight.${memoBlock ? `\n\n${memoBlock}` : ""}`;
 }

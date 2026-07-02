@@ -219,12 +219,21 @@ async function main(): Promise<void> {
     resolvePackFor: (playbook, origin, sandbox) => resolveDeptFor(playbook, origin, false, sandbox),
   });
 
+  const handOff = async (agent: string, task: string): Promise<{ text: string }> => {
+    const origin = { channel: "system", chatId: "handoff" };
+    bus.emit({ type: "route.decision", to: agent, via: "handoff", reason: "chief of staff hand_off", channel: origin.channel, chatId: origin.chatId });
+    const pack = resolveDeptFor(agent, origin, true);
+    const res = await runSpecialist(agent, task, { cwd: config.projectsRoot, model: config.specialistModel, pack });
+    return { text: res.text };
+  };
+
   const moderator = new Moderator({
     store,
     bus,
     jobs,
     vault,
-    run: runSpecialist,
+    handOff,
+    registry,
     projectsRoot: config.projectsRoot,
     model: config.moderatorModel,
     specialistModel: config.specialistModel,

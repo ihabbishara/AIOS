@@ -4,12 +4,12 @@ import { EventBus } from "../src/events.js";
 import { buildPermissionsView, isWellFormedToolName, BUILTIN_TOOLS } from "../src/web/permissions-view.js";
 
 describe("buildPermissionsView", () => {
-  it("includes every code role plus the moderator and finance pseudo-roles", () => {
+  it("includes every code role plus the rami and finance pseudo-roles", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
     const view = buildPermissionsView(store, bus);
     const names = view.map((r) => r.role);
-    expect(names).toContain("moderator");
+    expect(names).toContain("rami");
     expect(names).toContain("finance");
     expect(names).toContain("researcher"); // a code role
   });
@@ -40,15 +40,15 @@ describe("buildPermissionsView", () => {
   it("exposes knownTools = built-ins ∪ the role's own tools (for grant autocomplete)", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
-    const moderator = buildPermissionsView(store, bus).find((r) => r.role === "moderator")!;
-    // built-ins the moderator does NOT have are still suggested (so you can grant them)
-    expect(moderator.knownTools).toContain("Bash");
-    expect(moderator.knownTools).toContain("Edit");
-    expect(moderator.knownTools).toContain("Skill");
+    const rami = buildPermissionsView(store, bus).find((r) => r.role === "rami")!;
+    // built-ins rami does NOT have are still suggested (so you can grant them)
+    expect(rami.knownTools).toContain("Bash");
+    expect(rami.knownTools).toContain("Edit");
+    expect(rami.knownTools).toContain("Skill");
     // the role's own MCP tools are suggested too
-    expect(moderator.knownTools).toContain("mcp__aios__recall");
-    // no duplicates (Read is both a built-in and a moderator default)
-    expect(moderator.knownTools.filter((t) => t === "Read")).toHaveLength(1);
+    expect(rami.knownTools).toContain("mcp__aios__recall");
+    // no duplicates (Read is both a built-in and a rami default)
+    expect(rami.knownTools.filter((t) => t === "Read")).toHaveLength(1);
   });
 });
 

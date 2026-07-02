@@ -6,9 +6,9 @@ import { processAttachments } from "../attachments.js";
 import type { Store } from "../store/db.js";
 import type { JobManager } from "../engine/jobs.js";
 import type { VaultWriter } from "../vault/writer.js";
-import type { SpecialistRunFn } from "../agents/runner.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { effectiveAllowedTools, withDenialObserver } from "../agents/permissions.js";
 import type { EventBus } from "../events.js";
 
@@ -16,7 +16,7 @@ const MCP_TOOLS = [
   "mcp__aios__run_playbook",
   "mcp__aios__job_status",
   "mcp__aios__list_playbooks",
-  "mcp__aios__ask_specialist",
+  "mcp__aios__hand_off",
   "mcp__aios__vault_write",
   "mcp__aios__vault_read",
   "mcp__aios__vault_list",
@@ -32,10 +32,10 @@ const MCP_TOOLS = [
   "mcp__aios__forget",
 ];
 
-/** The moderator pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
+/** The moderator (rami) pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
 export const MODERATOR_ALLOWED_TOOLS = [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
-/** ask_specialist runs a full specialist session inside an MCP call — allow up to 10 min. */
+/** hand_off runs a full specialist session inside an MCP call — allow up to 10 min. */
 const STREAM_CLOSE_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface ModeratorDeps {
@@ -43,7 +43,9 @@ export interface ModeratorDeps {
   bus: EventBus;
   jobs: JobManager;
   vault: VaultWriter;
-  run: SpecialistRunFn;
+  /** Inline hand-off to a named agent (full tool set — parity with @mention). */
+  handOff: (agent: string, task: string) => Promise<{ text: string }>;
+  registry: LoadedRegistry;
   projectsRoot: string;
   model?: string;
   specialistModel?: string;
@@ -99,7 +101,7 @@ export class Moderator {
     userText: string,
     attachments?: Array<{ path: string; fileName: string }>,
   ): Promise<string> {
-    const { store, jobs, vault, projectsRoot } = this.deps;
+    const { store, jobs, vault, projectsRoot, registry } = this.deps;
     this.origin = { channel, chatId };
 
     // Process attachments before the agent turn so vault copies exist even if
@@ -112,14 +114,29 @@ export class Moderator {
       ? `${attachmentBlock}\n${userText || "(no caption — analyze the attached files)"}`
       : userText || "(empty message)";
 
+    // Build roster from the live registry for the team block in the system prompt.
+    const roster = [...registry.agents.values()].map((a) => ({
+      name: a.manifest.name,
+      title: a.manifest.title,
+      charter: a.manifest.charter,
+      department: a.department,
+    }));
+
+    // Prepend rami's persona block (tolerate rami absent — skip prefix).
+    const ramiPersona = registry.agents.get("rami")?.role.systemPrompt;
+    const basePrompt = moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault), roster);
+    const systemPrompt = ramiPersona ? `${ramiPersona}\n\n${basePrompt}` : basePrompt;
+
+    const agentNames = [...registry.agents.keys()];
+
     const server = buildModeratorServer({
       jobs,
       store,
       vault,
       projectsRoot,
       origin: this.origin,
-      consult: (role, question) =>
-        this.deps.run(role, question, { cwd: projectsRoot, model: this.deps.specialistModel }),
+      handOff: this.deps.handOff,
+      agentNames,
       gate: this.deps.gate,
       actionTypes: this.deps.actionTypes,
       google: this.deps.google,
@@ -127,9 +144,9 @@ export class Moderator {
     });
 
     const moderatorOptions = {
-      systemPrompt: moderatorPrompt(jobs.listPlaybooks(), projectsRoot, memoContext(store, vault)),
+      systemPrompt,
       mcpServers: { aios: server },
-      allowedTools: effectiveAllowedTools("moderator", MODERATOR_ALLOWED_TOOLS, store),
+      allowedTools: effectiveAllowedTools("rami", MODERATOR_ALLOWED_TOOLS, store),
       permissionMode: "dontAsk" as const,
       settingSources: [],
       strictMcpConfig: true,
@@ -143,7 +160,7 @@ export class Moderator {
       sessionKey: `moderator-session:${chatKey}`,
       prompt,
       log: this.deps.log,
-      options: withDenialObserver(moderatorOptions, "moderator", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
+      options: withDenialObserver(moderatorOptions, "rami", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
     });
   }
 }
