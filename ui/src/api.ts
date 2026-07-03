@@ -145,6 +145,26 @@ export interface PackView {
   roles: PackRoleView[]; playbooks: PackPlaybookView[]; recentJobs: PackJobView[]; workspaces: PackWorkspaceView[]; memoCount: number;
 }
 
+export interface GoalNodeView {
+  key: string; type: string; agent: string; critic: string | null;
+  brief: string;
+  deps: string[]; status: string; costCents: number; rounds: number;
+  artifact: string | null; error: string | null; startedAt: string | null; finishedAt: string | null;
+}
+
+export interface GoalView {
+  id: string; slug: string; title: string; department: string; lead: string;
+  status: string; planSummary: string; replansUsed: number; error: string | null;
+  createdAt: string; updatedAt: string; projectDir: string | null; goalDir: string | null;
+  nodes: GoalNodeView[];
+}
+
+export interface GoalDetail extends GoalView {
+  artifacts: Array<{ file: string; content: string }>;
+}
+
+export interface BudgetInfo { date: string; spentCents: number; capCents: number | null }
+
 export function getToken(): string {
   return localStorage.getItem("aios_token") ?? "";
 }
@@ -171,6 +191,11 @@ export const api = {
   state: () => request<StateInfo>("/api/state"),
   org: () => request<OrgDepartmentView[]>("/api/org"),
   agent: (name: string) => request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}`),
+  goals: () => request<GoalView[]>("/api/goals"),
+  goal: (idOrSlug: string) => request<GoalDetail>(`/api/goals/${encodeURIComponent(idOrSlug)}`),
+  goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon") =>
+    request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
+  budget: () => request<BudgetInfo>("/api/budget"),
   events: (since = 0) => request<StoredEvent[]>(`/api/events?since=${since}`),
   jobs: () => request<JobInfo[]>("/api/jobs"),
   job: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
