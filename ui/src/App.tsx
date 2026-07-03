@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { api, setToken, getToken, type BudgetInfo } from "./api.js";
 import { useEvents, usePoll } from "./hooks.js";
 import { Goals, type GoalTarget } from "./views/Goals.js";
@@ -24,6 +24,7 @@ export function App() {
   const openChat = (name: string) => { setChatTarget(name); setTab("chat"); };
   const [goalTarget, setGoalTarget] = useState<GoalTarget | null>(null);
   const openGoal = (slug: string, nodeKey: string | null) => { setGoalTarget({ slug, nodeKey }); setTab("goals"); };
+  const consumeGoalTarget = useCallback(() => setGoalTarget(null), []);
   // Budget refreshes when costs land (agent.end) or goals transition (pause-budget etc.).
   const lastCostEvt = useMemo(
     () => events.filter((e) => e.event.type === "agent.end" || e.event.type.startsWith("goal.")).at(-1)?.id,
@@ -91,7 +92,7 @@ export function App() {
           <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} /></div>
           <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
           <div className={tab === "goals" ? "h-full" : "hidden"}>
-            <Goals events={events} target={goalTarget} onConsumeTarget={() => setGoalTarget(null)} />
+            <Goals events={events} target={goalTarget} onConsumeTarget={consumeGoalTarget} />
           </div>
           <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
           <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
