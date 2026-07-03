@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { api, setToken, getToken } from "./api.js";
+import { useMemo, useState } from "react";
+import { api, setToken, getToken, type BudgetInfo } from "./api.js";
 import { useEvents, usePoll } from "./hooks.js";
-import { Board } from "./views/Board.js";
+import { Goals, type GoalTarget } from "./views/Goals.js";
 import { Org } from "./views/Org.js";
 import { RoutingTrail } from "./views/RoutingTrail.js";
 import { Chat } from "./views/Chat.js";
@@ -13,7 +13,7 @@ import { Trust } from "./views/Trust.js";
 import { Permissions } from "./views/Permissions.js";
 import { Packs } from "./views/Packs.js";
 
-const TABS = ["org", "chat", "routing", "board", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
+const TABS = ["org", "chat", "routing", "goals", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
@@ -22,6 +22,14 @@ export function App() {
   const { events, connected } = useEvents();
   const { data: state, error, reload } = usePoll(() => api.state(), []);
   const openChat = (name: string) => { setChatTarget(name); setTab("chat"); };
+  const [goalTarget, setGoalTarget] = useState<GoalTarget | null>(null);
+  const openGoal = (slug: string, nodeKey: string | null) => { setGoalTarget({ slug, nodeKey }); setTab("goals"); };
+  // Budget refreshes when costs land (agent.end) or goals transition (pause-budget etc.).
+  const lastCostEvt = useMemo(
+    () => events.filter((e) => e.event.type === "agent.end" || e.event.type.startsWith("goal.")).at(-1)?.id,
+    [events],
+  );
+  const { data: budget } = usePoll(() => api.budget(), [lastCostEvt]);
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;
 
@@ -42,11 +50,12 @@ export function App() {
         <div className="flex items-center gap-2 ml-auto">
           {[...activeAgents.entries()].map(([agent, ctx]) => (
             <span key={agent} className="px-2 py-0.5 text-[11px] border border-line bg-panel-2 text-amber glow-amber">
-              ▸ {agent} <span className="text-dim">{ctx.replace(/^(job|chat):/, "")}</span>
+              ▸ {agent} <span className="text-dim">{ctx.replace(/^(job|chat|goal):/, "")}</span>
             </span>
           ))}
           {activeAgents.size === 0 && <span className="text-dim text-[11px]">all agents idle</span>}
         </div>
+        <BudgetBar budget={budget} />
         <div className="flex items-center gap-2">
           <span className={`inline-block w-2 h-2 rounded-full ${connected ? "bg-phosphor live-dot" : "bg-alert"}`} />
           <span className="label">{connected ? "LINK" : "NO LINK"}</span>
@@ -79,9 +88,11 @@ export function App() {
         {/* Main view */}
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
-          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} /></div>
+          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} /></div>
           <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
-          <div className={tab === "board" ? "h-full" : "hidden"}><Board events={events} /></div>
+          <div className={tab === "goals" ? "h-full" : "hidden"}>
+            <Goals events={events} target={goalTarget} onConsumeTarget={() => setGoalTarget(null)} />
+          </div>
           <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
           <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
           <div className={tab === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
@@ -97,6 +108,23 @@ export function App() {
           <EventFeed events={events} />
         </aside>
       </div>
+    </div>
+  );
+}
+
+function BudgetBar({ budget }: { budget: BudgetInfo | undefined }) {
+  // Spec §9: hidden entirely when no cap is configured.
+  if (!budget || budget.capCents == null) return null;
+  const pct = budget.capCents > 0 ? Math.min(100, (budget.spentCents / budget.capCents) * 100) : 100;
+  const hot = pct >= 80;
+  return (
+    <div className="flex items-center gap-2" title={`daily budget · ${budget.date}`}>
+      <div className="w-24 h-1.5 bg-panel-2 border border-line">
+        <div className={`h-full ${hot ? "bg-alert" : "bg-phosphor"}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={`text-[10px] ${hot ? "text-alert" : "text-dim"}`}>
+        ${(budget.spentCents / 100).toFixed(2)} / ${(budget.capCents / 100).toFixed(2)}
+      </span>
     </div>
   );
 }

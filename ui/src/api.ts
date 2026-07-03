@@ -18,34 +18,6 @@ export interface StateInfo {
   bindings: Array<{ chatKey: string; agents: string[]; mentionOnly: boolean }>;
 }
 
-export interface StageInfo {
-  stage_id: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-}
-
-export interface JobInfo {
-  id: string;
-  slug: string;
-  title: string;
-  playbook: string;
-  request: string;
-  project_dir: string | null;
-  channel: string;
-  chat_id: string;
-  status: string;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-  stages: StageInfo[];
-}
-
-export interface JobDetail extends JobInfo {
-  artifacts: Array<{ file: string; content: string }>;
-  vaultDir: string;
-}
-
 export interface StoredEvent {
   id: number;
   ts: string;
@@ -197,8 +169,6 @@ export const api = {
     request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
   budget: () => request<BudgetInfo>("/api/budget"),
   events: (since = 0) => request<StoredEvent[]>(`/api/events?since=${since}`),
-  jobs: () => request<JobInfo[]>("/api/jobs"),
-  job: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   costs: () => request<{ byAgent: Record<string, number>; byDay: Record<string, number> }>("/api/costs"),
   chat: (target: string, text: string) =>
     request<{ reply: string | null }>("/api/chat", { method: "POST", body: JSON.stringify({ target, text }) }),

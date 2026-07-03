@@ -11,7 +11,9 @@ const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   waiting: "bg-alert live-dot",
 };
 
-export function Org({ events, onOpenChat }: { events: StoredEvent[]; onOpenChat: (name: string) => void }) {
+export function Org({ events, onOpenChat, onOpenGoal }: {
+  events: StoredEvent[]; onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
+}) {
   // Re-fetch when agent or action events arrive — same lastEvt pattern as Packs.
   const lastEvt = useMemo(
     () => events.filter((e) => e.event.type.startsWith("agent.") || e.event.type.startsWith("action.")).at(-1)?.id,
@@ -50,7 +52,18 @@ export function Org({ events, onOpenChat }: { events: StoredEvent[]; onOpenChat:
                   </span>
                 </div>
                 <div className="text-[10px] text-dim mt-1">{a.title}</div>
-                {a.currentTask && (
+                {a.currentTask && a.currentTask.startsWith("goal:") ? (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const [slug, nodeKey] = a.currentTask!.slice("goal:".length).split("/");
+                      onOpenGoal(slug, nodeKey ?? null);
+                    }}
+                    className="block text-[10px] text-amber mt-1 truncate underline decoration-dotted cursor-pointer hover:text-bright"
+                  >
+                    ▸ {a.currentTask.slice("goal:".length)}
+                  </span>
+                ) : a.currentTask && (
                   <div className="text-[10px] text-amber mt-1 truncate">▸ {a.currentTask.replace(/^(job|chat):/, "")}</div>
                 )}
                 <div className="text-[10px] text-dim mt-1">today: ${a.costTodayUsd.toFixed(2)}</div>
