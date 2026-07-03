@@ -35,6 +35,13 @@ describe("goals view builders", () => {
     expect(g.nodes[0].status).toBe("done");
   });
 
+  it("node views carry the brief for the UI side panel", () => {
+    const { store } = seeded();
+    const [g] = buildGoalsView(store);
+    expect(g.nodes[0].brief).toBe("b");
+    expect(g.nodes[1].brief).toBe("b");
+  });
+
   it("buildGoalDetail resolves by slug and includes artifacts; null for unknown", () => {
     const { store, vault } = seeded();
     const d = buildGoalDetail(store, vault, "build-x")!;

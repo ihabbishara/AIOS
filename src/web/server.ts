@@ -155,33 +155,6 @@ export function startWebServer(deps: WebDeps, port: number): void {
           });
         }
 
-        // Transitional compat: the board UI reads /api/jobs until plan 3b lands the goals tab.
-        const goalAsJob = (g: import("../store/db.js").GoalRow) => ({
-          id: g.id, slug: g.slug, title: g.title, playbook: g.plan_summary, request: g.request,
-          project_dir: g.project_dir, job_dir: g.goal_dir, channel: g.origin_channel, chat_id: g.origin_chat_id,
-          status: g.status, error: g.error, created_at: g.created_at, updated_at: g.updated_at,
-          stages: store.listNodes(g.id).map((n) => ({
-            stage_id: n.node_key, status: n.status, started_at: n.started_at ?? "", finished_at: n.finished_at,
-          })),
-        });
-
-        if (path === "/api/jobs" && req.method === "GET") {
-          const rows = store.listGoals(Number(url.searchParams.get("limit") ?? 50));
-          return json(res, 200, rows.map(goalAsJob));
-        }
-
-        const jobMatch = /^\/api\/jobs\/([0-9a-f-]+)$/.exec(path);
-        if (jobMatch && req.method === "GET") {
-          const goal = store.getGoal(jobMatch[1]);
-          if (!goal) return json(res, 404, { error: "no such goal" });
-          const dir = goal.goal_dir ?? "";
-          const files = !dir ? [] : vault.listNotes(`goals/${dir}`).map((rel) => {
-            const file = rel.split("/").pop()!;
-            return { file, content: vault.readGoalArtifact(dir, file) ?? "" };
-          });
-          return json(res, 200, { ...goalAsJob(goal), artifacts: files, vaultDir: `goals/${dir}` });
-        }
-
         if (path === "/api/events" && req.method === "GET") {
           return json(res, 200, bus.history(Number(url.searchParams.get("since") ?? 0), 500));
         }

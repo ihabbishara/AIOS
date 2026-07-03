@@ -6,6 +6,7 @@ import { localParts } from "../heartbeat/clock.js";
 
 export interface GoalNodeView {
   key: string; type: string; agent: string; critic: string | null;
+  brief: string;
   deps: string[]; status: string; costCents: number; rounds: number;
   artifact: string | null; error: string | null; startedAt: string | null; finishedAt: string | null;
 }
@@ -19,6 +20,7 @@ export interface GoalView {
 function nodeView(n: TaskNodeRow): GoalNodeView {
   return {
     key: n.node_key, type: n.type, agent: n.agent, critic: n.critic,
+    brief: n.brief,
     deps: JSON.parse(n.depends_on) as string[], status: n.status,
     costCents: n.cost_cents, rounds: n.rounds_used, artifact: n.artifact,
     error: n.error, startedAt: n.started_at, finishedAt: n.finished_at,
