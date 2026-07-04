@@ -8,6 +8,7 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import { listInbox, readEmail } from "../senses/google/read.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
+import type { Mailbox } from "../mail/mailbox.js";
 import { recall, formatHits, DOMAINS, type Domain } from "../memory/recall.js";
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,8 @@ export interface ModeratorToolsDeps {
   /** Registered executor types, for the tool description. */
   actionTypes: string[];
   google: GoogleAccounts;
+  /** Agent mailbox — hermes can send work mail to staff (undefined = disabled). */
+  mailbox?: Mailbox;
   /** Optional structured log sink (same as ModeratorDeps.log). */
   log?: (line: string) => void;
 }
@@ -194,6 +197,18 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       const res = await deps.handOff(args.agent, args.task, deps.origin);
       return text(`[${args.agent}]\n${res.text}`);
     },
+  );
+
+  const sendMail = tool(
+    "send_mail",
+    "Send mail to a staff agent. kind=request: they run it as a background goal and the result " +
+      "reports back (surfaced in your morning brief). kind=note: FYI only. Prefer hand_off when " +
+      "you need the answer inline NOW; use mail for work that can run later.",
+    { to: z.enum(deps.agentNames as [string, ...string[]]), kind: z.enum(["request", "note"]), body: z.string() },
+    async (a) =>
+      text(deps.mailbox
+        ? deps.mailbox.send({ from: "hermes", origin: deps.origin, goalDepth: 0 }, a)
+        : "Refused: the mailbox is disabled."),
   );
 
   const listPlaybooks = tool(
@@ -416,7 +431,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     name: "aios",
     version: "0.1.0",
     tools: [
-      runPlaybook, codeTask, goalStatus, planGoal, listPlaybooks, handOff,
+      runPlaybook, codeTask, goalStatus, planGoal, listPlaybooks, handOff, sendMail,
       vaultWrite, vaultRead, vaultList, proposeAction,
       addReminder, listReminders, cancelReminder, addTriageRule,
       listInboxTool, readEmailTool,

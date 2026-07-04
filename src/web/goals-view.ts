@@ -2,6 +2,8 @@
 import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpendGuard } from "../engine/budget.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
+import { MAIL_PREFIX } from "../engine/goals.js";
 import { localParts } from "../heartbeat/clock.js";
 
 export interface GoalNodeView {
@@ -46,7 +48,26 @@ export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: stri
   const artifacts = !g.goal_dir ? [] : store.listNodes(g.id)
     .filter((n) => n.artifact)
     .map((n) => ({ file: n.artifact!, content: vault.readGoalArtifact(g.goal_dir!, n.artifact!) ?? "" }));
-  return { ...goalView(g, store), artifacts };
+  const spawnedBy = g.plan_summary.startsWith(MAIL_PREFIX)
+    ? (() => {
+        const m = store.getMail(g.plan_summary.slice(MAIL_PREFIX.length));
+        return m ? { mailId: m.id, from: m.from_agent } : null;
+      })()
+    : null;
+  return { ...goalView(g, store), artifacts, spawnedBy };
+}
+
+export interface MailView {
+  id: string; from: string; to: string; kind: string; status: string; body: string;
+  goalId: string | null; chainDepth: number; createdAt: string; readAt: string | null; error: string | null;
+}
+
+export function buildMailView(store: Store, registry: LoadedRegistry, agent?: string, limit = 50): MailView[] {
+  const canonical = agent ? registry.agentOf.get(agent) ?? agent : undefined;
+  return store.listMail(canonical, limit).map((m) => ({
+    id: m.id, from: m.from_agent, to: m.to_agent, kind: m.kind, status: m.status, body: m.body,
+    goalId: m.goal_id, chainDepth: m.chain_depth, createdAt: m.created_at, readAt: m.read_at, error: m.error,
+  }));
 }
 
 export function buildBudgetView(guard: SpendGuard, todayFn?: () => string) {

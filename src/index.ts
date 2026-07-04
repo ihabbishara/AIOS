@@ -14,6 +14,7 @@ import { makePlanner } from "./engine/plan.js";
 import type { GoalRow } from "./store/db.js";
 import type { Playbook } from "./engine/playbook.js";
 import { makeRunSpecialist } from "./agents/runner.js";
+import { Mailbox } from "./mail/mailbox.js";
 import { Moderator } from "./moderator/session.js";
 import { makeHandOff } from "./moderator/handoff.js";
 import { DirectChats } from "./agents/direct.js";
@@ -72,7 +73,16 @@ async function main(): Promise<void> {
     }),
     log,
   );
-  const runSpecialist = makeRunSpecialist({ store, bus, registry });
+  // Agent mailbox: onQueued forward-refs `goals` (initialized below) — the closure only fires
+  // when mail is sent, long after boot, so the reference is resolved by then.
+  const mailbox = new Mailbox({
+    store, registry,
+    maxDepth: config.mailMaxDepth, disabled: config.mailDisabled,
+    primaryChat: config.primaryChat,
+    onEvent: (e) => bus.emit(e),
+    onQueued: () => goals.pump(),
+  });
+  const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox });
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
 
@@ -219,7 +229,7 @@ async function main(): Promise<void> {
     playbooks: registry.playbooks,
     wallTimeMs: config.jobWallTimeMs,
     maxConcurrentNodes: config.maxConcurrentNodes,
-    mailMaxDepth: Number(process.env.AIOS_MAIL_MAX_DEPTH ?? 2), // Task 7 swaps to config.mailMaxDepth
+    mailMaxDepth: config.mailMaxDepth,
     model: config.specialistModel,
     spendGuard,
     onComplete: onGoalComplete,
@@ -269,6 +279,7 @@ async function main(): Promise<void> {
     gate,
     actionTypes: executors.types(),
     google,
+    mailbox,
   });
 
   const directChats = new DirectChats({
@@ -280,6 +291,7 @@ async function main(): Promise<void> {
     log,
     resolvePackFor: (role, origin) => resolveDeptFor(role, origin, true),
     primaryChat: config.primaryChat,
+    mailbox,
   });
 
   const router = new MessageRouter({

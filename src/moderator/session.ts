@@ -8,6 +8,7 @@ import type { GoalEngine } from "../engine/goals.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
+import type { Mailbox } from "../mail/mailbox.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { effectiveAllowedTools, withDenialObserver } from "../agents/permissions.js";
 import type { EventBus } from "../events.js";
@@ -18,6 +19,7 @@ const MCP_TOOLS = [
   "mcp__aios__plan_goal",
   "mcp__aios__list_playbooks",
   "mcp__aios__hand_off",
+  "mcp__aios__send_mail",
   "mcp__aios__vault_write",
   "mcp__aios__vault_read",
   "mcp__aios__vault_list",
@@ -56,6 +58,7 @@ export interface ModeratorDeps {
   gate: ActionGate;
   actionTypes: string[];
   google: GoogleAccounts;
+  mailbox?: Mailbox;
 }
 
 /**
@@ -146,6 +149,7 @@ export class Moderator {
       gate: this.deps.gate,
       actionTypes: this.deps.actionTypes,
       google: this.deps.google,
+      mailbox: this.deps.mailbox,
       log: this.deps.log,
     });
 
