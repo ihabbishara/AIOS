@@ -44,6 +44,7 @@ import { distill, curateLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
 import { runSpeculateEmail, scanInboxFor, readMessageFor, triageLLM, composeLLM } from "./heartbeat/speculate-email.js";
+import { runStandups } from "./heartbeat/standup.js";
 import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
 import { buildMoneyServer } from "./money/server.js";
 import { buildResearchServer } from "./research/server.js";
@@ -446,6 +447,7 @@ async function main(): Promise<void> {
     anchors: [
       { name: "dream", hhmm: config.anchorDream },
       { name: "speculate", hhmm: config.anchorSpeculate },
+      { name: "standup", hhmm: config.anchorStandup },
       { name: "morning", hhmm: config.anchorMorning },
       { name: "evening", hhmm: config.anchorEvening },
     ],
@@ -489,6 +491,13 @@ async function main(): Promise<void> {
             }).catch((err) => log(`speculate-email failed: ${(err as Error).message}`));
           }
         }
+        return;
+      }
+      if (name === "standup") {
+        if (config.standupDisabled || config.mailDisabled) return;
+        // fire-and-forget: lead one-shots must not block the clock tick / reminders.
+        void runStandups({ store, registry, run: runSpecialist, spendGuard, onEvent: (e) => bus.emit(e), log })
+          .catch((err) => log(`standups failed: ${(err as Error).message}`));
         return;
       }
       await runBrief(

@@ -67,6 +67,14 @@ export interface Config {
   speculateEmailMaxJobs: number;
   /** Model for the email triage/compose one-shots (defaults to specialistModel). */
   speculateEmailModel?: string;
+  /** Local time "HH:MM" for the pre-brief department standups. */
+  anchorStandup: string;
+  /** Max mail chain depth: a request whose chain_depth exceeds this downgrades to a note. */
+  mailMaxDepth: number;
+  /** Kill-switch: send_mail refuses, sweep idles, injection skipped (standups die too — mail is their substrate). */
+  mailDisabled: boolean;
+  /** Kill-switch for standups only. */
+  standupDisabled: boolean;
   /** Model for the triage classifier one-shot. */
   triageModel: string;
   /** Voice kill-switch (AIOS_VOICE_ENABLED=false disables STT/TTS everywhere). */
@@ -217,6 +225,10 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     anchorDream: process.env.AIOS_ANCHOR_DREAM ?? "02:00",
     dreamTopN: Number(process.env.AIOS_DREAM_TOP_N ?? 3),
     dreamModel: process.env.AIOS_DREAM_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
+    anchorStandup: process.env.AIOS_ANCHOR_STANDUP ?? "07:15",
+    mailMaxDepth: Number(process.env.AIOS_MAIL_MAX_DEPTH ?? 2),
+    mailDisabled: process.env.AIOS_MAIL_DISABLED === "1",
+    standupDisabled: process.env.AIOS_STANDUP_DISABLED === "1",
     anchorSpeculate: process.env.AIOS_ANCHOR_SPECULATE ?? "03:00",
     speculateMaxJobs: Number(process.env.AIOS_SPECULATE_MAX_JOBS ?? 2),
     speculateModel: process.env.AIOS_SPECULATE_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
