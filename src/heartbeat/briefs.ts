@@ -27,6 +27,10 @@ export interface BriefData {
   emailDraftsPending?: number;
   /** Private task list — morning brief only; overdue + due-today + open count. */
   openLoops?: OpenLoops;
+  /** Department lead standups (standup mail to hermes) — morning brief only. Lead name identifies the dept. */
+  standups?: Array<{ lead: string; text: string }>;
+  /** Hermes's other unread mail (reports/notes), one line each — morning brief only. */
+  hermesMail?: Array<{ from: string; kind: string; line: string }>;
 }
 
 const TWELVE_H = 12 * 60 * 60 * 1000;
@@ -161,6 +165,18 @@ export function assembleBrief(
     if (ol.openCount) openLoops = ol;
   }
 
+  let standups: BriefData["standups"];
+  let hermesMail: BriefData["hermesMail"];
+  if (anchor === "morning") {
+    const unread = store.unreadMailFor("hermes");
+    const su = unread.filter((m) => m.kind === "standup")
+      .map((m) => ({ lead: m.from_agent, text: m.body.replace(/\n+/g, " / ").slice(0, 400) }));
+    if (su.length) standups = su;
+    const other = unread.filter((m) => m.kind !== "standup")
+      .map((m) => ({ from: m.from_agent, kind: m.kind, line: (m.body.split("\n")[0] ?? "").slice(0, 120) }));
+    if (other.length) hermesMail = other;
+  }
+
   return {
     anchor,
     pendingApprovals,
@@ -184,6 +200,8 @@ export function assembleBrief(
     speculateResults,
     emailDraftsPending,
     openLoops,
+    standups,
+    hermesMail,
   };
 }
 
@@ -202,7 +220,9 @@ export function isEmptyBrief(d: BriefData): boolean {
     (d.dreamInitiatives?.length ?? 0) === 0 &&
     (d.speculateResults?.length ?? 0) === 0 &&
     (d.emailDraftsPending ?? 0) === 0 &&
-    ((d.openLoops?.overdue.length ?? 0) + (d.openLoops?.dueToday.length ?? 0)) === 0
+    ((d.openLoops?.overdue.length ?? 0) + (d.openLoops?.dueToday.length ?? 0)) === 0 &&
+    (d.standups?.length ?? 0) === 0 &&
+    (d.hermesMail?.length ?? 0) === 0
   );
 }
 
@@ -246,6 +266,8 @@ export function renderBriefNote(d: BriefData, narration: string): string {
     if (ol && rows.length) rows.push(`${ol.openCount} open loops total`);
     section("Open loops", rows);
   }
+  section("Standups", (d.standups ?? []).map((s) => `${s.lead}: ${s.text}`));
+  section("Mailroom", (d.hermesMail ?? []).map((m) => `${m.from} (${m.kind}): ${m.line}`));
   return lines.join("\n");
 }
 
@@ -293,6 +315,12 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
 
   const notePath = `briefs/${localParts(now).date}-${anchor}.md`;
   deps.vault.writeNote(notePath, renderBriefNote(data, narration));
+
+  // Hermes's inbox is read via the morning brief — briefed mail is acknowledged.
+  if (anchor === "morning") {
+    const briefed = deps.store.unreadMailFor("hermes").map((m) => m.id);
+    if (briefed.length) deps.store.markMailRead(briefed);
+  }
 
   if (deps.primary) {
     try {
