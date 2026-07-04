@@ -134,7 +134,10 @@ export class DirectChats {
         sessionKey: key,
         prompt,
         log: this.deps.log,
-        onSuccess: () => this.deps.mailbox?.markDelivered(deliveredIds), // commit mail only on turn success
+        // Commit mail ONLY on a successful turn. An SDK error-reply (no throw) does NOT fire this,
+        // so the mail re-surfaces next @mention — intended: re-deliver beats losing it (durability
+        // favours the safe side; the ≤5-cap block just reappears until a turn succeeds).
+        onSuccess: () => this.deps.mailbox?.markDelivered(deliveredIds),
         options: {
           ...observed,
           mcpServers: { ...(observed.mcpServers ?? {}), ...roleServers, ...mailServers, aios_attachments: attachmentServer },

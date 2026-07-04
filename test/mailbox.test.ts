@@ -135,4 +135,16 @@ describe("Mailbox.peekInbound + markDelivered", () => {
     const { mb } = harness();
     expect(() => mb.markDelivered([])).not.toThrow();
   });
+
+  it("markDelivered is idempotent — a double commit of the same ids is harmless", () => {
+    const { store, mb } = harness();
+    store.insertMail({
+      id: "n1", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "hi",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    mb.markDelivered(["n1"]);
+    expect(() => mb.markDelivered(["n1"])).not.toThrow(); // e.g. resumable retry firing onSuccess twice
+    expect(store.getMail("n1")!.status).toBe("read");
+    expect(store.unreadMailFor("vulcan")).toEqual([]);
+  });
 });
