@@ -25,6 +25,9 @@ export function App() {
   const [goalTarget, setGoalTarget] = useState<GoalTarget | null>(null);
   const openGoal = (slug: string, nodeKey: string | null) => { setGoalTarget({ slug, nodeKey }); setTab("goals"); };
   const consumeGoalTarget = useCallback(() => setGoalTarget(null), []);
+  const [agentTarget, setAgentTarget] = useState<string | null>(null);
+  const openAgent = (name: string) => { setAgentTarget(name); setTab("org"); };
+  const consumeAgentTarget = useCallback(() => setAgentTarget(null), []);
   // Budget refreshes when costs land (agent.end) or goals transition (pause-budget etc.).
   const lastCostEvt = useMemo(
     () => events.filter((e) => e.event.type === "agent.end" || e.event.type.startsWith("goal.")).at(-1)?.id,
@@ -89,10 +92,10 @@ export function App() {
         {/* Main view */}
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
-          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} /></div>
+          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} agentTarget={agentTarget} onConsumeAgentTarget={consumeAgentTarget} /></div>
           <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
           <div className={tab === "goals" ? "h-full" : "hidden"}>
-            <Goals events={events} target={goalTarget} onConsumeTarget={consumeGoalTarget} />
+            <Goals events={events} target={goalTarget} onConsumeTarget={consumeGoalTarget} onOpenAgent={openAgent} />
           </div>
           <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
           <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>

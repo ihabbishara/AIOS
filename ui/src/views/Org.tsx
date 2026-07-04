@@ -1,5 +1,5 @@
 // ui/src/views/Org.tsx — org-first home: department columns, live agent cards, profile drill-in.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type OrgAgentCard, type StoredEvent } from "../api.js";
 import { usePoll } from "../hooks.js";
 
@@ -11,8 +11,9 @@ const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   waiting: "bg-alert live-dot",
 };
 
-export function Org({ events, onOpenChat, onOpenGoal }: {
+export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgentTarget }: {
   events: StoredEvent[]; onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
+  agentTarget: string | null; onConsumeAgentTarget: () => void;
 }) {
   // Re-fetch when agent or action events arrive — same lastEvt pattern as Packs.
   const lastEvt = useMemo(
@@ -21,6 +22,12 @@ export function Org({ events, onOpenChat, onOpenGoal }: {
   );
   const { data: org } = usePoll(() => api.org(), [lastEvt]);
   const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!agentTarget) return;
+    setSelected(agentTarget);
+    onConsumeAgentTarget();
+  }, [agentTarget, onConsumeAgentTarget]);
 
   if (selected) return <AgentProfile name={selected} events={events} onBack={() => setSelected(null)} onOpenChat={onOpenChat} onOpenGoal={onOpenGoal} />;
   if (!org) return <div className="text-dim">loading…</div>;

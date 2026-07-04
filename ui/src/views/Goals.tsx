@@ -36,8 +36,8 @@ const GOAL_STATUS_TEXT: Record<string, string> = {
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const ts = (iso: string | null) => (iso ? iso.slice(5, 16).replace("T", " ") : "…");
 
-export function Goals({ events, target, onConsumeTarget }: {
-  events: StoredEvent[]; target: GoalTarget | null; onConsumeTarget: () => void;
+export function Goals({ events, target, onConsumeTarget, onOpenAgent }: {
+  events: StoredEvent[]; target: GoalTarget | null; onConsumeTarget: () => void; onOpenAgent: (name: string) => void;
 }) {
   const lastEvt = useMemo(
     () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
@@ -56,7 +56,7 @@ export function Goals({ events, target, onConsumeTarget }: {
 
   if (selected) {
     return (
-      <GoalDetailView idOrSlug={selected} events={events} initialNode={initialNode}
+      <GoalDetailView idOrSlug={selected} events={events} initialNode={initialNode} onOpenAgent={onOpenAgent}
         onBack={() => { setSelected(null); setInitialNode(null); }} />
     );
   }
@@ -111,8 +111,9 @@ function GoalCard({ goal, onClick }: { goal: GoalView; onClick: () => void }) {
   );
 }
 
-function GoalDetailView({ idOrSlug, events, initialNode, onBack }: {
-  idOrSlug: string; events: StoredEvent[]; initialNode: string | null; onBack: () => void;
+function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: {
+  idOrSlug: string; events: StoredEvent[]; initialNode: string | null;
+  onOpenAgent: (name: string) => void; onBack: () => void;
 }) {
   const lastEvt = useMemo(
     () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
@@ -166,6 +167,14 @@ function GoalDetailView({ idOrSlug, events, initialNode, onBack }: {
       </div>
       {msg && <div className="text-[11px] text-cyan">{msg}</div>}
       {goal.error && <div className="text-[11px] text-alert">{goal.error}</div>}
+      {goal.spawnedBy && (
+        <div
+          onClick={() => onOpenAgent(goal.spawnedBy!.from)}
+          className="text-[11px] text-cyan underline decoration-dotted cursor-pointer hover:text-bright w-fit"
+        >
+          ← spawned by mail from {goal.spawnedBy.from}
+        </div>
+      )}
       <div className="text-[11px] text-dim">{goal.planSummary}</div>
 
       <div className="flex gap-4 flex-1 min-h-0">
