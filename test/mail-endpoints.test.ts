@@ -3,10 +3,10 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Store } from "../src/store/db.js";
+import { Store, type MailKind, type MailStatus } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { buildMailView, buildGoalDetail } from "../src/web/goals-view.js";
+import { buildMailView, buildGoalDetail, buildMailUnread } from "../src/web/goals-view.js";
 import { MAIL_PREFIX } from "../src/engine/goals.js";
 
 function fixtureRegistry() {
@@ -38,6 +38,26 @@ describe("buildMailView", () => {
     expect(buildMailView(store, registry, "developer").length).toBe(1); // alias → vulcan
     expect(buildMailView(store, registry, "athena").length).toBe(1);
     expect(buildMailView(store, registry, "nobody").length).toBe(0);
+  });
+});
+
+describe("buildMailUnread", () => {
+  it("totals + per-agent unread, status='unread' only", () => {
+    const store = new Store(":memory:");
+    const put = (id: string, to: string, status: MailStatus, kind: MailKind = "note") =>
+      store.insertMail({
+        id, from_agent: "athena", to_agent: to, kind, body: "x", goal_id: null,
+        origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status, error: null,
+      });
+    put("u1", "vulcan", "unread");
+    put("u2", "athena", "unread", "report");
+    put("q1", "vulcan", "queued", "request"); // excluded — work, not inbox
+    put("rd", "athena", "read");              // excluded — already seen
+    expect(buildMailUnread(store)).toEqual({ total: 2, byAgent: { vulcan: 1, athena: 1 } });
+  });
+
+  it("empty store → zero total, empty map", () => {
+    expect(buildMailUnread(new Store(":memory:"))).toEqual({ total: 0, byAgent: {} });
   });
 });
 

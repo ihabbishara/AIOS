@@ -629,6 +629,17 @@ export class Store {
     ).all(agent) as unknown as MailRow[];
   }
 
+  /** Unread inbound count per recipient (status='unread' — same set injectionFor drains).
+   *  Excludes queued/spawned requests (work, not messages) and already-read mail. */
+  unreadCountsByAgent(): Record<string, number> {
+    const rows = this.db.prepare(
+      "SELECT to_agent, COUNT(*) AS c FROM mail WHERE status = 'unread' GROUP BY to_agent",
+    ).all() as unknown as Array<{ to_agent: string; c: number }>;
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.to_agent] = r.c;
+    return out;
+  }
+
   refusedMailFrom(agent: string): MailRow[] {
     return this.db.prepare(
       "SELECT * FROM mail WHERE from_agent = ? AND status = 'refused' AND read_at IS NULL ORDER BY created_at ASC",

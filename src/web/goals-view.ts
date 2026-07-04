@@ -70,6 +70,13 @@ export function buildMailView(store: Store, registry: LoadedRegistry, agent?: st
   }));
 }
 
+/** Unread inbound mail per agent + grand total — feeds the org nav badge and per-card badges. */
+export function buildMailUnread(store: Store): { total: number; byAgent: Record<string, number> } {
+  const byAgent = store.unreadCountsByAgent();
+  const total = Object.values(byAgent).reduce((s, n) => s + n, 0);
+  return { total, byAgent };
+}
+
 export function buildBudgetView(guard: SpendGuard, todayFn?: () => string) {
   // Local date, not UTC — the ledger stamps localParts dates (mismatch showed 0 spend after local midnight).
   const date = (todayFn ?? (() => localParts(new Date()).date))();

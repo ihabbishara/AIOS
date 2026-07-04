@@ -17,7 +17,7 @@ import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
 import { buildOrgView, buildAgentProfile } from "./org-view.js";
-import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView } from "./goals-view.js";
+import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread } from "./goals-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -429,6 +429,10 @@ export function startWebServer(deps: WebDeps, port: number): void {
 
         if (path === "/api/budget" && req.method === "GET") {
           return json(res, 200, buildBudgetView(deps.spendGuard));
+        }
+
+        if (path === "/api/mail/unread" && req.method === "GET") {
+          return json(res, 200, buildMailUnread(store));
         }
 
         if (path === "/api/mail" && req.method === "GET") {

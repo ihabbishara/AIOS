@@ -51,6 +51,18 @@ describe("mail store", () => {
     expect(s.getMail("r1")!.status).toBe("refused"); // status preserved, only acked
   });
 
+  it("unreadCountsByAgent groups status='unread' by recipient; excludes queued/spawned/read", () => {
+    const s = new Store(":memory:");
+    s.insertMail(mail({ id: "u1", kind: "note", status: "unread", to_agent: "vulcan" }));
+    s.insertMail(mail({ id: "u2", kind: "report", status: "unread", to_agent: "hermes" }));
+    s.insertMail(mail({ id: "u3", kind: "note", status: "unread", to_agent: "hermes" }));
+    s.insertMail(mail({ id: "q1", status: "queued", to_agent: "vulcan" }));            // work, not inbox
+    s.insertMail(mail({ id: "sp", status: "spawned", to_agent: "athena" }));           // already ran
+    s.insertMail(mail({ id: "rd", kind: "note", status: "read", to_agent: "vulcan" })); // already seen
+    expect(s.unreadCountsByAgent()).toEqual({ vulcan: 1, hermes: 2 });
+    expect(s.unreadCountsByAgent()).not.toHaveProperty("athena");
+  });
+
   it("goals carry chain_depth (default 0)", () => {
     const s = new Store(":memory:");
     s.insertGoal({
