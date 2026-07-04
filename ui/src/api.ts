@@ -133,6 +133,12 @@ export interface GoalView {
 
 export interface GoalDetail extends GoalView {
   artifacts: Array<{ file: string; content: string }>;
+  spawnedBy: { mailId: string; from: string } | null;
+}
+
+export interface MailView {
+  id: string; from: string; to: string; kind: string; status: string; body: string;
+  goalId: string | null; chainDepth: number; createdAt: string; readAt: string | null; error: string | null;
 }
 
 export interface BudgetInfo { date: string; spentCents: number; capCents: number | null }
@@ -167,6 +173,8 @@ export const api = {
   goal: (idOrSlug: string) => request<GoalDetail>(`/api/goals/${encodeURIComponent(idOrSlug)}`),
   goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon") =>
     request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
+  mail: (agent?: string, limit = 50) =>
+    request<MailView[]>(`/api/mail?${agent ? `agent=${encodeURIComponent(agent)}&` : ""}limit=${limit}`),
   budget: () => request<BudgetInfo>("/api/budget"),
   events: (since = 0) => request<StoredEvent[]>(`/api/events?since=${since}`),
   costs: () => request<{ byAgent: Record<string, number>; byDay: Record<string, number> }>("/api/costs"),
