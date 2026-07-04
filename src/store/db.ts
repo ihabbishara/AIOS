@@ -22,9 +22,30 @@ export interface GoalRow {
   goal_dir: string | null;
   plan_summary: string;
   replans_used: number;
+  /** Mail chain depth: 0 for user/hermes/facade goals; a mail-spawned goal inherits its mail's depth. */
+  chain_depth: number;
   error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type MailKind = "request" | "note" | "report" | "standup";
+export type MailStatus = "queued" | "spawned" | "refused" | "unread" | "read";
+export interface MailRow {
+  id: string;
+  from_agent: string;
+  to_agent: string;
+  kind: MailKind;
+  body: string;
+  /** The spawned goal (requests) or the source goal (reports); null otherwise. */
+  goal_id: string | null;
+  origin_channel: string;
+  origin_chat_id: string;
+  chain_depth: number;
+  status: MailStatus;
+  error: string | null;
+  created_at: string;
+  read_at: string | null;
 }
 
 export interface TaskNodeRow {
@@ -162,6 +183,7 @@ export class Store {
         goal_dir TEXT,
         plan_summary TEXT NOT NULL DEFAULT '',
         replans_used INTEGER NOT NULL DEFAULT 0,
+        chain_depth INTEGER NOT NULL DEFAULT 0,
         error TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -188,6 +210,21 @@ export class Store {
         date TEXT PRIMARY KEY,
         spent_cents INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS mail (
+        id TEXT PRIMARY KEY,
+        from_agent TEXT NOT NULL,
+        to_agent TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        body TEXT NOT NULL,
+        goal_id TEXT,
+        origin_channel TEXT NOT NULL,
+        origin_chat_id TEXT NOT NULL,
+        chain_depth INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        read_at TEXT
+      );
       CREATE TABLE IF NOT EXISTS kv (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -206,6 +243,12 @@ export class Store {
     // Migration: receipt evidence path (added after initial release).
     try {
       this.db.exec("ALTER TABLE expenses ADD COLUMN receipt_path TEXT");
+    } catch {
+      /* column already exists */
+    }
+    // Migration (Phase 4a): mail chain depth on existing goal rows.
+    try {
+      this.db.exec("ALTER TABLE goals ADD COLUMN chain_depth INTEGER NOT NULL DEFAULT 0");
     } catch {
       /* column already exists */
     }
@@ -429,10 +472,10 @@ export class Store {
     const now = new Date().toISOString();
     this.db.prepare(
       `INSERT INTO goals (id, slug, title, request, department, lead, origin_channel, origin_chat_id,
-                          status, project_dir, goal_dir, plan_summary, replans_used, error, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          status, project_dir, goal_dir, plan_summary, replans_used, chain_depth, error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(g.id, g.slug, g.title, g.request, g.department, g.lead, g.origin_channel, g.origin_chat_id,
-          g.status, g.project_dir, g.goal_dir, g.plan_summary, g.replans_used, g.error, now, now);
+          g.status, g.project_dir, g.goal_dir, g.plan_summary, g.replans_used, g.chain_depth, g.error, now, now);
   }
 
   getGoal(id: string): GoalRow | undefined {
@@ -553,6 +596,83 @@ export class Store {
     const r = this.db.prepare("SELECT spent_cents FROM budget_ledger WHERE date = ?").get(date) as
       | { spent_cents: number } | undefined;
     return r?.spent_cents ?? 0;
+  }
+
+  // --- Agent mailbox (Phase 4a) ---
+
+  insertMail(m: Omit<MailRow, "created_at" | "read_at">): void {
+    this.db.prepare(
+      `INSERT INTO mail (id, from_agent, to_agent, kind, body, goal_id, origin_channel, origin_chat_id,
+                         chain_depth, status, error, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(m.id, m.from_agent, m.to_agent, m.kind, m.body, m.goal_id, m.origin_channel, m.origin_chat_id,
+          m.chain_depth, m.status, m.error, new Date().toISOString());
+  }
+
+  getMail(id: string): MailRow | undefined {
+    return this.db.prepare("SELECT * FROM mail WHERE id = ?").get(id) as MailRow | undefined;
+  }
+
+  listMail(agent?: string, limit = 50): MailRow[] {
+    if (agent) {
+      return this.db.prepare(
+        "SELECT * FROM mail WHERE from_agent = ? OR to_agent = ? ORDER BY created_at DESC LIMIT ?",
+      ).all(agent, agent, limit) as unknown as MailRow[];
+    }
+    return this.db.prepare("SELECT * FROM mail ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as unknown as MailRow[];
+  }
+
+  unreadMailFor(agent: string): MailRow[] {
+    return this.db.prepare(
+      "SELECT * FROM mail WHERE to_agent = ? AND status = 'unread' ORDER BY created_at ASC",
+    ).all(agent) as unknown as MailRow[];
+  }
+
+  refusedMailFrom(agent: string): MailRow[] {
+    return this.db.prepare(
+      "SELECT * FROM mail WHERE from_agent = ? AND status = 'refused' AND read_at IS NULL ORDER BY created_at ASC",
+    ).all(agent) as unknown as MailRow[];
+  }
+
+  /** Stamps read_at (unread → read; refused keeps its status — read_at doubles as the ack). */
+  markMailRead(ids: string[]): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(
+      "UPDATE mail SET read_at = ?, status = CASE WHEN status = 'unread' THEN 'read' ELSE status END WHERE id = ?",
+    );
+    for (const id of ids) stmt.run(now, id);
+  }
+
+  queuedRequests(): MailRow[] {
+    return this.db.prepare(
+      "SELECT * FROM mail WHERE kind = 'request' AND status = 'queued' ORDER BY created_at ASC",
+    ).all() as unknown as MailRow[];
+  }
+
+  markMailSpawned(id: string, goalId: string): void {
+    this.db.prepare("UPDATE mail SET status = 'spawned', goal_id = ? WHERE id = ?").run(goalId, id);
+  }
+
+  refuseMail(id: string, error: string): void {
+    this.db.prepare("UPDATE mail SET status = 'refused', error = ? WHERE id = ?").run(error, id);
+  }
+
+  /** Depth-exceeded requests deliver as ordinary notes — fail-soft, nothing runs. */
+  downgradeMailToNote(id: string, reason: string): void {
+    this.db.prepare("UPDATE mail SET kind = 'note', status = 'unread', error = ? WHERE id = ?").run(reason, id);
+  }
+
+  transaction<T>(fn: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const out = fn();
+      this.db.exec("COMMIT");
+      return out;
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   addExpense(e: {

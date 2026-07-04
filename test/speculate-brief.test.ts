@@ -12,7 +12,7 @@ function insertJob(s: Store, id: string, slug: string, status: GoalStatus, jobDi
   s.insertGoal({
     id, slug, title: slug[0].toUpperCase() + slug.slice(1), request: "q", department: "research", lead: "clio",
     origin_channel: "system", origin_chat_id: "speculate", status, project_dir: null,
-    goal_dir: null, plan_summary: "playbook:research-report", replans_used: 0, error: null,
+    goal_dir: null, plan_summary: "playbook:research-report", replans_used: 0, chain_depth: 0, error: null,
   });
   if (jobDir) s.setGoalDir(id, jobDir);
 }

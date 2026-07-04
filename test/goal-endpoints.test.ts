@@ -14,7 +14,7 @@ function seeded() {
   store.insertGoal({
     id: "g1", slug: "build-x", title: "Build X", request: "r", department: "engineering", lead: "athena",
     origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null,
-    goal_dir: "2026-07-02-build-x", plan_summary: "s", replans_used: 1, error: null,
+    goal_dir: "2026-07-02-build-x", plan_summary: "s", replans_used: 1, chain_depth: 0, error: null,
   });
   store.insertNodes("g1", [
     { node_key: "a", type: "run", agent: "odin", critic: null, brief: "b", depends_on: [], max_rounds: 1 },

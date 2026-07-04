@@ -7,7 +7,7 @@ function goal(over: Partial<GoalRow> = {}): Omit<GoalRow, "created_at" | "update
     id: over.id ?? "g1", slug: over.slug ?? "build-x", title: "Build X", request: "build x please",
     department: "engineering", lead: "athena", origin_channel: "telegram", origin_chat_id: "42",
     status: over.status ?? "planning", project_dir: null, goal_dir: null,
-    plan_summary: "", replans_used: 0, error: null, ...over,
+    plan_summary: "", replans_used: 0, chain_depth: 0, error: null, ...over,
   } as Omit<GoalRow, "created_at" | "updated_at">;
 }
 

@@ -15,7 +15,7 @@ function harness(run: SpecialistRunFn) {
     id: "g1", slug: "build-x", title: "Build X", request: "build x",
     department: "engineering", lead: "athena", origin_channel: "telegram", origin_chat_id: "1",
     status: "running", project_dir: null, goal_dir: vault.goalDirName("build-x"),
-    plan_summary: "", replans_used: 0, error: null,
+    plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
   });
   store.setGoalDir("g1", vault.goalDirName("build-x"));
   const events: string[] = [];

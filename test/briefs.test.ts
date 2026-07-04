@@ -39,7 +39,7 @@ describe("assembleBrief", () => {
     store.insertGoal({
       id: "j1", slug: "demo", title: "Demo job", request: "r", department: "engineering", lead: "athena",
       origin_channel: "cli", origin_chat_id: "local", status: "done", project_dir: null,
-      goal_dir: null, plan_summary: "playbook:echo", replans_used: 0, error: null,
+      goal_dir: null, plan_summary: "playbook:echo", replans_used: 0, chain_depth: 0, error: null,
     });
     store.addEvent(JSON.stringify({ type: "action.executed", actionId: "x", actionType: "vault.write", auto: true, ok: true }));
     store.addEvent(JSON.stringify({ type: "action.executed", actionId: "y", actionType: "vault.write", auto: true, ok: true }));

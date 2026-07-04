@@ -71,7 +71,7 @@ describe("pack e2e (via resolvePack with Pack shape)", () => {
     store.insertGoal({
       id: "j", slug: "audit", title: "Audit", request: "audit my subs", department: "finance", lead: "midas",
       origin_channel: "cli", origin_chat_id: "x", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "playbook:audit", replans_used: 0, error: null,
+      goal_dir: null, plan_summary: "playbook:audit", replans_used: 0, chain_depth: 0, error: null,
     });
     store.setGoalDir("j", "2026-06-14-audit");
     store.insertNodes("j", [

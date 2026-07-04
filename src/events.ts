@@ -21,7 +21,9 @@ export type AiosEvent =
   | { type: "route.decision"; to: string; via: "mention" | "binding" | "handoff" | "default" | "verdict" | "reset" | "plan"; reason: string; channel: string; chatId: string }
   | { type: "goal.created"; goalId: string; title: string; department: string }
   | { type: "goal.status"; goalId: string; status: string; error?: string }
-  | { type: "node.status"; goalId: string; nodeKey: string; status: string; agent: string; error?: string };
+  | { type: "node.status"; goalId: string; nodeKey: string; status: string; agent: string; error?: string }
+  | { type: "mail.sent"; id: string; from: string; to: string; kind: string }
+  | { type: "mail.spawned"; mailId: string; goalId: string };
 
 export interface StoredEvent {
   id: number;

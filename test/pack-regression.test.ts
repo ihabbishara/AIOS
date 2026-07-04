@@ -15,7 +15,7 @@ function harness(pack?: unknown) {
   store.insertGoal({
     id: "g1", slug: "p", title: "P", request: "do", department: "research", lead: "clio",
     origin_channel: "cli", origin_chat_id: "x", status: "running", project_dir: null,
-    goal_dir: null, plan_summary: "playbook:p", replans_used: 0, error: null,
+    goal_dir: null, plan_summary: "playbook:p", replans_used: 0, chain_depth: 0, error: null,
   });
   store.setGoalDir("g1", vault.goalDirName("p"));
   store.insertNodes("g1", [

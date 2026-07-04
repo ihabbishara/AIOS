@@ -6,7 +6,7 @@ function insertGoal(s: Store, id: string, slug: string) {
   s.insertGoal({
     id, slug, title: slug, request: "r", department: "engineering", lead: "athena",
     origin_channel: "cli", origin_chat_id: "t", status: "running", project_dir: null,
-    goal_dir: null, plan_summary: "", replans_used: 0, error: null,
+    goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
   });
 }
 

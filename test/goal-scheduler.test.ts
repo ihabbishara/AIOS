@@ -149,7 +149,7 @@ describe("GoalEngine scheduler", () => {
     store.insertGoal({
       id: "g9", slug: "crashy", title: "C", request: "c", department: "engineering",
       lead: "athena", origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: "2026-07-02-crashy", plan_summary: "playbook:research-report", replans_used: 0, error: null,
+      goal_dir: "2026-07-02-crashy", plan_summary: "playbook:research-report", replans_used: 0, chain_depth: 0, error: null,
     });
     store.insertNodes("g9", [
       { node_key: "a", type: "run", agent: "odin", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
@@ -175,7 +175,7 @@ describe("GoalEngine guards (review fixes)", () => {
     store.insertGoal({
       id: "g8", slug: "stuck", title: "S", request: "s", department: "engineering",
       lead: "athena", origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: "2026-07-03-stuck", plan_summary: "planned", replans_used: 2, error: null,
+      goal_dir: "2026-07-03-stuck", plan_summary: "planned", replans_used: 2, chain_depth: 0, error: null,
     });
     store.insertNodes("g8", [
       { node_key: "a", type: "run", agent: "odin", critic: null, brief: "b", depends_on: [], max_rounds: 1 },

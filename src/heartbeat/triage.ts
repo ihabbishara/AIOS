@@ -38,6 +38,8 @@ export function defaultVerdict(event: AiosEvent): TriageVerdict | undefined {
       return undefined; // model decides — quiet posture prompt below
     case "goal.created":
     case "node.status":
+    case "mail.sent":     // internal machinery — never a user ping
+    case "mail.spawned":
     case "agent.start":
     case "agent.end":
     case "chat.in":
