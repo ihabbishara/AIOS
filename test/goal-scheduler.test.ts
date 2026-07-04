@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { GoalEngine } from "../src/engine/goals.js";
+import { GoalEngine, type Planner } from "../src/engine/goals.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import type { Playbook } from "../src/engine/playbook.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
@@ -38,6 +38,7 @@ function harness(over: {
   maxConcurrentNodes?: number;
   capUsd?: number;
   todayFn?: () => string;
+  planner?: Planner;
 } = {}) {
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "gs-vault-")), "AIOS");
@@ -53,6 +54,7 @@ function harness(over: {
     spendGuard: new SpendGuard({ store, capUsd: over.capUsd, todayFn: over.todayFn }),
     onComplete: async (o) => { completions.push({ ok: o.ok }); },
     resolveDeptFor: () => undefined,
+    planner: over.planner,
   });
   return { store, vault, engine, completions };
 }
@@ -188,5 +190,93 @@ describe("GoalEngine guards (review fixes)", () => {
     expect(store.getGoal("g8")!.error).toMatch(/stuck/);
     expect(store.listNodes("g8").find((n) => n.node_key === "b")!.status).toBe("skipped");
     expect(completions).toEqual([{ ok: false }]);
+  });
+});
+
+describe("GoalEngine re-plan orchestration (onNodeFailure)", () => {
+  // Insert a lead-planned goal (non-facade: plan_summary "planned") with one runnable node.
+  const plannedGoal = (store: Store, id: string, over: Record<string, unknown> = {}) => {
+    store.insertGoal({
+      id, slug: id, title: "P", request: "do it", department: "engineering", lead: "athena",
+      origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: `2026-07-04-${id}`, plan_summary: "planned", replans_used: 0, chain_depth: 0, error: null, ...over,
+    });
+    store.insertNodes(id, [{ node_key: "a", type: "run", agent: "odin", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+  };
+  // A node fails only after runOnce + its one retry both throw — hence "throw twice, then succeed".
+  const throwThenOk = (throws: number): SpecialistRunFn => {
+    let calls = 0;
+    return async () => {
+      calls++;
+      if (calls <= throws) throw new Error("boom");
+      return { text: "fixed", costUsd: 0, numTurns: 1 };
+    };
+  };
+
+  it("node fails → engine re-plans, replacement runs, goal completes; replans_used bumped", async () => {
+    let store!: Store, replans = 0;
+    const planner: Planner = {
+      plan: async () => { throw new Error("unused"); },
+      async replan(goal, failed) {
+        replans++;
+        // Faithful to production replan: DELETE the failed node + insert a fresh one (same key, pending).
+        store.replaceNode(goal.id, failed.node_key,
+          { node_key: failed.node_key, type: "run", agent: "odin", critic: null, brief: "retry", depends_on: [], max_rounds: 1 });
+      },
+    };
+    const h = harness({ run: throwThenOk(2), planner });
+    store = h.store;
+    plannedGoal(store, "gp1");
+    h.engine.pump();
+    await vi.waitFor(() => expect(store.getGoal("gp1")!.status).toBe("done"));
+    expect(replans).toBe(1);
+    expect(store.getGoal("gp1")!.replans_used).toBe(1);
+    expect(h.completions).toEqual([{ ok: true }]);
+  });
+
+  it("re-plan cap exhausted → goal fails without calling the planner", async () => {
+    let called = false;
+    const planner: Planner = {
+      plan: async () => { throw new Error("unused"); },
+      replan: async () => { called = true; },
+    };
+    const { engine, store, completions } = harness({ run: throwThenOk(2), planner });
+    plannedGoal(store, "gp2", { replans_used: 2 }); // already at the default cap of 2
+    engine.pump();
+    await vi.waitFor(() => expect(store.getGoal("gp2")!.status).toBe("failed"));
+    expect(store.getGoal("gp2")!.error).toMatch(/re-plans exhausted: 2/);
+    expect(store.listNodes("gp2")[0].status).toBe("failed");
+    expect(called).toBe(false);
+    expect(completions).toEqual([{ ok: false }]);
+  });
+
+  it("re-plan throws → goal fails 're-planning failed'; the attempt still counts", async () => {
+    const planner: Planner = {
+      plan: async () => { throw new Error("unused"); },
+      replan: async () => { throw new Error("lead returned no patch ops"); },
+    };
+    const { engine, store, completions } = harness({ run: throwThenOk(2), planner });
+    plannedGoal(store, "gp3");
+    engine.pump();
+    await vi.waitFor(() => expect(store.getGoal("gp3")!.status).toBe("failed"));
+    expect(store.getGoal("gp3")!.error).toMatch(/re-planning failed: lead returned no patch ops/);
+    expect(store.getGoal("gp3")!.replans_used).toBe(1); // bumped before replan threw
+    expect(completions).toEqual([{ ok: false }]);
+  });
+
+  it("session-limit during a node pauses the goal (paused-user), not re-planned", async () => {
+    let called = false;
+    const planner: Planner = {
+      plan: async () => { throw new Error("unused"); },
+      replan: async () => { called = true; },
+    };
+    // Session-limit is signalled by the agent's OUTPUT text, converted to SessionLimitError upstream.
+    const run: SpecialistRunFn = async () => ({ text: "You've hit your session limit — resets at 3pm", costUsd: 0, numTurns: 1 });
+    const { engine, store, completions } = harness({ run, planner });
+    plannedGoal(store, "gp4");
+    engine.pump();
+    await vi.waitFor(() => expect(store.getGoal("gp4")!.status).toBe("paused-user"));
+    expect(called).toBe(false);
+    expect(completions).toEqual([]); // paused, not completed
   });
 });
