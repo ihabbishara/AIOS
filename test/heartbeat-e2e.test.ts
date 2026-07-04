@@ -54,7 +54,9 @@ describe("heartbeat end-to-end (no LLM)", () => {
       created_at: "2026-06-12T05:00:00.000Z", resolved_at: null, expires_at: "2026-06-13T05:00:00.000Z",
     };
     store.insertAction(action);
-    store.addReminder({ text: "stretch", dueAt: "2026-06-12T05:25:00.000Z", originChannel: "telegram", originChatId: "42" });
+    // dueAt relative to fakeNow (instant math) so firing is TZ-independent — a hardcoded
+    // UTC dueAt vs a local-wall-clock fakeNow only lines up at UTC+2. See handoff.
+    store.addReminder({ text: "stretch", dueAt: new Date(fakeNow.getTime() - 6 * 60_000).toISOString(), originChannel: "telegram", originChatId: "42" });
 
     await clock.tick();
     // allow the async bus → triage chain to settle
