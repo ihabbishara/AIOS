@@ -46,6 +46,9 @@ export function assembleBrief(
   anchor: "morning" | "evening",
   nowIso: string,
   sinceTs: string | null,
+  /** Agents in privateMemo departments (finance) — their mail never enters the vaulted, recall-
+   *  indexed brief (mirrors the standup source carve-out; closes the money-wall leak via Mailroom). */
+  privateAgents: Set<string> = new Set(),
 ): BriefData {
   const nowMs = Date.parse(nowIso);
 
@@ -168,7 +171,8 @@ export function assembleBrief(
   let standups: BriefData["standups"];
   let hermesMail: BriefData["hermesMail"];
   if (anchor === "morning") {
-    const unread = store.unreadMailFor("hermes");
+    // Drop private-dept senders before anything reaches the vaulted/indexed brief.
+    const unread = store.unreadMailFor("hermes").filter((m) => !privateAgents.has(m.from_agent));
     const su = unread.filter((m) => m.kind === "standup")
       .map((m) => ({ lead: m.from_agent, text: m.body.replace(/\n+/g, " / ").slice(0, 400) }));
     if (su.length) standups = su;
@@ -282,6 +286,9 @@ export interface BriefRunnerDeps {
   primary?: { channel: string; chatId: string };
   /** Live degraded-sense snapshot (e.g. GoogleAccounts.degraded) — surfaced as a re-auth section. */
   degraded?: () => Array<{ name: string; reason: string }>;
+  /** Agents in privateMemo departments — their mail is excluded from the brief AND left unread
+   *  (never vaulted/indexed; not silently consumed by the mark-read sweep). */
+  privateAgents?: Set<string>;
   log?: (line: string) => void;
   nowFn?: () => Date;
 }
@@ -289,7 +296,8 @@ export interface BriefRunnerDeps {
 export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "evening"): Promise<void> {
   const now = (deps.nowFn ?? (() => new Date()))();
   const since = deps.store.kvGet("brief:last-ts") ?? null;
-  const data = assembleBrief(deps.store, anchor, now.toISOString(), since);
+  const privateAgents = deps.privateAgents ?? new Set<string>();
+  const data = assembleBrief(deps.store, anchor, now.toISOString(), since, privateAgents);
   data.sensesNeedingReauth = deps.degraded?.() ?? [];
   deps.store.kvSet("brief:last-ts", now.toISOString()); // window always advances — no overlaps, no gaps
 
@@ -316,9 +324,10 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   const notePath = `briefs/${localParts(now).date}-${anchor}.md`;
   deps.vault.writeNote(notePath, renderBriefNote(data, narration));
 
-  // Hermes's inbox is read via the morning brief — briefed mail is acknowledged.
+  // Hermes's inbox is read via the morning brief — briefed mail is acknowledged. Private-dept
+  // mail is excluded from the brief, so it is also left unread (not silently consumed here).
   if (anchor === "morning") {
-    const briefed = deps.store.unreadMailFor("hermes").map((m) => m.id);
+    const briefed = deps.store.unreadMailFor("hermes").filter((m) => !privateAgents.has(m.from_agent)).map((m) => m.id);
     if (briefed.length) deps.store.markMailRead(briefed);
   }
 

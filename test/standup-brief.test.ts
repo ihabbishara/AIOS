@@ -1,7 +1,12 @@
 // test/standup-brief.test.ts
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
-import { assembleBrief, isEmptyBrief, renderBriefNote } from "../src/heartbeat/briefs.js";
+import { assembleBrief, isEmptyBrief, renderBriefNote, runBrief } from "../src/heartbeat/briefs.js";
+import { EventBus } from "../src/events.js";
+import { VaultWriter } from "../src/vault/writer.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function hermesMail(store: Store, over: Record<string, unknown> = {}) {
   store.insertMail({
@@ -25,6 +30,27 @@ describe("brief standups + mailroom", () => {
     expect(note).toContain("## Standups");
     expect(note).toContain("athena: done: X / today: Y / blockers: none");
     expect(note).toContain("## Mailroom");
+  });
+
+  it("private-dept senders are excluded from the vaulted brief AND left unread (money wall)", async () => {
+    const store = new Store(":memory:");
+    hermesMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
+    hermesMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
+    const priv = new Set(["midas"]);
+    const d = assembleBrief(store, "morning", new Date().toISOString(), null, priv);
+    expect(d.hermesMail).toEqual([{ from: "athena", kind: "report", line: "Done: public thing" }]);
+    expect(renderBriefNote(d, "n")).not.toContain("12345");
+
+    // runBrief marks briefed (public) mail read but leaves the private note unread (not consumed).
+    const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-vault-")), "AIOS");
+    vault.init();
+    await runBrief({
+      store, bus: new EventBus(store), vault, narrate: async () => "n", send: async () => {},
+      primary: { channel: "cli", chatId: "local" }, privateAgents: priv,
+      nowFn: () => new Date(),
+    }, "morning");
+    expect(store.getMail("pub")!.status).toBe("read");
+    expect(store.getMail("priv")!.status).toBe("unread"); // never surfaced, never silently dropped
   });
 
   it("evening brief ignores hermes mail; empty morning stays empty", () => {

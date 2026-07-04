@@ -1,7 +1,8 @@
 // test/mail-store.test.ts
 import { describe, it, expect } from "vitest";
 import { Store, type MailRow } from "../src/store/db.js";
-import { defaultVerdict } from "../src/heartbeat/triage.js";
+import { defaultVerdict, Triage } from "../src/heartbeat/triage.js";
+import { EventBus } from "../src/events.js";
 
 function mail(over: Partial<MailRow> = {}): Omit<MailRow, "created_at" | "read_at"> {
   return {
@@ -76,5 +77,20 @@ describe("mail triage defaults", () => {
   it("mail.sent and mail.spawned are ignore", () => {
     expect(defaultVerdict({ type: "mail.sent", id: "m", from: "a", to: "b", kind: "note" })).toBe("ignore");
     expect(defaultVerdict({ type: "mail.spawned", mailId: "m", goalId: "g" })).toBe("ignore");
+  });
+
+  it("a user mail.* rule cannot force a notify (hard guard, spec §7)", async () => {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    store.addTriageRule({ eventType: "mail.*", verdict: "notify_now", source: "manual" });
+    const notified: string[] = [];
+    const triage = new Triage({
+      store, bus,
+      classify: async () => { throw new Error("model must not be called"); },
+      notify: async (e) => { notified.push(e.type); },
+    });
+    await triage.handle({ type: "mail.sent", id: "m", from: "a", to: "b", kind: "report" });
+    await triage.handle({ type: "mail.spawned", mailId: "m", goalId: "g" });
+    expect(notified).toEqual([]); // hard guard returns before the rule is consulted
   });
 });

@@ -54,7 +54,9 @@ export class Mailbox {
       : `Note delivered to ${canonical}.`;
   }
 
-  /** System-prompt block: unread inbound first, then own refusal acks. Marks rendered mail read. */
+  /** System-prompt block: unread inbound first, then own refusal acks. Marks rendered mail read
+   *  at injection time (read_at = delivery, per spec §5). Fire-once with no retry: if the run then
+   *  crashes, the note is already read and won't re-surface (acceptable in v1 — no polling tool). */
   injectionFor(canonical: string): string {
     const inbound = this.deps.store.unreadMailFor(canonical);
     const refusals = this.deps.store.refusedMailFrom(canonical);

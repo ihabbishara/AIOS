@@ -331,7 +331,11 @@ export class GoalEngine {
       `# ${goal.title}\n\n- department: ${goal.department}\n- lead: ${goal.lead}\n- status: running\n\n## Request\n\n${goal.request}\n\n## Plan\n\n${goal.plan_summary}`,
       { goal: goal.id, department: goal.department });
     try {
-      const sandbox = await this.deps.prepareSandbox?.(goal, { playbook: pb });
+      // Mail-spawned goals NEVER get a workspace/sandbox — code work enters ONLY via code_task
+      // (spec §4). Enforced at the engine so it holds regardless of prepareSandbox's own gating.
+      const sandbox = goal.plan_summary.startsWith(MAIL_PREFIX)
+        ? undefined
+        : await this.deps.prepareSandbox?.(goal, { playbook: pb });
       if (sandbox) {
         store.setGoalProjectDir(goal.id, sandbox.taskDir);
         goal.project_dir = sandbox.taskDir;

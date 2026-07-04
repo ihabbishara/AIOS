@@ -8,7 +8,7 @@ import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
 import { randomUUID } from "node:crypto";
 import { localParts } from "./heartbeat/clock.js";
-import { GoalEngine, type GoalOutcome } from "./engine/goals.js";
+import { GoalEngine, MAIL_PREFIX, type GoalOutcome } from "./engine/goals.js";
 import { SpendGuard, attachBudgetLedger } from "./engine/budget.js";
 import { makePlanner } from "./engine/plan.js";
 import type { GoalRow } from "./store/db.js";
@@ -83,6 +83,13 @@ async function main(): Promise<void> {
     onQueued: () => goals.pump(),
   });
   const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox });
+  // Agents in privateMemo departments (finance: midas/juno) — their mail is walled out of the
+  // vaulted, recall-indexed morning brief (money-wall parity with the standup carve-out).
+  const privateAgents = new Set(
+    [...registry.agents.entries()]
+      .filter(([, a]) => registry.departments.get(a.department)?.privateMemo)
+      .map(([n]) => n),
+  );
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
 
@@ -212,6 +219,7 @@ async function main(): Promise<void> {
   const prepareGoalSandbox = async (goal: GoalRow, _opts: { playbook?: Playbook }) => {
     // Facade code goals keep today's engineering-only allocation; planned engineering
     // goals get greenfield/worktree per project_dir presence (analyze read-only).
+    if (goal.plan_summary.startsWith(MAIL_PREFIX)) return undefined; // mail-goals never get a code sandbox
     if (goal.department !== "engineering") return undefined;
     const pbName = goal.plan_summary.startsWith("playbook:") ? goal.plan_summary.slice("playbook:".length) : undefined;
     if (pbName === "code-inplace") return undefined; // inplace edits the real checkout — no sandbox
@@ -513,7 +521,7 @@ async function main(): Promise<void> {
         return;
       }
       await runBrief(
-        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => [...google.degraded(), ...bunq.degraded()], log },
+        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => [...google.degraded(), ...bunq.degraded()], privateAgents, log },
         name,
       );
       if (name === "evening") {

@@ -226,7 +226,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     dreamTopN: Number(process.env.AIOS_DREAM_TOP_N ?? 3),
     dreamModel: process.env.AIOS_DREAM_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     anchorStandup: process.env.AIOS_ANCHOR_STANDUP ?? "07:15",
-    mailMaxDepth: Number(process.env.AIOS_MAIL_MAX_DEPTH ?? 2),
+    mailMaxDepth: (() => { const n = Number(process.env.AIOS_MAIL_MAX_DEPTH); return Number.isFinite(n) && n > 0 ? n : 2; })(),
     mailDisabled: process.env.AIOS_MAIL_DISABLED === "1",
     standupDisabled: process.env.AIOS_STANDUP_DISABLED === "1",
     anchorSpeculate: process.env.AIOS_ANCHOR_SPECULATE ?? "03:00",

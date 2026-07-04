@@ -47,16 +47,18 @@ function harness(run: SpecialistRunFn, capUsd?: number) {
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ms-vault-")), "AIOS");
   if (capUsd !== undefined) store.budgetAdd(new Date().toISOString().slice(0, 10), Math.round(capUsd * 100));
   const onComplete = vi.fn(async () => {});
+  const prepareSandbox = vi.fn(async () => ({ taskDir: "/tmp/should-not-be-used", mode: "build" as const }));
   const engine = new GoalEngine({
     store, vault, run, registry,
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
     spendGuard: new SpendGuard({ store, capUsd }),
     onComplete,
     resolveDeptFor: () => undefined,
+    prepareSandbox,
     primaryChat: PRIMARY,
     mailMaxDepth: 2,
   });
-  return { store, vault, engine, onComplete };
+  return { store, vault, engine, onComplete, prepareSandbox };
 }
 
 const okRun: SpecialistRunFn = async (_r, brief) => {
@@ -124,6 +126,16 @@ describe("mail sweep", () => {
     const report = store.unreadMailFor("athena")[0];
     expect(report.kind).toBe("report");
     expect(report.body).toContain("Failed");
+  });
+
+  it("mail-goals NEVER get a workspace/sandbox even when prepareSandbox is wired (code enters only via code_task)", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun);
+    store.insertMail(reqMail());
+    engine.pump();
+    await flush();
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(goal.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();
   });
 
   it("node runs carry the goal's origin + chain_depth as mailCtx", async () => {
