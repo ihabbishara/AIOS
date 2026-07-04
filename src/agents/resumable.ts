@@ -8,6 +8,9 @@ export interface ResumableTurnParams {
   prompt: string;
   options: Options;
   log?: (line: string) => void;
+  /** Fired once, only on a successful turn (same point the session id is persisted) — used to
+   *  commit unread-mail delivery so a crashed/errored turn re-surfaces the mail. */
+  onSuccess?: () => void;
 }
 
 export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
@@ -52,6 +55,7 @@ async function runOnce(params: ResumableTurnParams, resume: string | undefined):
         // Only persist ids from successful turns — errored turns may never be
         // written to disk and would poison future resumes.
         params.store.kvSet(params.sessionKey, msg.session_id);
+        params.onSuccess?.(); // commit mail delivery at the same success gate
         reply = msg.result;
       } else {
         const detail = "errors" in msg ? msg.errors.join("; ") : "";

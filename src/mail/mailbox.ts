@@ -54,20 +54,26 @@ export class Mailbox {
       : `Note delivered to ${canonical}.`;
   }
 
-  /** System-prompt block: unread inbound first, then own refusal acks. Marks rendered mail read
-   *  at injection time (read_at = delivery, per spec §5). Fire-once with no retry: if the run then
-   *  crashes, the note is already read and won't re-surface (acceptable in v1 — no polling tool). */
-  injectionFor(canonical: string): string {
+  /** System-prompt block: unread inbound first, then own refusal acks — WITHOUT marking read.
+   *  Returns the picked ids so the caller commits via markDelivered() only after the consuming
+   *  run actually succeeds; a run that crashes after injection never commits, so the mail
+   *  re-surfaces on the next run (durable delivery — no lost notes on crash). */
+  peekInbound(canonical: string): { block: string; ids: string[] } {
     const inbound = this.deps.store.unreadMailFor(canonical);
     const refusals = this.deps.store.refusedMailFrom(canonical);
     const picked = [...inbound, ...refusals].slice(0, INJECT_CAP);
-    if (!picked.length) return "";
+    if (!picked.length) return { block: "", ids: [] };
     const lines = picked.map((m) =>
       m.status === "refused"
         ? `- your request to ${m.to_agent} was refused: ${m.error ?? "unknown reason"}`
         : `- from ${m.from_agent} (${m.kind}, ${m.created_at.slice(0, 16)}): ${clip(m.body)}`,
     );
-    this.deps.store.markMailRead(picked.map((m) => m.id));
-    return `# Mail\nYou have ${picked.length} message(s):\n${lines.join("\n")}`;
+    return { block: `# Mail\nYou have ${picked.length} message(s):\n${lines.join("\n")}`, ids: picked.map((m) => m.id) };
+  }
+
+  /** Commit delivery — stamp read_at (unread→read; refused keeps its status, read_at = ack).
+   *  Idempotent and empty-safe; call only from a successful run's completion path. */
+  markDelivered(ids: string[]): void {
+    if (ids.length) this.deps.store.markMailRead(ids);
   }
 }

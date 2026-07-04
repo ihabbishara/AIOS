@@ -138,14 +138,17 @@ export function specialistOptions(
 /** Merge the aios-mail server into run options: server + allowlist entry + unread-mail prompt
  *  block. Pure. MUST be applied BEFORE withDenialObserver wraps (the observer denies from the
  *  allowlist it captures at wrap time — the StructuredOutput lesson). */
-export function withMailOptions(base: Options, mailbox: Mailbox, ctx: MailSendCtx): Options {
-  const injection = mailbox.injectionFor(ctx.from);
-  return {
+export function withMailOptions(base: Options, mailbox: Mailbox, ctx: MailSendCtx): { options: Options; deliveredIds: string[] } {
+  const { block, ids } = mailbox.peekInbound(ctx.from);
+  const options = {
     ...base,
     mcpServers: { ...(base.mcpServers ?? {}), "aios-mail": buildMailServer(mailbox, ctx) },
     allowedTools: [...new Set([...(base.allowedTools ?? []), MAIL_TOOL])],
-    ...(injection ? { systemPrompt: `${base.systemPrompt}\n\n${injection}` } : {}),
+    ...(block ? { systemPrompt: `${base.systemPrompt}\n\n${block}` } : {}),
   };
+  // deliveredIds committed by the caller via mailbox.markDelivered() ONLY on run success —
+  // a crash between here and completion leaves the mail unread so it re-surfaces next run.
+  return { options, deliveredIds: ids };
 }
 
 export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry: LoadedRegistry; mailbox?: Mailbox }): SpecialistRunFn {
@@ -161,9 +164,12 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
     try {
       let merged = specialistOptions(role, canonical, opts, deps.store);
       // Mail server + unread-mail block, applied BEFORE the observer wraps (same widen-before-wrap
-      // rule as StructuredOutput below).
+      // rule as StructuredOutput below). deliveredIds committed only on run success (below).
+      let deliveredIds: string[] = [];
       if (deps.mailbox && opts.mailCtx) {
-        merged = withMailOptions(merged, deps.mailbox, { from: canonical, ...opts.mailCtx });
+        const r = withMailOptions(merged, deps.mailbox, { from: canonical, ...opts.mailCtx });
+        merged = r.options;
+        deliveredIds = r.deliveredIds;
       }
       // Structured output arrives via the SDK's StructuredOutput tool. Widen the allowlist
       // BEFORE the denial observer wraps it — the observer's PreToolUse hook denies from the
@@ -190,6 +196,7 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
       for await (const msg of q) {
         if (msg.type === "result") {
           if (msg.subtype === "success") {
+            deps.mailbox?.markDelivered(deliveredIds); // commit unread mail ONLY on success
             return {
               text: msg.result,
               structured: msg.structured_output,

@@ -37,24 +37,28 @@ describe("withMailOptions", () => {
   it("adds server + allowlist entry, preserves existing tools/servers", () => {
     const { mb } = mailbox();
     const base: Options = { allowedTools: ["Read"], mcpServers: {}, systemPrompt: "persona" };
-    const out = withMailOptions(base, mb, CTX);
+    const { options: out } = withMailOptions(base, mb, CTX);
     expect(out.allowedTools).toContain(MAIL_TOOL);
     expect(out.allowedTools).toContain("Read");
     expect(Object.keys(out.mcpServers ?? {})).toContain("aios-mail");
     expect(base.allowedTools).toEqual(["Read"]); // pure — no mutation
   });
 
-  it("appends unread mail to the system prompt and marks it read", () => {
+  it("appends unread mail to the system prompt; marks read ONLY once deliveredIds committed", () => {
     const { store, mb } = mailbox();
     store.insertMail({
       id: "n1", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "heads up",
       goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
     });
-    const out = withMailOptions({ systemPrompt: "persona" } as Options, mb, CTX);
-    expect(String(out.systemPrompt)).toContain("# Mail");
-    expect(String(out.systemPrompt)).toContain("heads up");
+    const { options, deliveredIds } = withMailOptions({ systemPrompt: "persona" } as Options, mb, CTX);
+    expect(String(options.systemPrompt)).toContain("# Mail");
+    expect(String(options.systemPrompt)).toContain("heads up");
+    expect(deliveredIds).toEqual(["n1"]);
+    expect(store.unreadMailFor("vulcan")).toHaveLength(1); // NOT marked at option assembly (crash-safe)
+
+    mb.markDelivered(deliveredIds); // simulate run success
     expect(store.unreadMailFor("vulcan")).toEqual([]);
-    const again = withMailOptions({ systemPrompt: "persona" } as Options, mb, CTX);
+    const { options: again } = withMailOptions({ systemPrompt: "persona" } as Options, mb, CTX);
     expect(String(again.systemPrompt)).not.toContain("# Mail");
   });
 

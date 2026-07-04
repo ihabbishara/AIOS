@@ -89,12 +89,15 @@ export class DirectChats {
       // Mail: per-turn aios-mail server + widen allowlist BEFORE the observer wraps; the unread-mail
       // block prepends to the per-turn prompt (the system prompt is fixed on resumed sessions).
       let mailBlock = "";
+      let deliveredIds: string[] = [];
       const mailServers: Record<string, ReturnType<typeof buildMailServer>> = {};
       if (this.deps.mailbox) {
         const mailCtx = { from: canonical, origin: { channel, chatId }, goalDepth: 0 };
         mailServers["aios-mail"] = buildMailServer(this.deps.mailbox, mailCtx);
         options = { ...options, allowedTools: [...new Set([...(options.allowedTools ?? []), MAIL_TOOL])] };
-        mailBlock = this.deps.mailbox.injectionFor(canonical);
+        const peek = this.deps.mailbox.peekInbound(canonical);
+        mailBlock = peek.block;
+        deliveredIds = peek.ids; // committed on turn success via onSuccess below (crash re-surfaces)
       }
       const observed = withDenialObserver(options, canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
 
@@ -131,6 +134,7 @@ export class DirectChats {
         sessionKey: key,
         prompt,
         log: this.deps.log,
+        onSuccess: () => this.deps.mailbox?.markDelivered(deliveredIds), // commit mail only on turn success
         options: {
           ...observed,
           mcpServers: { ...(observed.mcpServers ?? {}), ...roleServers, ...mailServers, aios_attachments: attachmentServer },

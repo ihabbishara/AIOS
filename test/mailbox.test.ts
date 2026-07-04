@@ -88,8 +88,8 @@ describe("Mailbox.send", () => {
   });
 });
 
-describe("Mailbox.injectionFor", () => {
-  it("renders unread inbound + own refusals, truncates, caps at 5, marks read", () => {
+describe("Mailbox.peekInbound + markDelivered", () => {
+  it("renders unread inbound + own refusals, truncates, caps at 5; peek alone does NOT mark read", () => {
     const { store, mb } = harness();
     for (let i = 0; i < 5; i++) {
       store.insertMail({
@@ -101,15 +101,38 @@ describe("Mailbox.injectionFor", () => {
       id: "r1", from_agent: "vulcan", to_agent: "midas", kind: "request", body: "z",
       goal_id: null, origin_channel: "telegram", origin_chat_id: "999", chain_depth: 1, status: "refused", error: "private wall",
     });
-    const block = mb.injectionFor("vulcan");
+    const { block, ids } = mb.peekInbound("vulcan");
     expect(block).toContain("# Mail");
     expect(block).toContain("from athena");
     expect(block).not.toContain("y".repeat(501));   // truncated at 500
     expect(block).not.toContain("refused");          // cap 5 hit by the unread notes first
+    expect(ids).toHaveLength(5);
+    expect(store.unreadMailFor("vulcan")).toHaveLength(5); // NOT marked — commit is deferred to markDelivered
+
+    mb.markDelivered(ids);
+    expect(store.unreadMailFor("vulcan")).toEqual([]);     // now committed
+    // second peek now surfaces the refusal ack
+    const second = mb.peekInbound("vulcan");
+    expect(second.block).toContain("your request to midas was refused: private wall");
+    mb.markDelivered(second.ids);
+    expect(mb.peekInbound("vulcan").block).toBe("");       // everything acked
+  });
+
+  it("peek without deliver is crash-safe: mail survives repeated peeks until delivered", () => {
+    const { store, mb } = harness();
+    store.insertMail({
+      id: "n1", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "heads up",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    mb.peekInbound("vulcan"); // simulate a run that crashed after injection — no markDelivered
+    mb.peekInbound("vulcan");
+    expect(store.unreadMailFor("vulcan")).toHaveLength(1); // still deliverable — the whole point
+    mb.markDelivered(mb.peekInbound("vulcan").ids);
     expect(store.unreadMailFor("vulcan")).toEqual([]);
-    // second call now surfaces the refusal ack
-    const block2 = mb.injectionFor("vulcan");
-    expect(block2).toContain("your request to midas was refused: private wall");
-    expect(mb.injectionFor("vulcan")).toBe("");      // everything acked
+  });
+
+  it("markDelivered([]) is a harmless no-op", () => {
+    const { mb } = harness();
+    expect(() => mb.markDelivered([])).not.toThrow();
   });
 });
