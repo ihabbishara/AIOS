@@ -11,9 +11,9 @@ const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   waiting: "bg-alert live-dot",
 };
 
-export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgentTarget }: {
+export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgentTarget, unreadByAgent }: {
   events: StoredEvent[]; onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
-  agentTarget: string | null; onConsumeAgentTarget: () => void;
+  agentTarget: string | null; onConsumeAgentTarget: () => void; unreadByAgent: Record<string, number>;
 }) {
   // Re-fetch when agent or action events arrive — same lastEvt pattern as Packs.
   const lastEvt = useMemo(
@@ -52,6 +52,9 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
                 <div className="flex items-center gap-2">
                   <span className={`inline-block w-2 h-2 rounded-full ${STATUS_DOT[a.status]}`} />
                   <span className="font-display text-bright tracking-wider text-[13px]">{a.name}</span>
+                  {unreadByAgent[a.name] > 0 && (
+                    <span title="unread mail" className="text-[9px] text-void bg-amber px-1.5 rounded-full">{unreadByAgent[a.name]}</span>
+                  )}
                   {a.visibility === "private" && <span className="text-[9px] text-violet border border-violet px-1">private</span>}
                   {a.guarded && <span title="deterministic tool gate" className="text-[9px] text-cyan border border-cyan px-1">⛨</span>}
                   <span className={`ml-auto text-[9px] ${a.status === "idle" ? "text-dim" : a.status === "waiting" ? "text-alert" : "text-amber"}`}>
@@ -207,7 +210,9 @@ function MailSection({ name, events, onOpenGoal }: {
   if (!mail) return null;
 
   const received = mail.filter((m) => m.to === name);
-  const unread = received.filter((m) => m.readAt === null).length;
+  // Unread = status 'unread' (what injectionFor drains), NOT readAt===null — the latter also
+  // flags already-spawned requests. Keeps this count == the org nav/card badge.
+  const unread = received.filter((m) => m.status === "unread").length;
 
   return (
     <div className="hud p-4">
@@ -218,7 +223,7 @@ function MailSection({ name, events, onOpenGoal }: {
       {mail.length === 0 && <div className="text-[11px] text-dim">no mail</div>}
       {mail.map((m) => {
         const sent = m.from === name;
-        const isUnread = !sent && m.readAt === null;
+        const isUnread = !sent && m.status === "unread";
         return (
           <div key={m.id} className="text-[11px] flex gap-2 items-baseline py-0.5">
             <span className="text-dim w-24 shrink-0">{m.createdAt.slice(5, 16).replace("T", " ")}</span>

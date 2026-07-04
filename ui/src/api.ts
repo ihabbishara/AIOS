@@ -175,6 +175,7 @@ export const api = {
     request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
   mail: (agent?: string, limit = 50) =>
     request<MailView[]>(`/api/mail?${agent ? `agent=${encodeURIComponent(agent)}&` : ""}limit=${limit}`),
+  mailUnread: () => request<{ total: number; byAgent: Record<string, number> }>("/api/mail/unread"),
   budget: () => request<BudgetInfo>("/api/budget"),
   events: (since = 0) => request<StoredEvent[]>(`/api/events?since=${since}`),
   costs: () => request<{ byAgent: Record<string, number>; byDay: Record<string, number> }>("/api/costs"),

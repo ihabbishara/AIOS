@@ -34,6 +34,9 @@ export function App() {
     [events],
   );
   const { data: budget } = usePoll(() => api.budget(), [lastCostEvt]);
+  // Unread-mail badges (nav total + per-agent) refresh when mail.* events land.
+  const lastMailEvt = useMemo(() => events.filter((e) => e.event.type.startsWith("mail.")).at(-1)?.id, [events]);
+  const { data: unread } = usePoll(() => api.mailUnread(), [lastMailEvt]);
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;
 
@@ -81,6 +84,9 @@ export function App() {
               style={{ animationDelay: `${i * 60}ms` }}
             >
               {t}
+              {t === "org" && unread && unread.total > 0 && (
+                <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.total}</span>
+              )}
             </button>
           ))}
           <div className="mt-auto px-5">
@@ -92,7 +98,7 @@ export function App() {
         {/* Main view */}
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
-          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} agentTarget={agentTarget} onConsumeAgentTarget={consumeAgentTarget} /></div>
+          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} agentTarget={agentTarget} onConsumeAgentTarget={consumeAgentTarget} unreadByAgent={unread?.byAgent ?? {}} /></div>
           <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
           <div className={tab === "goals" ? "h-full" : "hidden"}>
             <Goals events={events} target={goalTarget} onConsumeTarget={consumeGoalTarget} onOpenAgent={openAgent} />
