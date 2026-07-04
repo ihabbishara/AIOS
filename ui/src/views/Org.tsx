@@ -22,7 +22,7 @@ export function Org({ events, onOpenChat, onOpenGoal }: {
   const { data: org } = usePoll(() => api.org(), [lastEvt]);
   const [selected, setSelected] = useState<string | null>(null);
 
-  if (selected) return <AgentProfile name={selected} onBack={() => setSelected(null)} onOpenChat={onOpenChat} />;
+  if (selected) return <AgentProfile name={selected} events={events} onBack={() => setSelected(null)} onOpenChat={onOpenChat} onOpenGoal={onOpenGoal} />;
   if (!org) return <div className="text-dim">loading…</div>;
 
   const depts = [...org].sort(
@@ -79,8 +79,9 @@ export function Org({ events, onOpenChat, onOpenGoal }: {
   );
 }
 
-function AgentProfile({ name, onBack, onOpenChat }: {
-  name: string; onBack: () => void; onOpenChat: (name: string) => void;
+function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal }: {
+  name: string; events: StoredEvent[]; onBack: () => void;
+  onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
 }) {
   const { data: p, error } = usePoll(() => api.agent(name), [name]);
   if (error) return <div className="text-alert text-[12px]">error: {error} <button className="text-dim underline" onClick={onBack}>back</button></div>;
@@ -127,6 +128,8 @@ function AgentProfile({ name, onBack, onOpenChat }: {
           ))}
         </div>
       </div>
+
+      <MailSection name={p.name} events={events} onOpenGoal={onOpenGoal} />
 
       {p.trust.length > 0 && (
         <div className="hud p-4">
@@ -178,6 +181,53 @@ function AgentProfile({ name, onBack, onOpenChat }: {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+const MAIL_KIND: Record<string, string> = {
+  request: "text-amber", note: "text-dim", report: "text-cyan", standup: "text-violet", refused: "text-alert",
+};
+
+function MailSection({ name, events, onOpenGoal }: {
+  name: string; events: StoredEvent[]; onOpenGoal: (slug: string, nodeKey: string | null) => void;
+}) {
+  const lastMailEvt = useMemo(
+    () => events.filter((e) => e.event.type.startsWith("mail.")).at(-1)?.id,
+    [events],
+  );
+  const { data: mail } = usePoll(() => api.mail(name), [name, lastMailEvt]);
+  if (!mail) return null;
+
+  const received = mail.filter((m) => m.to === name);
+  const unread = received.filter((m) => m.readAt === null).length;
+
+  return (
+    <div className="hud p-4">
+      <div className="label mb-2 flex items-center gap-2">
+        Mail
+        {unread > 0 && <span className="text-[9px] text-void bg-amber px-1.5 rounded-full">{unread}</span>}
+      </div>
+      {mail.length === 0 && <div className="text-[11px] text-dim">no mail</div>}
+      {mail.map((m) => {
+        const sent = m.from === name;
+        const isUnread = !sent && m.readAt === null;
+        return (
+          <div key={m.id} className="text-[11px] flex gap-2 items-baseline py-0.5">
+            <span className="text-dim w-24 shrink-0">{m.createdAt.slice(5, 16).replace("T", " ")}</span>
+            <span className="text-dim w-4 shrink-0">{sent ? "→" : "←"}</span>
+            <span className="text-fg w-16 shrink-0 truncate">{sent ? m.to : m.from}</span>
+            <span className={`w-14 shrink-0 ${MAIL_KIND[m.kind] ?? "text-dim"}`}>{m.kind}</span>
+            <span className={`truncate ${isUnread ? "text-bright" : "text-dim"}`}>{m.body}</span>
+            {m.goalId && (
+              <span
+                onClick={() => onOpenGoal(m.goalId!, null)}
+                className="ml-auto shrink-0 text-amber underline decoration-dotted cursor-pointer hover:text-bright"
+              >▸ goal</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
