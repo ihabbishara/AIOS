@@ -8,6 +8,8 @@ import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import type { LoadedRegistry } from "./registry/loader.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
+import { buildMailServer, MAIL_TOOL } from "../mail/server.js";
+import type { Mailbox, MailSendCtx } from "../mail/mailbox.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -105,6 +107,9 @@ export interface RunOptions {
   pack?: ResolvedPack;
   /** Structured-output schema for roles without their own (role schema always wins). */
   outputSchema?: Record<string, unknown>;
+  /** When set (with a mailbox in deps), the run gets send_mail + its unread-mail block.
+   *  goalDepth = the running goal's chain_depth (0 for chat/hand_off/standup runs). */
+  mailCtx?: { origin: { channel: string; chatId: string }; goalDepth: number };
 }
 
 export type SpecialistRunFn = (
@@ -130,7 +135,20 @@ export function specialistOptions(
   return withEffectiveTools(withPack, canonical, store);
 }
 
-export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry: LoadedRegistry }): SpecialistRunFn {
+/** Merge the aios-mail server into run options: server + allowlist entry + unread-mail prompt
+ *  block. Pure. MUST be applied BEFORE withDenialObserver wraps (the observer denies from the
+ *  allowlist it captures at wrap time — the StructuredOutput lesson). */
+export function withMailOptions(base: Options, mailbox: Mailbox, ctx: MailSendCtx): Options {
+  const injection = mailbox.injectionFor(ctx.from);
+  return {
+    ...base,
+    mcpServers: { ...(base.mcpServers ?? {}), "aios-mail": buildMailServer(mailbox, ctx) },
+    allowedTools: [...new Set([...(base.allowedTools ?? []), MAIL_TOOL])],
+    ...(injection ? { systemPrompt: `${base.systemPrompt}\n\n${injection}` } : {}),
+  };
+}
+
+export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry: LoadedRegistry; mailbox?: Mailbox }): SpecialistRunFn {
   return async (roleName, brief, opts) => {
     const canonical = deps.registry.agentOf.get(roleName) ?? roleName;
     const role = deps.registry.agents.get(canonical)?.role;
@@ -141,7 +159,12 @@ export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry:
     opts.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      const merged = specialistOptions(role, canonical, opts, deps.store);
+      let merged = specialistOptions(role, canonical, opts, deps.store);
+      // Mail server + unread-mail block, applied BEFORE the observer wraps (same widen-before-wrap
+      // rule as StructuredOutput below).
+      if (deps.mailbox && opts.mailCtx) {
+        merged = withMailOptions(merged, deps.mailbox, { from: canonical, ...opts.mailCtx });
+      }
       // Structured output arrives via the SDK's StructuredOutput tool. Widen the allowlist
       // BEFORE the denial observer wraps it — the observer's PreToolUse hook denies from the
       // list it captures at wrap time (observed live: tool.denied athena StructuredOutput →

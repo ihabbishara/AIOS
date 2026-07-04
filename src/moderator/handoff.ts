@@ -56,6 +56,7 @@ export function makeHandOff(deps: HandOffDeps) {
     const pack = deps.resolveDeptFor(agent, origin, true);
     const res = await deps.runSpecialist(agent, task, {
       cwd: deps.projectsRoot, model: deps.model, pack,
+      mailCtx: { origin, goalDepth: 0 },
     });
     return { text: res.text };
   };

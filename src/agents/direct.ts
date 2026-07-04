@@ -4,6 +4,8 @@ import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer } from "./attachment-server.js";
+import { buildMailServer, MAIL_TOOL } from "../mail/server.js";
+import type { Mailbox } from "../mail/mailbox.js";
 import { buildCloudflareServer } from "../senses/cloudflare/server.js";
 import { HALALO_EXPORTS_DIR } from "./guards/halalo-readonly.js";
 import type { Attachment } from "./attachment.js";
@@ -28,6 +30,8 @@ export interface DirectChatsDeps {
   resolvePackFor?: (role: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
   /** The private primary chat — privateOnly roles are refused from any other origin. */
   primaryChat?: { channel: string; chatId: string };
+  /** Agent mailbox — when set, @mention turns get send_mail + their unread-mail block. */
+  mailbox?: Mailbox;
 }
 
 export function isPrivateOrigin(primary: { channel: string; chatId: string } | undefined, channel: string, chatId: string): boolean {
@@ -81,7 +85,17 @@ export class DirectChats {
         systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
       };
       const withPack = pack ? packRunOptions(base, pack) : base;
-      const options = withEffectiveTools(withPack, canonical, this.deps.store);
+      let options = withEffectiveTools(withPack, canonical, this.deps.store);
+      // Mail: per-turn aios-mail server + widen allowlist BEFORE the observer wraps; the unread-mail
+      // block prepends to the per-turn prompt (the system prompt is fixed on resumed sessions).
+      let mailBlock = "";
+      const mailServers: Record<string, ReturnType<typeof buildMailServer>> = {};
+      if (this.deps.mailbox) {
+        const mailCtx = { from: canonical, origin: { channel, chatId }, goalDepth: 0 };
+        mailServers["aios-mail"] = buildMailServer(this.deps.mailbox, mailCtx);
+        options = { ...options, allowedTools: [...new Set([...(options.allowedTools ?? []), MAIL_TOOL])] };
+        mailBlock = this.deps.mailbox.injectionFor(canonical);
+      }
       const observed = withDenialObserver(options, canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
 
       // Attachment server: turn-scoped collector + in-process MCP server.
@@ -107,6 +121,7 @@ export class DirectChats {
         : "";
       const attachmentLines = (attachments ?? []).map((a) => `[attached file stored at: ${a.path}]`);
       const prompt =
+        (mailBlock ? `${mailBlock}\n\n` : "") +
         from +
         (attachmentLines.length ? `${attachmentLines.join("\n")}\n` : "") +
         userText;
@@ -118,7 +133,7 @@ export class DirectChats {
         log: this.deps.log,
         options: {
           ...observed,
-          mcpServers: { ...(observed.mcpServers ?? {}), ...roleServers, aios_attachments: attachmentServer },
+          mcpServers: { ...(observed.mcpServers ?? {}), ...roleServers, ...mailServers, aios_attachments: attachmentServer },
         },
       });
 
