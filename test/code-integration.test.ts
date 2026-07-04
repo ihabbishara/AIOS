@@ -58,7 +58,7 @@ describe("code-analyze end-to-end (stubbed model)", () => {
     );
 
     const goals = new GoalEngine({
-      store, vault, run: run as never, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrentNodes: 1,
+      store, vault, run: run as never, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrentNodes: 1, mailMaxDepth: 2,
       spendGuard: new SpendGuard({ store }),
       onComplete: async () => {},
       registry: reg,

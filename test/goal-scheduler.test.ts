@@ -49,6 +49,7 @@ function harness(over: {
     playbooks: new Map([[PB.name, PB]]),
     wallTimeMs: 60_000,
     maxConcurrentNodes: over.maxConcurrentNodes ?? 2,
+    mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store, capUsd: over.capUsd, todayFn: over.todayFn }),
     onComplete: async (o) => { completions.push({ ok: o.ok }); },
     resolveDeptFor: () => undefined,

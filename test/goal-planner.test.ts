@@ -55,7 +55,7 @@ function harness(planOutputs: unknown[]) {
   });
   const engine = new GoalEngine({
     store, vault, registry, run,
-    playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
+    playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2, mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
     resolveDeptFor: () => undefined,

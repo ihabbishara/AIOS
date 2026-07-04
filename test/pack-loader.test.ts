@@ -65,7 +65,7 @@ describe("listPlaybooks department grouping", () => {
     const reg = loadRegistry(agents, pbs);
     const jm = new GoalEngine({
       store: {} as never, vault: {} as never, run: (async () => ({})) as never, registry: reg,
-      playbooks: reg.playbooks, wallTimeMs: 1, maxConcurrentNodes: 0,
+      playbooks: reg.playbooks, wallTimeMs: 1, maxConcurrentNodes: 0, mailMaxDepth: 2,
       spendGuard: {} as never, onComplete: async () => {}, resolveDeptFor: () => undefined,
     });
     const list = jm.listPlaybooks();

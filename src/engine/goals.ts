@@ -1,7 +1,8 @@
 // src/engine/goals.ts — the unified GoalEngine: node runner (this half) + scheduler (Task 6).
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import type { Store, GoalRow, TaskNodeRow, GoalStatus, NodeStatus, NewTaskNode } from "../store/db.js";
+import type { Store, GoalRow, TaskNodeRow, GoalStatus, NodeStatus, NewTaskNode, MailRow } from "../store/db.js";
+import { isPrivateOrigin } from "../agents/direct.js";
 import { slugify, type VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { ResolvedPack } from "../packs/resolve.js";
@@ -104,6 +105,7 @@ async function runAgent(
       cwd: goal.project_dir ?? process.cwd(),
       model: deps.model,
       pack: deps.resolvePack(node, goal),
+      mailCtx: { origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id }, goalDepth: goal.chain_depth },
     });
     if (isSessionLimitOutput(res.text)) {
       deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
@@ -238,6 +240,8 @@ export interface GoalEngineDeps extends Omit<NodeRunDeps, "resolvePack"> {
   prepareSandbox?: (goal: GoalRow, opts: { playbook?: Playbook }) => Promise<{ taskDir: string; mode: "build" | "analyze" } | undefined>;
   planner?: Planner;
   replanCap?: number;
+  /** Chain-depth cap for mail-spawned goals (AIOS_MAIL_MAX_DEPTH). */
+  mailMaxDepth: number;
   primaryChat?: { channel: string; chatId: string };
   projectsRoot?: string;
   workspaceRoot?: string;
@@ -245,6 +249,8 @@ export interface GoalEngineDeps extends Omit<NodeRunDeps, "resolvePack"> {
 }
 
 const FACADE_PREFIX = "playbook:";
+/** plan_summary marker for mail-spawned goals (single node, never re-planned). */
+export const MAIL_PREFIX = "mail:";
 
 export class GoalEngine {
   private runningNodes = 0;
@@ -300,6 +306,7 @@ export class GoalEngine {
   private insertGoal(p: {
     title: string; request: string; department: string; lead: string;
     origin: { channel: string; chatId: string }; projectDir?: string; planSummary: string;
+    chainDepth?: number;
   }): GoalRow {
     const id = randomUUID();
     const slug = slugify(p.title);
@@ -307,7 +314,7 @@ export class GoalEngine {
       id, slug, title: p.title, request: p.request, department: p.department, lead: p.lead,
       origin_channel: p.origin.channel, origin_chat_id: p.origin.chatId,
       status: "running", project_dir: p.projectDir ?? null, goal_dir: null,
-      plan_summary: p.planSummary, replans_used: 0, error: null,
+      plan_summary: p.planSummary, replans_used: 0, chain_depth: p.chainDepth ?? 0, error: null,
     });
     const goal = this.deps.store.getGoal(id)!;
     this.emit({ type: "goal.created", goalId: id, title: p.title, department: p.department });
@@ -343,6 +350,7 @@ export class GoalEngine {
 
   /** Core scheduler. Synchronous scan; async node runs re-enter via .finally(). */
   pump(): void {
+    this.sweepMail();
     if (this.runningNodes >= this.deps.maxConcurrentNodes) return;
     for (const goal of this.deps.store.unfinishedGoals()) {
       if (goal.status !== "running") continue;
@@ -398,6 +406,69 @@ export class GoalEngine {
     }
   }
 
+  /** Convert queued request mail into single-node goals (spec §4). FIFO; fail-soft per item. */
+  private sweepMail(): void {
+    for (const m of this.deps.store.queuedRequests()) {
+      if (m.chain_depth > this.deps.mailMaxDepth) {
+        this.deps.store.downgradeMailToNote(m.id, `downgraded: chain too deep (cap ${this.deps.mailMaxDepth})`);
+        continue;
+      }
+      if (!this.deps.spendGuard.allow()) return; // stays queued; the midnight resume tick pumps again
+      const canonical = this.deps.registry.agentOf.get(m.to_agent);
+      const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
+      if (!canonical || !def) {
+        this.deps.store.refuseMail(m.id, `unknown recipient "${m.to_agent}"`);
+        continue;
+      }
+      // Defense in depth: re-check the private wall against the stored provenance (send-time raced).
+      if (def.manifest.visibility === "private" &&
+          !isPrivateOrigin(this.deps.primaryChat, m.origin_channel, m.origin_chat_id)) {
+        this.deps.store.refuseMail(m.id, `${canonical} is private — origin not the private chat`);
+        continue;
+      }
+      const goal = this.spawnFromMail(m, canonical, def.department);
+      void this.startGoal(goal);
+    }
+  }
+
+  private spawnFromMail(m: MailRow, canonical: string, department: string): GoalRow {
+    const lead = this.deps.registry.departments.get(department)?.lead ?? "hermes";
+    const title = (m.body.split("\n")[0] ?? "").slice(0, 80) || `mail from ${m.from_agent}`;
+    let goal!: GoalRow;
+    this.deps.store.transaction(() => {
+      goal = this.insertGoal({
+        title, request: m.body, department, lead,
+        origin: { channel: m.origin_channel, chatId: m.origin_chat_id },
+        planSummary: `${MAIL_PREFIX}${m.id}`, chainDepth: m.chain_depth,
+      });
+      this.deps.store.insertNodes(goal.id, [{
+        node_key: "task", type: "run", agent: canonical, critic: null,
+        brief: `Requested by ${m.from_agent} via mail ${m.id}. Your result is automatically reported back to them.`,
+        depends_on: [], max_rounds: 1,
+      }]);
+      this.deps.store.markMailSpawned(m.id, goal.id);
+    });
+    this.emit({ type: "mail.spawned", mailId: m.id, goalId: goal.id });
+    return goal;
+  }
+
+  /** The report REPLACES the origin-chat ping for mail-spawned goals (spec §5). */
+  private mailReport(goal: GoalRow, ok: boolean, error: string | undefined, files: string[]): void {
+    const src = this.deps.store.getMail(goal.plan_summary.slice(MAIL_PREFIX.length));
+    if (!src) return;
+    const refs = files.map((f) => `goals/${goal.goal_dir}/${f}`).join(", ");
+    const body = ok
+      ? `Done: ${goal.title}\nArtifacts: ${refs || "(none)"}`
+      : `Failed: ${goal.title}\n${error ?? "unknown error"}`;
+    const id = randomUUID();
+    this.deps.store.insertMail({
+      id, from_agent: src.to_agent, to_agent: src.from_agent, kind: "report", body,
+      goal_id: goal.id, origin_channel: goal.origin_channel, origin_chat_id: goal.origin_chat_id,
+      chain_depth: goal.chain_depth, status: "unread", error: null,
+    });
+    this.emit({ type: "mail.sent", id, from: src.to_agent, to: src.from_agent, kind: "report" });
+  }
+
   private launch(goal: GoalRow, node: TaskNodeRow): void {
     this.runningNodes++;
     this.setNodeStatus(goal, node.node_key, "running", node.agent);
@@ -421,7 +492,8 @@ export class GoalEngine {
       this.setGoalStatus(goal.id, "paused-user", err.message);
       return;
     }
-    const facade = goal.plan_summary.startsWith(FACADE_PREFIX);
+    // Facades and mail-spawned goals are single-node/fixed graphs — never re-planned.
+    const facade = goal.plan_summary.startsWith(FACADE_PREFIX) || goal.plan_summary.startsWith(MAIL_PREFIX);
     const cap = this.deps.replanCap ?? 2;
     if (facade || !this.deps.planner || goal.replans_used >= cap) {
       const msg = `node ${node.node_key} failed: ${err.message}${!facade && goal.replans_used >= cap ? ` (re-plans exhausted: ${cap})` : ""}`;
@@ -448,6 +520,11 @@ export class GoalEngine {
   private async complete(goal: GoalRow, ok: boolean, error?: string): Promise<void> {
     const fresh = this.deps.store.getGoal(goal.id)!;
     const files = this.deps.store.listNodes(goal.id).filter((n) => n.artifact).map((n) => n.artifact!);
+    // Mail-spawned goals report back to their sender instead of pinging the origin chat.
+    if (fresh.plan_summary.startsWith(MAIL_PREFIX)) {
+      this.mailReport(fresh, ok, error, files);
+      return;
+    }
     try {
       await this.deps.onComplete({ goal: fresh, ok, error, goalDirName: fresh.goal_dir ?? "", artifactFiles: files });
     } catch (err) {

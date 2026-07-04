@@ -218,6 +218,7 @@ async function main(): Promise<void> {
     playbooks: registry.playbooks,
     wallTimeMs: config.jobWallTimeMs,
     maxConcurrentNodes: config.maxConcurrentNodes,
+    mailMaxDepth: Number(process.env.AIOS_MAIL_MAX_DEPTH ?? 2), // Task 7 swaps to config.mailMaxDepth
     model: config.specialistModel,
     spendGuard,
     onComplete: onGoalComplete,

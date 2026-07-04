@@ -62,6 +62,7 @@ function makeManager(
     // maxConcurrentNodes: 0 → pump() schedules nothing; the goal row is created synchronously.
     // Refusals throw BEFORE insert, so run stubs are never invoked.
     maxConcurrentNodes: 0,
+    mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
     resolveDeptFor: () => undefined,
