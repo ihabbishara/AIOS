@@ -416,7 +416,9 @@ export class GoalEngine {
   private sweepMail(): void {
     for (const m of this.deps.store.queuedRequests()) {
       if (m.chain_depth > this.deps.mailMaxDepth) {
-        this.deps.store.downgradeMailToNote(m.id, `downgraded: chain too deep (cap ${this.deps.mailMaxDepth})`);
+        const reason = `downgraded: chain too deep (cap ${this.deps.mailMaxDepth})`;
+        this.deps.store.downgradeMailToNote(m.id, reason);
+        this.resumeFromAnswer(m.id, `Declined: ${reason}`);
         continue;
       }
       if (!this.deps.spendGuard.allow()) return; // stays queued; the midnight resume tick pumps again
@@ -424,12 +426,15 @@ export class GoalEngine {
       const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
       if (!canonical || !def) {
         this.deps.store.refuseMail(m.id, `unknown recipient "${m.to_agent}"`);
+        this.resumeFromAnswer(m.id, `Refused: unknown recipient "${m.to_agent}"`);
         continue;
       }
       // Defense in depth: re-check the private wall against the stored provenance (send-time raced).
       if (def.manifest.visibility === "private" &&
           !isPrivateOrigin(this.deps.primaryChat, m.origin_channel, m.origin_chat_id)) {
-        this.deps.store.refuseMail(m.id, `${canonical} is private — origin not the private chat`);
+        const reason = `${canonical} is private — origin not the private chat`;
+        this.deps.store.refuseMail(m.id, reason);
+        this.resumeFromAnswer(m.id, `Refused: ${reason}`);
         continue;
       }
       const dept = def.department;
@@ -494,8 +499,32 @@ export class GoalEngine {
       id, from_agent: src.to_agent, to_agent: src.from_agent, kind: "report", body,
       goal_id: goal.id, origin_channel: goal.origin_channel, origin_chat_id: goal.origin_chat_id,
       chain_depth: goal.chain_depth, status: "unread", error: null,
+      thread_id: src.thread_id ?? src.id, in_reply_to: src.id,
     });
     this.emit({ type: "mail.sent", id, from: src.to_agent, to: src.from_agent, kind: "report" });
+    this.resumeFromAnswer(src.id, body);
+  }
+
+  /** Un-park a goal waiting on `requestId` by adding a continuation node carrying the answer.
+   *  Idempotent: a no-op when no goal is parked on that request (already resumed / never parked). */
+  private resumeFromAnswer(requestId: string, answerBody: string): void {
+    const g = this.deps.store.goalAwaiting(requestId);
+    if (!g) return;
+    const req = this.deps.store.getMail(requestId);
+    if (!req) return;
+    const n = this.deps.store.listNodes(g.id).filter((x) => x.node_key.startsWith("resume_")).length + 1;
+    const key = `resume_${n}`;
+    const brief = `Earlier you asked ${req.to_agent}: "${req.body}"\n\nThey answered:\n${answerBody}\n\n` +
+      `Continue and complete the task with this answer.`;
+    this.deps.store.transaction(() => {
+      this.deps.store.insertNodes(g.id, [{
+        node_key: key, type: "run", agent: req.from_agent, critic: null, brief, depends_on: [], max_rounds: 1,
+      }]);
+      this.deps.store.clearAwaiting(g.id);
+      this.deps.store.updateGoalStatus(g.id, "running");
+    });
+    this.emit({ type: "goal.status", goalId: g.id, status: "running" });
+    this.pump();
   }
 
   private launch(goal: GoalRow, node: TaskNodeRow): void {
@@ -594,6 +623,14 @@ export class GoalEngine {
   /** Startup only — reset orphaned running nodes (they re-run) and pump unfinished goals. */
   resumeUnfinished(): number {
     this.deps.store.reconcilePlanningMail();
+    // Parked (awaiting-mail) goals whose answer already landed while we were down → resume now.
+    for (const g of this.deps.store.awaitingMailGoals()) {
+      if (!g.awaiting_mail) continue;
+      const answer = this.deps.store.mailAnsweringRequest(g.awaiting_mail);
+      if (answer) { this.resumeFromAnswer(g.awaiting_mail, answer.body); continue; }
+      const req = this.deps.store.getMail(g.awaiting_mail);
+      if (req?.status === "refused") this.resumeFromAnswer(g.awaiting_mail, `Refused: ${req.error ?? "unknown"}`);
+    }
     this.deps.store.resetRunningNodes();
     const goals = this.deps.store.unfinishedGoals();
     for (const g of goals) if (g.status === "replanning" || g.status === "planning") this.setGoalStatus(g.id, "running");

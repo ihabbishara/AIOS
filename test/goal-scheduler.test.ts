@@ -284,3 +284,62 @@ describe("GoalEngine re-plan orchestration (onNodeFailure)", () => {
     expect(completions).toEqual([]); // paused, not completed
   });
 });
+
+describe("GoalEngine mid-goal clarification (park + resume)", () => {
+  // A parked asker goal 'g-ask' waits on request 'mQ'; a report answering mQ must resume it.
+  // maxConcurrentNodes:0 so pump schedules the resume node but does not launch it (g-ask has no
+  // goal_dir in these fixtures) — assertions stay synchronous and deterministic.
+  function parkedAsker(store: Store) {
+    store.insertGoal({
+      id: "g-ask", slug: "g-ask", title: "asker", request: "do the thing", department: "engineering",
+      lead: "athena", origin_channel: "telegram", origin_chat_id: "1", status: "running",
+      project_dir: null, goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("g-ask", [{ node_key: "task", type: "run", agent: "athena", critic: null,
+      brief: "b", depends_on: [], max_rounds: 1 }]);
+    store.updateNodeStatus("g-ask", "task", "done");
+    store.insertMail({ id: "mQ", from_agent: "athena", to_agent: "vulcan", kind: "request",
+      body: "which db?", goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "queued", error: null });
+    store.parkGoalAwaiting("g-ask", "mQ");
+  }
+
+  it("a report answering the awaited request adds a continuation node and un-parks the goal", async () => {
+    const { store, engine } = harness({ maxConcurrentNodes: 0 });
+    parkedAsker(store);
+    // A recipient goal spawned by mQ completes → mailReport(ok) → resumeFromAnswer.
+    store.insertGoal({
+      id: "g-rec", slug: "g-rec", title: "rec", request: "which db?", department: "engineering",
+      lead: "athena", origin_channel: "telegram", origin_chat_id: "1", status: "running",
+      project_dir: null, goal_dir: null, plan_summary: "mail:mQ", replans_used: 0, chain_depth: 1,
+      error: null, spawned_by_mail: "mQ",
+    });
+    store.insertNodes("g-rec", [{ node_key: "task", type: "run", agent: "vulcan", critic: null,
+      brief: "answer", depends_on: [], max_rounds: 1 }]);
+    store.updateNodeStatus("g-rec", "task", "done");
+    await (engine as unknown as { complete: (g: unknown, ok: boolean) => Promise<void> })
+      .complete(store.getGoal("g-rec"), true);
+    // asker un-parked, a resume node exists, and it got scheduled to run.
+    expect(store.getGoal("g-ask")).toMatchObject({ status: "running", awaiting_mail: null });
+    const keys = store.listNodes("g-ask").map((n) => n.node_key);
+    expect(keys.some((k) => k.startsWith("resume_"))).toBe(true);
+    const report = store.mailAnsweringRequest("mQ")!;
+    expect(report).toMatchObject({ in_reply_to: "mQ", thread_id: "mQ" });
+  });
+
+  it("boot reconcile resumes a parked goal whose answer already landed, leaves others parked", () => {
+    const { store, engine } = harness({ maxConcurrentNodes: 0 });
+    parkedAsker(store);
+    store.insertMail({ id: "rep", from_agent: "vulcan", to_agent: "athena", kind: "report",
+      body: "Done: use sqlite", goal_id: "g-rec", origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "unread", error: null, thread_id: "mQ", in_reply_to: "mQ" });
+    // second parked goal with NO answer yet
+    store.insertGoal({ id: "g2", slug: "g2", title: "t2", request: "r2", department: "engineering",
+      lead: "athena", origin_channel: "telegram", origin_chat_id: "1", status: "running",
+      project_dir: null, goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null });
+    store.parkGoalAwaiting("g2", "mZ");
+    engine.resumeUnfinished();
+    expect(store.getGoal("g-ask")!.status).toBe("running");
+    expect(store.getGoal("g2")!.status).toBe("awaiting-mail");
+  });
+});
