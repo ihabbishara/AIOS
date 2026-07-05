@@ -36,6 +36,7 @@ export function isUnsandboxedWrite(pb: Playbook, ownerOf?: Map<string, string>, 
 
 export interface Planner {
   plan(engine: GoalEngine, params: { department: string; title: string; request: string; channel: string; chatId: string }): Promise<GoalRow>;
+  planFromMail(engine: GoalEngine, params: { department: string; title: string; request: string; channel: string; chatId: string }, mail: MailRow): Promise<GoalRow>;
   replan(goal: GoalRow, failed: TaskNodeRow, error: string): Promise<void>;
 }
 

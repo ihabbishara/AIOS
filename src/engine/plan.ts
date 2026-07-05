@@ -195,26 +195,29 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     return { specs, v };
   };
 
+  const buildValidatedPlan = async (params: { department: string; title: string; request: string; channel: string; chatId: string }) => {
+    const dept = deps.registry.departments.get(params.department);
+    if (!dept?.lead) throw new Error(`unknown department or no lead: "${params.department}" — use hand_off or run_playbook instead`);
+    const origin = { channel: params.channel, chatId: params.chatId };
+    const roster = rosterBlock(deps.registry, params.department);
+    let raw: RawPlan | undefined;
+    let error = "";
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined), origin, GRAPH_SCHEMA);
+      const candidate = res.structured as RawPlan | undefined;
+      if (!candidate?.nodes) { error = "no structured plan returned"; continue; }
+      const { v } = validateOrExplain(candidate.nodes, params.department, origin);
+      if (v.ok) { raw = candidate; break; }
+      error = v.error;
+    }
+    if (!raw) throw new Error(`planning failed: ${error}`);
+    const { specs } = validateOrExplain(raw.nodes, params.department, origin);
+    return { dept, lead: dept.lead, raw, specs, origin };
+  };
+
   return {
     async plan(engine, params) {
-      const dept = deps.registry.departments.get(params.department);
-      if (!dept?.lead) throw new Error(`unknown department or no lead: "${params.department}" — use hand_off or run_playbook instead`);
-      const origin = { channel: params.channel, chatId: params.chatId };
-      const roster = rosterBlock(deps.registry, params.department);
-
-      let raw: RawPlan | undefined;
-      let error = "";
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined), origin, GRAPH_SCHEMA);
-        const candidate = res.structured as RawPlan | undefined;
-        if (!candidate?.nodes) { error = "no structured plan returned"; continue; }
-        const { v } = validateOrExplain(candidate.nodes, params.department, origin);
-        if (v.ok) { raw = candidate; break; }
-        error = v.error;
-      }
-      if (!raw) throw new Error(`planning failed: ${error}`);
-
-      const { specs } = validateOrExplain(raw.nodes, params.department, origin);
+      const { lead, raw, specs, origin } = await buildValidatedPlan(params);
       let projectDir: string | undefined;
       if (raw.needsWorkspace === "worktree" || raw.needsWorkspace === "analyze") {
         if (!raw.projectDir || !resolve(raw.projectDir).startsWith(resolve(deps.projectsRoot))) {
@@ -224,8 +227,19 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
       }
       await deps.postPreview(origin, renderPlanPreview(params.title, raw.summary, specs));
       return engine.startPlannedGoal({
-        title: params.title, request: params.request, department: params.department, lead: dept.lead,
+        title: params.title, request: params.request, department: params.department, lead,
         origin, summary: raw.summary, nodes: toNewTaskNodes(specs), projectDir, needsWorkspace: raw.needsWorkspace,
+      });
+    },
+
+    async planFromMail(engine, params, mail) {
+      // Mail-origin: no chat preview (no human waiting) and no workspace (code only via code_task, §2/§5).
+      const { lead, raw, specs, origin } = await buildValidatedPlan(params);
+      return engine.startPlannedGoal({
+        title: params.title, request: params.request, department: params.department, lead,
+        origin, summary: raw.summary, nodes: toNewTaskNodes(specs),
+        projectDir: undefined, needsWorkspace: "none",
+        spawnedByMail: mail.id, chainDepth: mail.chain_depth,
       });
     },
 

@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
+import type { MailRow } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { GoalEngine } from "../src/engine/goals.js";
@@ -100,6 +101,35 @@ describe("lead planner", () => {
       GOOD_PLAN.nodes.map((n) => ({ ...n, type: n.type as "run" | "loop", deps: n.deps })));
     expect(out).toContain("Do X");
     expect(out).toContain("build (loop) — vulcan ⇄ minos-eng — after: research");
+  });
+});
+
+describe("planFromMail", () => {
+  const mail = (over: Partial<MailRow> = {}): MailRow => ({
+    id: "m1", from_agent: "odin", to_agent: "athena", kind: "request", body: "do x",
+    goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+    status: "planning", error: null, created_at: "", read_at: null, ...over,
+  });
+
+  it("plans a graph with no preview and no workspace, stamped to the mail", async () => {
+    const { engine, store, previews } = harness([GOOD_PLAN]);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1",
+    }, mail());
+    expect(previews).toEqual([]);          // no chat preview for mail-origin
+    expect(g.spawned_by_mail).toBe("m1");
+    expect(g.project_dir).toBeNull();      // no workspace
+    expect(g.chain_depth).toBe(1);
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+    expect(store.listNodes(g.id)).toHaveLength(2);
+  });
+
+  it("planner failure propagates (caller refuses the mail)", async () => {
+    const bad = { ...GOOD_PLAN, nodes: [{ key: "a", type: "run", agent: "nobody", brief: "x", deps: [] }] };
+    const { engine } = harness([bad, bad]);
+    await expect(engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "t", request: "r", channel: "t", chatId: "1",
+    }, mail())).rejects.toThrow(/planning failed/);
   });
 });
 

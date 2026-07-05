@@ -217,6 +217,7 @@ describe("GoalEngine re-plan orchestration (onNodeFailure)", () => {
     let store!: Store, replans = 0;
     const planner: Planner = {
       plan: async () => { throw new Error("unused"); },
+      planFromMail: async () => { throw new Error("unused"); },
       async replan(goal, failed) {
         replans++;
         // Faithful to production replan: DELETE the failed node + insert a fresh one (same key, pending).
@@ -238,6 +239,7 @@ describe("GoalEngine re-plan orchestration (onNodeFailure)", () => {
     let called = false;
     const planner: Planner = {
       plan: async () => { throw new Error("unused"); },
+      planFromMail: async () => { throw new Error("unused"); },
       replan: async () => { called = true; },
     };
     const { engine, store, completions } = harness({ run: throwThenOk(2), planner });
@@ -253,6 +255,7 @@ describe("GoalEngine re-plan orchestration (onNodeFailure)", () => {
   it("re-plan throws → goal fails 're-planning failed'; the attempt still counts", async () => {
     const planner: Planner = {
       plan: async () => { throw new Error("unused"); },
+      planFromMail: async () => { throw new Error("unused"); },
       replan: async () => { throw new Error("lead returned no patch ops"); },
     };
     const { engine, store, completions } = harness({ run: throwThenOk(2), planner });
@@ -268,6 +271,7 @@ describe("GoalEngine re-plan orchestration (onNodeFailure)", () => {
     let called = false;
     const planner: Planner = {
       plan: async () => { throw new Error("unused"); },
+      planFromMail: async () => { throw new Error("unused"); },
       replan: async () => { called = true; },
     };
     // Session-limit is signalled by the agent's OUTPUT text, converted to SessionLimitError upstream.
