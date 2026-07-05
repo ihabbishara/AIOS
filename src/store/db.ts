@@ -24,13 +24,15 @@ export interface GoalRow {
   replans_used: number;
   /** Mail chain depth: 0 for user/hermes/facade goals; a mail-spawned goal inherits its mail's depth. */
   chain_depth: number;
+  /** Source mail id when this goal was spawned by mail (single-node or graph); null otherwise. */
+  spawned_by_mail: string | null;
   error: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type MailKind = "request" | "note" | "report" | "standup";
-export type MailStatus = "queued" | "spawned" | "refused" | "unread" | "read";
+export type MailStatus = "queued" | "planning" | "spawned" | "refused" | "unread" | "read";
 export interface MailRow {
   id: string;
   from_agent: string;
@@ -252,6 +254,12 @@ export class Store {
     } catch {
       /* column already exists */
     }
+    // Migration (mail-graphs): link a goal back to the mail that spawned it.
+    try {
+      this.db.exec("ALTER TABLE goals ADD COLUMN spawned_by_mail TEXT");
+    } catch {
+      /* column already exists */
+    }
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
     this.db.exec("DROP TABLE IF EXISTS jobs; DROP TABLE IF EXISTS stages;");
     this.db.exec(`
@@ -468,14 +476,15 @@ export class Store {
     }
   }
 
-  insertGoal(g: Omit<GoalRow, "created_at" | "updated_at">): void {
+  insertGoal(g: Omit<GoalRow, "created_at" | "updated_at" | "spawned_by_mail"> & { spawned_by_mail?: string | null }): void {
     const now = new Date().toISOString();
     this.db.prepare(
       `INSERT INTO goals (id, slug, title, request, department, lead, origin_channel, origin_chat_id,
-                          status, project_dir, goal_dir, plan_summary, replans_used, chain_depth, error, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          status, project_dir, goal_dir, plan_summary, replans_used, chain_depth, spawned_by_mail, error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(g.id, g.slug, g.title, g.request, g.department, g.lead, g.origin_channel, g.origin_chat_id,
-          g.status, g.project_dir, g.goal_dir, g.plan_summary, g.replans_used, g.chain_depth, g.error, now, now);
+          g.status, g.project_dir, g.goal_dir, g.plan_summary, g.replans_used, g.chain_depth,
+          g.spawned_by_mail ?? null, g.error, now, now);
   }
 
   getGoal(id: string): GoalRow | undefined {
@@ -663,6 +672,23 @@ export class Store {
 
   markMailSpawned(id: string, goalId: string): void {
     this.db.prepare("UPDATE mail SET status = 'spawned', goal_id = ? WHERE id = ?").run(goalId, id);
+  }
+
+  /** Atomically claim a queued request for async planning. Returns false if it was not queued. */
+  claimMailPlanning(id: string): boolean {
+    const info = this.db.prepare("UPDATE mail SET status = 'planning' WHERE id = ? AND status = 'queued'").run(id);
+    return info.changes > 0;
+  }
+
+  /** Boot recovery for the async graph path: a 'planning' mail whose goal already committed is
+   *  marked spawned; otherwise it is requeued to be re-planned. */
+  reconcilePlanningMail(): void {
+    const rows = this.db.prepare("SELECT id FROM mail WHERE status = 'planning'").all() as Array<{ id: string }>;
+    for (const { id } of rows) {
+      const g = this.db.prepare("SELECT id FROM goals WHERE spawned_by_mail = ? LIMIT 1").get(id) as { id: string } | undefined;
+      if (g) this.db.prepare("UPDATE mail SET status = 'spawned', goal_id = ? WHERE id = ?").run(g.id, id);
+      else this.db.prepare("UPDATE mail SET status = 'queued' WHERE id = ?").run(id);
+    }
   }
 
   refuseMail(id: string, error: string): void {

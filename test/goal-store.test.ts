@@ -100,4 +100,20 @@ describe("goal store", () => {
     expect(s.budgetSpentCents("2026-07-03")).toBe(10);
     expect(s.budgetSpentCents("2026-07-04")).toBe(0);
   });
+
+  it("insertGoal round-trips spawned_by_mail (defaults null when omitted)", () => {
+    const s = new Store(":memory:");
+    s.insertGoal({
+      id: "g1", slug: "x", title: "X", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+    expect(s.getGoal("g1")!.spawned_by_mail).toBeNull();
+    s.insertGoal({
+      id: "g2", slug: "y", title: "Y", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "graph", replans_used: 0, chain_depth: 1, error: null, spawned_by_mail: "m9",
+    });
+    expect(s.getGoal("g2")!.spawned_by_mail).toBe("m9");
+  });
 });

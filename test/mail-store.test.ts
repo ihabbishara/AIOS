@@ -85,6 +85,36 @@ describe("mail store", () => {
   });
 });
 
+describe("mail planning claim + reconcile", () => {
+  const insertReq = (s: Store, id: string, status: "queued" | "planning" = "queued") =>
+    s.insertMail({
+      id, from_agent: "vulcan", to_agent: "athena", kind: "request", body: "do it",
+      goal_id: null, origin_channel: "t", origin_chat_id: "1", chain_depth: 1, status, error: null,
+    });
+
+  it("claimMailPlanning claims a queued mail exactly once", () => {
+    const s = new Store(":memory:");
+    insertReq(s, "m1");
+    expect(s.claimMailPlanning("m1")).toBe(true);
+    expect(s.getMail("m1")!.status).toBe("planning");
+    expect(s.claimMailPlanning("m1")).toBe(false); // already claimed
+  });
+
+  it("reconcilePlanningMail: goal exists → spawned; none → queued", () => {
+    const s = new Store(":memory:");
+    insertReq(s, "ma", "planning");
+    insertReq(s, "mb", "planning");
+    s.insertGoal({
+      id: "ga", slug: "ga", title: "G", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "graph", replans_used: 0, chain_depth: 1, error: null, spawned_by_mail: "ma",
+    });
+    s.reconcilePlanningMail();
+    expect(s.getMail("ma")).toMatchObject({ status: "spawned", goal_id: "ga" });
+    expect(s.getMail("mb")!.status).toBe("queued");
+  });
+});
+
 describe("mail triage defaults", () => {
   it("mail.sent and mail.spawned are ignore", () => {
     expect(defaultVerdict({ type: "mail.sent", id: "m", from: "a", to: "b", kind: "note" })).toBe("ignore");
