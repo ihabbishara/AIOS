@@ -124,6 +124,16 @@ describe("planFromMail", () => {
     expect(store.listNodes(g.id)).toHaveLength(2);
   });
 
+  it("forces no workspace even when the plan proposes a worktree", async () => {
+    const WORKTREE_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/tmp/projects/x" };
+    const { engine, store } = harness([WORKTREE_PLAN]);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1",
+    }, mail());
+    expect(g.project_dir).toBeNull();
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+  });
+
   it("planner failure propagates (caller refuses the mail)", async () => {
     const bad = { ...GOOD_PLAN, nodes: [{ key: "a", type: "run", agent: "nobody", brief: "x", deps: [] }] };
     const { engine } = harness([bad, bad]);

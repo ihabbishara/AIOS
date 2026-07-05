@@ -1,5 +1,8 @@
 // test/goal-store.test.ts
 import { describe, it, expect } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Store, type GoalRow } from "../src/store/db.js";
 
 function goal(over: Partial<GoalRow> = {}): Omit<GoalRow, "created_at" | "updated_at"> {
@@ -115,5 +118,18 @@ describe("goal store", () => {
       plan_summary: "graph", replans_used: 0, chain_depth: 1, error: null, spawned_by_mail: "m9",
     });
     expect(s.getGoal("g2")!.spawned_by_mail).toBe("m9");
+  });
+
+  it("migration backfills spawned_by_mail from the mail: plan_summary prefix", () => {
+    const f = join(mkdtempSync(join(tmpdir(), "gs-mig-")), "t.db");
+    const s1 = new Store(f);
+    s1.insertGoal({
+      id: "g1", slug: "x", title: "X", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "t", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "mail:abc", replans_used: 0, chain_depth: 0, error: null, // spawned_by_mail omitted -> NULL
+    });
+    expect(s1.getGoal("g1")!.spawned_by_mail).toBeNull(); // pre-upgrade state
+    const s2 = new Store(f); // reopen -> constructor re-runs the migration + backfill
+    expect(s2.getGoal("g1")!.spawned_by_mail).toBe("abc");
   });
 });

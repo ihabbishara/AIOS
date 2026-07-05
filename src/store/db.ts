@@ -260,6 +260,9 @@ export class Store {
     } catch {
       /* column already exists */
     }
+    // Backfill: pre-branch single-node mail goals encoded the mail id in plan_summary ("mail:<id>").
+    // Report-back and the workspace gate now key on the column, so historical rows need it populated.
+    this.db.exec("UPDATE goals SET spawned_by_mail = substr(plan_summary, 6) WHERE plan_summary LIKE 'mail:%' AND spawned_by_mail IS NULL");
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
     this.db.exec("DROP TABLE IF EXISTS jobs; DROP TABLE IF EXISTS stages;");
     this.db.exec(`
