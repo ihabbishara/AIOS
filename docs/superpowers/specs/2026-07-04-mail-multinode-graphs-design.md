@@ -64,8 +64,13 @@ behavior (they must still pass unchanged).
   (`"queued" | "planning" | "spawned" | "refused" | "unread" | "read"`). A **persistent claim**: the
   graph path is async (the planner runs LLM calls), so a re-entrant `pump()` pass must not see the
   mail still `queued` and spawn a second goal. Claiming synchronously to `planning` closes that
-  window. On boot, reset `planning → queued` (mirrors `resetRunningNodes`) so a crash mid-plan
-  re-sweeps idempotently — no goal was committed yet.
+  window. On boot, **reconcile** each `planning` mail (`reconcilePlanningMail`): if a goal already
+  carries `spawned_by_mail = <mail id>` (the async plan committed the goal just before the mail
+  flipped), finish the claim (`planning → spawned` + `goal_id`); otherwise requeue
+  (`planning → queued`). Reconcile — not a blind reset — is required because the goal insert and the
+  mail flip are not one transaction (the goal is created inside the async planner, then
+  `markMailSpawned` runs); a blind reset of a mail whose goal already exists would re-plan and
+  double-spawn.
 - **`plan_summary`:** single-node keeps `mail:<id>` (unchanged, see §5 for why it stays);
   graph uses the planner's summary text (like any planned goal).
 
@@ -132,10 +137,13 @@ No new cap is introduced.
 | depth exceeded | downgrade to note (unchanged) |
 | recipient unresolved / private-wall | mail `refused` (unchanged) |
 | planner throws / invalid / abandon | mail `refused` + error; `pump()` continues |
-| crash after claim, before commit | mail stuck `planning`; boot resets → `queued` → re-swept; no goal committed |
+| crash after claim, before goal insert | mail `planning`; boot reconcile → `queued` → re-swept (no goal exists) |
+| crash after goal insert, before mark-spawned | mail `planning`; boot reconcile finds the goal → `spawned` (no re-plan, no dup) |
 
-Each state transition (claim, commit) is its own transaction; node:sqlite is synchronous so there
-is no torn write within a transaction.
+Each state transition (claim, mark-spawned, refuse) is its own single UPDATE; node:sqlite is
+synchronous so there is no torn write within a statement. The goal insert itself is not in the same
+transaction as the mail flip (it happens inside the async planner) — the boot reconcile above is
+what makes that boundary crash-safe.
 
 ## Testing (TDD, in-process)
 
@@ -151,7 +159,8 @@ of `test/goal-scheduler.test.ts` and `test/mail-sweep.test.ts`. No live daemon.
    excluded) → graph completes → one report.
 4. **plan fails → refused:** stub planner throws → mail `refused` with the error, **no** goal
    created, `pump()` still drains the next queued mail.
-5. **boot claim reset:** a mail left in `planning` (simulated crash) → boot resets it to `queued`.
+5. **boot reconcile:** (a) a `planning` mail with no goal → `queued`; (b) a `planning` mail whose
+   goal already exists (`spawned_by_mail` set) → `spawned` + `goal_id`, not re-planned.
 6. **workspace forced none:** a stub planner returning `needsWorkspace: "worktree"` on a mail-origin
    plan → goal `project_dir` null, no sandbox prepared.
 7. **report-back keyed on column:** both single-node and graph report back via `spawned_by_mail`,
