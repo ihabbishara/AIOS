@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import type { TrustRecord } from "../kernel/trust.js";
 import type { ActionRow, ActionStatus } from "../kernel/actions.js";
 
-export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "replanning" | "done" | "failed" | "abandoned";
+export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "replanning" | "done" | "failed" | "abandoned" | "awaiting-mail";
 export type NodeStatus = "pending" | "ready" | "running" | "done" | "failed" | "skipped";
 
 export interface GoalRow {
@@ -26,6 +26,8 @@ export interface GoalRow {
   chain_depth: number;
   /** Source mail id when this goal was spawned by mail (single-node or graph); null otherwise. */
   spawned_by_mail: string | null;
+  /** When parked (status 'awaiting-mail'), the request id whose answer un-parks this goal. */
+  awaiting_mail?: string | null;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -48,6 +50,10 @@ export interface MailRow {
   error: string | null;
   created_at: string;
   read_at: string | null;
+  /** Conversation grouping key; defaults to the mail's own id (a fresh thread). */
+  thread_id?: string;
+  /** The request id this report/reply answers; null for fresh requests/notes. */
+  in_reply_to?: string | null;
 }
 
 export interface TaskNodeRow {
@@ -187,6 +193,7 @@ export class Store {
         replans_used INTEGER NOT NULL DEFAULT 0,
         chain_depth INTEGER NOT NULL DEFAULT 0,
         error TEXT,
+        awaiting_mail TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -225,7 +232,9 @@ export class Store {
         status TEXT NOT NULL,
         error TEXT,
         created_at TEXT NOT NULL,
-        read_at TEXT
+        read_at TEXT,
+        thread_id TEXT,
+        in_reply_to TEXT
       );
       CREATE TABLE IF NOT EXISTS kv (
         key TEXT PRIMARY KEY,
@@ -263,6 +272,13 @@ export class Store {
     // Backfill: pre-branch single-node mail goals encoded the mail id in plan_summary ("mail:<id>").
     // Report-back and the workspace gate now key on the column, so historical rows need it populated.
     this.db.exec("UPDATE goals SET spawned_by_mail = substr(plan_summary, 6) WHERE plan_summary LIKE 'mail:%' AND spawned_by_mail IS NULL");
+    // Migration (mail-threads): conversation id + reply pointer on existing mail rows.
+    try { this.db.exec("ALTER TABLE mail ADD COLUMN thread_id TEXT"); } catch { /* exists */ }
+    try { this.db.exec("ALTER TABLE mail ADD COLUMN in_reply_to TEXT"); } catch { /* exists */ }
+    // Backfill: pre-thread mail each becomes its own singleton thread.
+    this.db.exec("UPDATE mail SET thread_id = id WHERE thread_id IS NULL");
+    // Migration (mail-clarification): the request a parked goal is blocked on.
+    try { this.db.exec("ALTER TABLE goals ADD COLUMN awaiting_mail TEXT"); } catch { /* exists */ }
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
     this.db.exec("DROP TABLE IF EXISTS jobs; DROP TABLE IF EXISTS stages;");
     this.db.exec(`
@@ -615,10 +631,10 @@ export class Store {
   insertMail(m: Omit<MailRow, "created_at" | "read_at">): void {
     this.db.prepare(
       `INSERT INTO mail (id, from_agent, to_agent, kind, body, goal_id, origin_channel, origin_chat_id,
-                         chain_depth, status, error, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         chain_depth, status, error, thread_id, in_reply_to, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(m.id, m.from_agent, m.to_agent, m.kind, m.body, m.goal_id, m.origin_channel, m.origin_chat_id,
-          m.chain_depth, m.status, m.error, new Date().toISOString());
+          m.chain_depth, m.status, m.error, m.thread_id ?? m.id, m.in_reply_to ?? null, new Date().toISOString());
   }
 
   getMail(id: string): MailRow | undefined {
@@ -701,6 +717,40 @@ export class Store {
   /** Depth-exceeded requests deliver as ordinary notes — fail-soft, nothing runs. */
   downgradeMailToNote(id: string, reason: string): void {
     this.db.prepare("UPDATE mail SET kind = 'note', status = 'unread', error = ? WHERE id = ?").run(reason, id);
+  }
+
+  // --- Mail threads + mid-goal clarification ---
+
+  mailThread(threadId: string): MailRow[] {
+    return this.db.prepare("SELECT * FROM mail WHERE thread_id = ? ORDER BY created_at ASC")
+      .all(threadId) as unknown as MailRow[];
+  }
+
+  /** Newest mail answering a given request (report/refusal-note carrying in_reply_to). */
+  mailAnsweringRequest(requestId: string): MailRow | undefined {
+    return this.db.prepare("SELECT * FROM mail WHERE in_reply_to = ? ORDER BY created_at DESC LIMIT 1")
+      .get(requestId) as MailRow | undefined;
+  }
+
+  parkGoalAwaiting(goalId: string, mailId: string): void {
+    this.db.prepare("UPDATE goals SET status = 'awaiting-mail', awaiting_mail = ?, updated_at = ? WHERE id = ?")
+      .run(mailId, new Date().toISOString(), goalId);
+  }
+
+  clearAwaiting(goalId: string): void {
+    this.db.prepare("UPDATE goals SET awaiting_mail = NULL, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), goalId);
+  }
+
+  /** The goal parked on a given request (if any). */
+  goalAwaiting(mailId: string): GoalRow | undefined {
+    return this.db.prepare("SELECT * FROM goals WHERE awaiting_mail = ? AND status = 'awaiting-mail' LIMIT 1")
+      .get(mailId) as GoalRow | undefined;
+  }
+
+  awaitingMailGoals(): GoalRow[] {
+    return this.db.prepare("SELECT * FROM goals WHERE status = 'awaiting-mail' ORDER BY created_at ASC")
+      .all() as unknown as GoalRow[];
   }
 
   transaction<T>(fn: () => T): T {

@@ -83,6 +83,34 @@ describe("mail store", () => {
     ).toThrow("boom");
     expect(s.getMail("m1")).toBeUndefined();
   });
+
+  it("stamps thread_id = own id by default and groups a thread in order", () => {
+    const s = new Store(":memory:");
+    s.insertMail(mail({ id: "root", body: "please analyze" }));                          // new thread
+    s.insertMail(mail({ id: "rep", from_agent: "vulcan", to_agent: "athena", kind: "report",
+      body: "Done", thread_id: "root", in_reply_to: "root", status: "unread" }));
+    expect(s.getMail("root")!.thread_id).toBe("root");
+    expect(s.getMail("rep")!.in_reply_to).toBe("root");
+    expect(s.mailThread("root").map((m) => m.id)).toEqual(["root", "rep"]);
+    expect(s.mailAnsweringRequest("root")!.id).toBe("rep");
+  });
+
+  it("parks a goal on a mail and finds/clears it", () => {
+    const s = new Store(":memory:");
+    s.insertGoal({
+      id: "g1", slug: "g1", title: "t", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+    s.parkGoalAwaiting("g1", "mX");
+    expect(s.getGoal("g1")).toMatchObject({ status: "awaiting-mail", awaiting_mail: "mX" });
+    expect(s.goalAwaiting("mX")!.id).toBe("g1");
+    expect(s.awaitingMailGoals().map((g) => g.id)).toEqual(["g1"]);
+    s.clearAwaiting("g1");
+    s.updateGoalStatus("g1", "running");
+    expect(s.goalAwaiting("mX")).toBeUndefined();
+    expect(s.getGoal("g1")!.awaiting_mail).toBeNull();
+  });
 });
 
 describe("mail planning claim + reconcile", () => {
