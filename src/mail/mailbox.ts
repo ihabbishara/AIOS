@@ -68,6 +68,7 @@ export class Mailbox {
   /** Ask another agent a question mid-goal. Queues a request AND parks the caller's goal
    *  until the answer reports back. Tool-friendly: always returns a string, never throws. */
   ask(ctx: MailSendCtx, args: { to: string; question: string }): string {
+    if (this.deps.disabled) return "Refused: the mailbox is disabled (AIOS_MAIL_DISABLED).";
     if (!ctx.goalId) return "Refused: ask_mail only works inside a goal (use send_mail for fire-and-forget).";
     const r = this.resolveRecipient(ctx, args.to, "ask");
     if ("refusal" in r) return r.refusal;

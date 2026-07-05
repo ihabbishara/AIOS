@@ -142,6 +142,22 @@ describe("Mailbox.ask", () => {
     mb.ask(GCTX, { to: "vulcan", question: "q" });
     expect(store.queuedRequests()[0].thread_id).toBe("lead");
   });
+
+  it("marks the asking node done at park (so a late run reject can't re-run it)", () => {
+    const { store, mb } = harness();
+    withGoal(store);
+    store.insertNodes("g1", [{ node_key: "task", type: "run", agent: "athena", critic: null,
+      brief: "b", depends_on: [], max_rounds: 1 }]);
+    mb.ask(GCTX, { to: "vulcan", question: "q" });
+    expect(store.listNodes("g1").find((n) => n.node_key === "task")!.status).toBe("done");
+  });
+
+  it("refuses when the mailbox is disabled, before the goal check", () => {
+    const { store, mb } = harness({ disabled: true });
+    withGoal(store);
+    expect(mb.ask({ from: "athena", origin: PRIMARY, goalDepth: 0 }, { to: "vulcan", question: "q" }))
+      .toContain("disabled");
+  });
 });
 
 describe("Mailbox.peekInbound + markDelivered", () => {
