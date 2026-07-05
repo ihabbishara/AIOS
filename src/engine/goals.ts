@@ -306,7 +306,7 @@ export class GoalEngine {
   private insertGoal(p: {
     title: string; request: string; department: string; lead: string;
     origin: { channel: string; chatId: string }; projectDir?: string; planSummary: string;
-    chainDepth?: number;
+    chainDepth?: number; spawnedByMail?: string;
   }): GoalRow {
     const id = randomUUID();
     const slug = slugify(p.title);
@@ -314,7 +314,8 @@ export class GoalEngine {
       id, slug, title: p.title, request: p.request, department: p.department, lead: p.lead,
       origin_channel: p.origin.channel, origin_chat_id: p.origin.chatId,
       status: "running", project_dir: p.projectDir ?? null, goal_dir: null,
-      plan_summary: p.planSummary, replans_used: 0, chain_depth: p.chainDepth ?? 0, error: null,
+      plan_summary: p.planSummary, replans_used: 0, chain_depth: p.chainDepth ?? 0,
+      spawned_by_mail: p.spawnedByMail ?? null, error: null,
     });
     const goal = this.deps.store.getGoal(id)!;
     this.emit({ type: "goal.created", goalId: id, title: p.title, department: p.department });
@@ -333,7 +334,7 @@ export class GoalEngine {
     try {
       // Mail-spawned goals NEVER get a workspace/sandbox — code work enters ONLY via code_task
       // (spec §4). Enforced at the engine so it holds regardless of prepareSandbox's own gating.
-      const sandbox = goal.plan_summary.startsWith(MAIL_PREFIX)
+      const sandbox = goal.spawned_by_mail
         ? undefined
         : await this.deps.prepareSandbox?.(goal, { playbook: pb });
       if (sandbox) {
@@ -443,7 +444,7 @@ export class GoalEngine {
       goal = this.insertGoal({
         title, request: m.body, department, lead,
         origin: { channel: m.origin_channel, chatId: m.origin_chat_id },
-        planSummary: `${MAIL_PREFIX}${m.id}`, chainDepth: m.chain_depth,
+        planSummary: `${MAIL_PREFIX}${m.id}`, chainDepth: m.chain_depth, spawnedByMail: m.id,
       });
       this.deps.store.insertNodes(goal.id, [{
         node_key: "task", type: "run", agent: canonical, critic: null,
@@ -458,7 +459,7 @@ export class GoalEngine {
 
   /** The report REPLACES the origin-chat ping for mail-spawned goals (spec §5). */
   private mailReport(goal: GoalRow, ok: boolean, error: string | undefined, files: string[]): void {
-    const src = this.deps.store.getMail(goal.plan_summary.slice(MAIL_PREFIX.length));
+    const src = this.deps.store.getMail(goal.spawned_by_mail!);
     if (!src) return;
     const refs = files.map((f) => `goals/${goal.goal_dir}/${f}`).join(", ");
     const body = ok
@@ -525,7 +526,7 @@ export class GoalEngine {
     const fresh = this.deps.store.getGoal(goal.id)!;
     const files = this.deps.store.listNodes(goal.id).filter((n) => n.artifact).map((n) => n.artifact!);
     // Mail-spawned goals report back to their sender instead of pinging the origin chat.
-    if (fresh.plan_summary.startsWith(MAIL_PREFIX)) {
+    if (fresh.spawned_by_mail) {
       this.mailReport(fresh, ok, error, files);
       return;
     }
@@ -593,10 +594,12 @@ export class GoalEngine {
     title: string; request: string; department: string; lead: string;
     origin: { channel: string; chatId: string }; summary: string;
     nodes: import("../store/db.js").NewTaskNode[]; projectDir?: string; needsWorkspace: string;
+    spawnedByMail?: string; chainDepth?: number;
   }): GoalRow {
     const goal = this.insertGoal({
       title: p.title, request: p.request, department: p.department, lead: p.lead,
       origin: p.origin, projectDir: p.projectDir, planSummary: p.summary,
+      chainDepth: p.chainDepth, spawnedByMail: p.spawnedByMail,
     });
     this.deps.store.insertNodes(goal.id, p.nodes);
     void this.startGoal(goal);

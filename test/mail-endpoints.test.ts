@@ -73,6 +73,7 @@ describe("goal detail spawnedBy", () => {
       id: "g1", slug: "x", title: "X", request: "x", department: "engineering", lead: "athena",
       origin_channel: "telegram", origin_chat_id: "1", status: "done", project_dir: null, goal_dir: null,
       plan_summary: `${MAIL_PREFIX}m1`, replans_used: 0, error: null, chain_depth: 1,
+      spawned_by_mail: "m1",
     });
     store.insertGoal({
       id: "g2", slug: "y", title: "Y", request: "y", department: "engineering", lead: "athena",

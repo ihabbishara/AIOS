@@ -3,7 +3,6 @@ import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpendGuard } from "../engine/budget.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
-import { MAIL_PREFIX } from "../engine/goals.js";
 import { localParts } from "../heartbeat/clock.js";
 
 export interface GoalNodeView {
@@ -48,9 +47,9 @@ export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: stri
   const artifacts = !g.goal_dir ? [] : store.listNodes(g.id)
     .filter((n) => n.artifact)
     .map((n) => ({ file: n.artifact!, content: vault.readGoalArtifact(g.goal_dir!, n.artifact!) ?? "" }));
-  const spawnedBy = g.plan_summary.startsWith(MAIL_PREFIX)
+  const spawnedBy = g.spawned_by_mail
     ? (() => {
-        const m = store.getMail(g.plan_summary.slice(MAIL_PREFIX.length));
+        const m = store.getMail(g.spawned_by_mail!);
         return m ? { mailId: m.id, from: m.from_agent } : null;
       })()
     : null;

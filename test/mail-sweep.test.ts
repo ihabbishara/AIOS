@@ -138,6 +138,18 @@ describe("mail sweep", () => {
     expect(prepareSandbox).not.toHaveBeenCalled();
   });
 
+  it("single-node mail-goal stamps spawned_by_mail (report-back keys on it)", async () => {
+    const { store, engine } = harness(okRun);
+    store.insertMail(reqMail()); // to_agent vulcan = specialist → single node
+    engine.pump();
+    await flush();
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(goal.spawned_by_mail).toBe("m1");
+    expect(goal.plan_summary).toBe(`${MAIL_PREFIX}m1`); // prefix still present (re-plan marker)
+    // report still went back to the sender
+    expect(store.unreadMailFor("athena")[0]).toMatchObject({ kind: "report", from_agent: "vulcan" });
+  });
+
   it("node runs carry the goal's origin + chain_depth as mailCtx", async () => {
     let seen: unknown;
     const spyRun: SpecialistRunFn = async (_r, _b, opts) => {
