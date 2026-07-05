@@ -1,7 +1,7 @@
 // src/mail/mailbox.ts — agent-to-agent mail: validation, persistence, context injection.
 import { randomUUID } from "node:crypto";
 import type { Store } from "../store/db.js";
-import type { LoadedRegistry } from "../agents/registry/loader.js";
+import type { LoadedRegistry, AgentDef } from "../agents/registry/loader.js";
 import type { AiosEvent } from "../events.js";
 import { isPrivateOrigin } from "../agents/direct.js";
 
@@ -31,17 +31,25 @@ const clip = (s: string) => (s.length <= BODY_TRUNCATE ? s : `${s.slice(0, BODY_
 export class Mailbox {
   constructor(private deps: MailboxDeps) {}
 
+  /** Shared recipient validation for send/ask. Returns the resolved recipient or a refusal string. */
+  private resolveRecipient(ctx: MailSendCtx, to: string, verb: "mail" | "ask"):
+    { canonical: string; def: AgentDef } | { refusal: string } {
+    if (this.deps.disabled) return { refusal: "Refused: the mailbox is disabled (AIOS_MAIL_DISABLED)." };
+    const canonical = this.deps.registry.agentOf.get(to);
+    const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
+    if (!canonical || !def) return { refusal: `Refused: Unknown recipient "${to}".` };
+    if (canonical === ctx.from) return { refusal: `Refused: you can't ${verb} yourself.` };
+    if (def.manifest.visibility === "private" &&
+        !isPrivateOrigin(this.deps.primaryChat, ctx.origin.channel, ctx.origin.chatId))
+      return { refusal: `Refused: ${canonical} is private — this chat's origin can't reach them.` };
+    return { canonical, def };
+  }
+
   /** Tool-friendly: always returns a human-readable string, never throws. */
   send(ctx: MailSendCtx, args: { to: string; kind: "request" | "note"; body: string }): string {
-    if (this.deps.disabled) return "Refused: the mailbox is disabled (AIOS_MAIL_DISABLED).";
-    const canonical = this.deps.registry.agentOf.get(args.to);
-    const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
-    if (!canonical || !def) return `Refused: Unknown recipient "${args.to}".`;
-    if (canonical === ctx.from) return "Refused: you can't mail yourself.";
-    if (def.manifest.visibility === "private" &&
-        !isPrivateOrigin(this.deps.primaryChat, ctx.origin.channel, ctx.origin.chatId)) {
-      return `Refused: ${canonical} is private — this chat's origin can't reach them.`;
-    }
+    const r = this.resolveRecipient(ctx, args.to, "mail");
+    if ("refusal" in r) return r.refusal;
+    const { canonical } = r;
     const id = randomUUID();
     this.deps.store.insertMail({
       id, from_agent: ctx.from, to_agent: canonical, kind: args.kind, body: args.body,
@@ -60,29 +68,28 @@ export class Mailbox {
   /** Ask another agent a question mid-goal. Queues a request AND parks the caller's goal
    *  until the answer reports back. Tool-friendly: always returns a string, never throws. */
   ask(ctx: MailSendCtx, args: { to: string; question: string }): string {
-    if (this.deps.disabled) return "Refused: the mailbox is disabled (AIOS_MAIL_DISABLED).";
     if (!ctx.goalId) return "Refused: ask_mail only works inside a goal (use send_mail for fire-and-forget).";
-    const canonical = this.deps.registry.agentOf.get(args.to);
-    const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
-    if (!canonical || !def) return `Refused: Unknown recipient "${args.to}".`;
-    if (canonical === ctx.from) return "Refused: you can't ask yourself.";
-    if (def.manifest.visibility === "private" &&
-        !isPrivateOrigin(this.deps.primaryChat, ctx.origin.channel, ctx.origin.chatId)) {
-      return `Refused: ${canonical} is private — this chat's origin can't reach them.`;
-    }
+    const r = this.resolveRecipient(ctx, args.to, "ask");
+    if ("refusal" in r) return r.refusal;
+    const { canonical } = r;
     const goal = this.deps.store.getGoal(ctx.goalId);
     if (goal?.awaiting_mail) return `Refused: you already have a pending question (mail ${goal.awaiting_mail}).`;
     // Continue the goal's incoming conversation when it was itself mail-spawned; else a fresh thread.
     const parentThread = goal?.spawned_by_mail
       ? this.deps.store.getMail(goal.spawned_by_mail)?.thread_id : undefined;
     const id = randomUUID();
-    this.deps.store.insertMail({
-      id, from_agent: ctx.from, to_agent: canonical, kind: "request", body: args.question,
-      goal_id: null, origin_channel: ctx.origin.channel, origin_chat_id: ctx.origin.chatId,
-      chain_depth: ctx.goalDepth + 1, status: "queued", error: null,
-      thread_id: parentThread ?? id, in_reply_to: null,
+    this.deps.store.transaction(() => {
+      this.deps.store.insertMail({
+        id, from_agent: ctx.from, to_agent: canonical, kind: "request", body: args.question,
+        goal_id: null, origin_channel: ctx.origin.channel, origin_chat_id: ctx.origin.chatId,
+        chain_depth: ctx.goalDepth + 1, status: "queued", error: null,
+        thread_id: parentThread ?? id, in_reply_to: null,
+      });
+      this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
+      // The asking node did its job (it asked) — mark it done inside the same tx so a later
+      // run reject can't fail it and a crash-time resetRunningNodes can't re-run it.
+      if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
     });
-    this.deps.store.parkGoalAwaiting(ctx.goalId, id);
     this.deps.onEvent?.({ type: "mail.sent", id, from: ctx.from, to: canonical, kind: "request" });
     this.deps.onQueued?.();
     return `Question sent to ${canonical}. Your task will pause and resume automatically when they answer.`;

@@ -539,6 +539,9 @@ export class GoalEngine {
     runNode(this.deps.store.getGoal(goal.id)!, node, { ...this.deps, resolvePack })
       .then(() => this.setNodeStatus(goal, node.node_key, "done", node.agent))
       .catch(async (err: Error) => {
+        // A node that parked its goal via ask_mail is already 'done'; a late run rejection must
+        // not flip it to failed or fail the legitimately-parked goal.
+        if (this.deps.store.listNodes(goal.id).find((x) => x.node_key === node.node_key)?.status === "done") return;
         this.setNodeStatus(goal, node.node_key, "failed", node.agent, err.message);
         await this.onNodeFailure(this.deps.store.getGoal(goal.id)!, node, err);
       })
@@ -630,6 +633,7 @@ export class GoalEngine {
       if (answer) { this.resumeFromAnswer(g.awaiting_mail, answer.body); continue; }
       const req = this.deps.store.getMail(g.awaiting_mail);
       if (req?.status === "refused") this.resumeFromAnswer(g.awaiting_mail, `Refused: ${req.error ?? "unknown"}`);
+      else if (req?.kind === "note") this.resumeFromAnswer(g.awaiting_mail, `Declined: ${req.error ?? "chain too deep"}`);
     }
     this.deps.store.resetRunningNodes();
     const goals = this.deps.store.unfinishedGoals();

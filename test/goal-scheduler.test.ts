@@ -342,4 +342,63 @@ describe("GoalEngine mid-goal clarification (park + resume)", () => {
     expect(store.getGoal("g-ask")!.status).toBe("running");
     expect(store.getGoal("g2")!.status).toBe("awaiting-mail");
   });
+
+  it("resume-on-refusal: a parked asker's request refused at sweep resumes with the refusal", () => {
+    const { store, engine } = harness({ maxConcurrentNodes: 0 });
+    // Fresh parked goal awaiting a request addressed to an unknown recipient — sweepMail refuses
+    // it deterministically (no async planner/spawn path involved).
+    store.insertGoal({
+      id: "g-refused", slug: "g-refused", title: "asker", request: "do the thing", department: "engineering",
+      lead: "athena", origin_channel: "telegram", origin_chat_id: "1", status: "running",
+      project_dir: null, goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertMail({ id: "mR", from_agent: "athena", to_agent: "ghost", kind: "request",
+      body: "which db?", goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "queued", error: null });
+    store.parkGoalAwaiting("g-refused", "mR");
+    engine.pump(); // sweepMail: unknown recipient → refuseMail + resumeFromAnswer
+    expect(store.getGoal("g-refused")).toMatchObject({ status: "running", awaiting_mail: null });
+    const resumeNode = store.listNodes("g-refused").find((n) => n.node_key.startsWith("resume_"));
+    expect(resumeNode).toBeTruthy();
+    expect(resumeNode!.brief).toContain("Refused");
+  });
+
+  it("resume-on-downgrade: a parked asker's request past the depth cap downgrades and resumes with Declined", () => {
+    const { store, engine } = harness({ maxConcurrentNodes: 0 }); // harness mailMaxDepth = 2
+    store.insertGoal({
+      id: "g-deep", slug: "g-deep", title: "asker", request: "do the thing", department: "engineering",
+      lead: "athena", origin_channel: "telegram", origin_chat_id: "1", status: "running",
+      project_dir: null, goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertMail({ id: "mD", from_agent: "athena", to_agent: "vulcan", kind: "request",
+      body: "which db?", goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 3, status: "queued", error: null }); // > mailMaxDepth (2)
+    store.parkGoalAwaiting("g-deep", "mD");
+    engine.pump(); // sweepMail: depth guard downgrades to note + resumeFromAnswer("Declined: ...")
+    expect(store.getGoal("g-deep")).toMatchObject({ status: "running", awaiting_mail: null });
+    const resumeNode = store.listNodes("g-deep").find((n) => n.node_key.startsWith("resume_"));
+    expect(resumeNode).toBeTruthy();
+    expect(resumeNode!.brief).toContain("Declined");
+    expect(store.getMail("mD")).toMatchObject({ kind: "note", status: "unread" });
+  });
+
+  it("boot reconcile resumes a parked goal whose awaited request was already downgraded to a note (FIX 1)", () => {
+    const { store, engine } = harness({ maxConcurrentNodes: 0 });
+    store.insertGoal({
+      id: "g-boot-note", slug: "g-boot-note", title: "asker", request: "do the thing", department: "engineering",
+      lead: "athena", origin_channel: "telegram", origin_chat_id: "1", status: "running",
+      project_dir: null, goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+    // Simulates a crash between downgradeMailToNote and its resumeFromAnswer at sweep time:
+    // the mail already landed as a downgraded note, but the goal is still parked.
+    store.insertMail({ id: "mBootNote", from_agent: "athena", to_agent: "vulcan", kind: "note",
+      body: "which db?", goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 3, status: "unread", error: "downgraded: chain too deep (cap 2)" });
+    store.parkGoalAwaiting("g-boot-note", "mBootNote");
+    engine.resumeUnfinished();
+    expect(store.getGoal("g-boot-note")).toMatchObject({ status: "running", awaiting_mail: null });
+    const resumeNode = store.listNodes("g-boot-note").find((n) => n.node_key.startsWith("resume_"));
+    expect(resumeNode).toBeTruthy();
+    expect(resumeNode!.brief).toContain("Declined");
+  });
 });
