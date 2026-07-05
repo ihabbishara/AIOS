@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Store, type MailKind, type MailStatus } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { buildMailView, buildGoalDetail, buildMailUnread } from "../src/web/goals-view.js";
+import { buildMailView, buildGoalDetail, buildMailUnread, buildMailThread } from "../src/web/goals-view.js";
 import { MAIL_PREFIX } from "../src/engine/goals.js";
 
 function fixtureRegistry() {
@@ -82,5 +82,17 @@ describe("goal detail spawnedBy", () => {
     });
     expect(buildGoalDetail(store, vault, "g1")!.spawnedBy).toEqual({ mailId: "m1", from: "athena" });
     expect(buildGoalDetail(store, vault, "g2")!.spawnedBy).toBeNull();
+  });
+
+  it("buildMailThread returns the conversation oldest-first", () => {
+    const store = new Store(":memory:");
+    store.insertMail({ id: "root", from_agent: "athena", to_agent: "vulcan", kind: "request",
+      body: "which db?", goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "spawned", error: null, thread_id: "root", in_reply_to: null });
+    store.insertMail({ id: "rep", from_agent: "vulcan", to_agent: "athena", kind: "report",
+      body: "Done: sqlite", goal_id: "g", origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "unread", error: null, thread_id: "root", in_reply_to: "root" });
+    expect(buildMailThread(store, "root").map((m) => m.id)).toEqual(["root", "rep"]);
+    expect(buildMailThread(store, "nope")).toEqual([]);
   });
 });

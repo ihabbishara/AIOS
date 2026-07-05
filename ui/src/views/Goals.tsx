@@ -10,6 +10,7 @@ export interface GoalTarget { slug: string; nodeKey: string | null }
 const BUCKETS: Array<{ title: string; accent: string; match: string[] }> = [
   { title: "Active", accent: "text-amber glow-amber", match: ["planning", "running", "replanning"] },
   { title: "Paused", accent: "text-cyan", match: ["paused-budget", "paused-user"] },
+  { title: "Waiting", accent: "text-cyan", match: ["awaiting-mail"] },
   { title: "Completed", accent: "text-phosphor glow-green", match: ["done"] },
   { title: "Failed", accent: "text-alert", match: ["failed", "abandoned"] },
 ];
@@ -30,6 +31,7 @@ const NODE_TEXT: Record<string, string> = {
 const GOAL_STATUS_TEXT: Record<string, string> = {
   planning: "text-cyan", running: "text-amber", replanning: "text-amber",
   "paused-budget": "text-cyan", "paused-user": "text-cyan",
+  "awaiting-mail": "text-cyan",
   done: "text-phosphor", failed: "text-alert", abandoned: "text-dim",
 };
 

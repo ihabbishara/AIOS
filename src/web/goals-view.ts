@@ -69,6 +69,14 @@ export function buildMailView(store: Store, registry: LoadedRegistry, agent?: st
   }));
 }
 
+/** All mail in one conversation, oldest first — the thread read view (spec §8). */
+export function buildMailThread(store: Store, threadId: string): MailView[] {
+  return store.mailThread(threadId).map((m) => ({
+    id: m.id, from: m.from_agent, to: m.to_agent, kind: m.kind, status: m.status, body: m.body,
+    goalId: m.goal_id, chainDepth: m.chain_depth, createdAt: m.created_at, readAt: m.read_at, error: m.error,
+  }));
+}
+
 /** Unread inbound mail per agent + grand total — feeds the org nav badge and per-card badges. */
 export function buildMailUnread(store: Store): { total: number; byAgent: Record<string, number> } {
   const byAgent = store.unreadCountsByAgent();
