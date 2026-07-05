@@ -106,7 +106,7 @@ async function runAgent(
       cwd: goal.project_dir ?? process.cwd(),
       model: deps.model,
       pack: deps.resolvePack(node, goal),
-      mailCtx: { origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id }, goalDepth: goal.chain_depth },
+      mailCtx: { origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id }, goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: node.node_key },
     });
     if (isSessionLimitOutput(res.text)) {
       deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });

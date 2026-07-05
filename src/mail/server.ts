@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Mailbox, MailSendCtx } from "./mailbox.js";
 
 export const MAIL_TOOL = "mcp__aios-mail__send_mail";
+export const ASK_TOOL = "mcp__aios-mail__ask_mail";
 
 export function buildMailServer(mailbox: Mailbox, ctx: MailSendCtx) {
   const sendMail = tool(
@@ -13,5 +14,13 @@ export function buildMailServer(mailbox: Mailbox, ctx: MailSendCtx) {
     { to: z.string(), kind: z.enum(["request", "note"]), body: z.string() },
     async (a) => ({ content: [{ type: "text" as const, text: mailbox.send(ctx, a) }] }),
   );
-  return createSdkMcpServer({ name: "aios-mail", version: "0.1.0", tools: [sendMail] });
+  const askMail = tool(
+    "ask_mail",
+    "Ask another staff agent a question and PAUSE your current task until they answer. Your goal " +
+      "resumes automatically with their reply. Use this when you need input to continue; use send_mail " +
+      "for fire-and-forget. Only works inside a goal.",
+    { to: z.string(), question: z.string() },
+    async (a) => ({ content: [{ type: "text" as const, text: mailbox.ask(ctx, a) }] }),
+  );
+  return createSdkMcpServer({ name: "aios-mail", version: "0.1.0", tools: [sendMail, askMail] });
 }

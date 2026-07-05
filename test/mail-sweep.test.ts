@@ -176,7 +176,10 @@ describe("mail sweep", () => {
     store.insertMail(reqMail({ chain_depth: 2 }));
     engine.pump();
     await flush();
-    expect(seen).toEqual({ origin: { channel: "telegram", chatId: "1" }, goalDepth: 2 });
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(seen).toEqual({
+      origin: { channel: "telegram", chatId: "1" }, goalDepth: 2, goalId: goal.id, nodeKey: "task",
+    });
   });
 
   it("mail to a dept lead spawns a planned graph and reports back once (no workspace)", async () => {

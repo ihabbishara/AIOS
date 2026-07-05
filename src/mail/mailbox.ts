@@ -19,6 +19,9 @@ export interface MailSendCtx {
   from: string;
   origin: { channel: string; chatId: string };
   goalDepth: number;
+  /** Set when the run is a goal node — enables ask_mail to park the goal. */
+  goalId?: string;
+  nodeKey?: string;
 }
 
 const INJECT_CAP = 5;
@@ -52,6 +55,37 @@ export class Mailbox {
     return args.kind === "request"
       ? `Mail sent — ${canonical} will run this as a goal and the result reports back to you.`
       : `Note delivered to ${canonical}.`;
+  }
+
+  /** Ask another agent a question mid-goal. Queues a request AND parks the caller's goal
+   *  until the answer reports back. Tool-friendly: always returns a string, never throws. */
+  ask(ctx: MailSendCtx, args: { to: string; question: string }): string {
+    if (this.deps.disabled) return "Refused: the mailbox is disabled (AIOS_MAIL_DISABLED).";
+    if (!ctx.goalId) return "Refused: ask_mail only works inside a goal (use send_mail for fire-and-forget).";
+    const canonical = this.deps.registry.agentOf.get(args.to);
+    const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
+    if (!canonical || !def) return `Refused: Unknown recipient "${args.to}".`;
+    if (canonical === ctx.from) return "Refused: you can't ask yourself.";
+    if (def.manifest.visibility === "private" &&
+        !isPrivateOrigin(this.deps.primaryChat, ctx.origin.channel, ctx.origin.chatId)) {
+      return `Refused: ${canonical} is private — this chat's origin can't reach them.`;
+    }
+    const goal = this.deps.store.getGoal(ctx.goalId);
+    if (goal?.awaiting_mail) return `Refused: you already have a pending question (mail ${goal.awaiting_mail}).`;
+    // Continue the goal's incoming conversation when it was itself mail-spawned; else a fresh thread.
+    const parentThread = goal?.spawned_by_mail
+      ? this.deps.store.getMail(goal.spawned_by_mail)?.thread_id : undefined;
+    const id = randomUUID();
+    this.deps.store.insertMail({
+      id, from_agent: ctx.from, to_agent: canonical, kind: "request", body: args.question,
+      goal_id: null, origin_channel: ctx.origin.channel, origin_chat_id: ctx.origin.chatId,
+      chain_depth: ctx.goalDepth + 1, status: "queued", error: null,
+      thread_id: parentThread ?? id, in_reply_to: null,
+    });
+    this.deps.store.parkGoalAwaiting(ctx.goalId, id);
+    this.deps.onEvent?.({ type: "mail.sent", id, from: ctx.from, to: canonical, kind: "request" });
+    this.deps.onQueued?.();
+    return `Question sent to ${canonical}. Your task will pause and resume automatically when they answer.`;
   }
 
   /** System-prompt block: unread inbound first, then own refusal acks — WITHOUT marking read.

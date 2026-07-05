@@ -33,6 +33,15 @@ const registry = fixtureRegistry();
 const PRIMARY = { channel: "telegram", chatId: "1" };
 const CTX = { from: "athena", origin: PRIMARY, goalDepth: 0 };
 
+function mail(over: Partial<import("../src/store/db.js").MailRow> = {}) {
+  return {
+    id: over.id ?? "m1", from_agent: over.from_agent ?? "vulcan", to_agent: over.to_agent ?? "athena",
+    kind: over.kind ?? "request", body: over.body ?? "b", goal_id: over.goal_id ?? null,
+    origin_channel: "telegram", origin_chat_id: "1", chain_depth: over.chain_depth ?? 0,
+    status: over.status ?? "queued", error: null, thread_id: over.thread_id, in_reply_to: over.in_reply_to,
+  };
+}
+
 function harness(over: Partial<ConstructorParameters<typeof Mailbox>[0]> = {}) {
   const store = new Store(":memory:");
   const events: AiosEvent[] = [];
@@ -85,6 +94,53 @@ describe("Mailbox.send", () => {
     const { store, mb } = harness();
     mb.send({ ...CTX, goalDepth: 2 }, { to: "vulcan", kind: "request", body: "x" });
     expect(store.queuedRequests()[0].chain_depth).toBe(3);
+  });
+});
+
+describe("Mailbox.ask", () => {
+  const GCTX = { from: "athena", origin: PRIMARY, goalDepth: 0, goalId: "g1", nodeKey: "task" };
+
+  function withGoal(store: Store) {
+    store.insertGoal({
+      id: "g1", slug: "g1", title: "t", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+    });
+  }
+
+  it("queues a request, parks the caller's goal, fires onQueued", () => {
+    const { store, mb, queuedCount } = harness();
+    withGoal(store);
+    const out = mb.ask(GCTX, { to: "vulcan", question: "which framework?" });
+    expect(out).toContain("pause");
+    const m = store.queuedRequests()[0];
+    expect(m).toMatchObject({ from_agent: "athena", to_agent: "vulcan", kind: "request", chain_depth: 1 });
+    expect(store.getGoal("g1")).toMatchObject({ status: "awaiting-mail", awaiting_mail: m.id });
+    expect(queuedCount()).toBe(1);
+  });
+
+  it("refuses outside a goal, unknown recipient (no park), and a second ask while parked", () => {
+    const { store, mb } = harness();
+    withGoal(store);
+    expect(mb.ask({ from: "athena", origin: PRIMARY, goalDepth: 0 }, { to: "vulcan", question: "q" }))
+      .toContain("only works inside a goal");
+    expect(mb.ask(GCTX, { to: "ghost", question: "q" })).toContain("Unknown recipient");
+    expect(store.getGoal("g1")!.status).toBe("running");           // unknown recipient did NOT park
+    mb.ask(GCTX, { to: "vulcan", question: "first" });             // parks
+    expect(mb.ask(GCTX, { to: "vulcan", question: "second" })).toContain("pending question");
+  });
+
+  it("inherits thread_id from a mail-spawned goal", () => {
+    const { store, mb } = harness();
+    store.insertMail(mail({ id: "lead", to_agent: "athena", thread_id: "lead" }));
+    store.insertGoal({
+      id: "g1", slug: "g1", title: "t", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "", replans_used: 0, chain_depth: 0, error: null,
+      spawned_by_mail: "lead",
+    });
+    mb.ask(GCTX, { to: "vulcan", question: "q" });
+    expect(store.queuedRequests()[0].thread_id).toBe("lead");
   });
 });
 

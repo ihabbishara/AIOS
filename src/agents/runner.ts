@@ -8,7 +8,7 @@ import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import type { LoadedRegistry } from "./registry/loader.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
-import { buildMailServer, MAIL_TOOL } from "../mail/server.js";
+import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox, MailSendCtx } from "../mail/mailbox.js";
 
 const SKILLS_PLUGIN_PATH =
@@ -109,7 +109,7 @@ export interface RunOptions {
   outputSchema?: Record<string, unknown>;
   /** When set (with a mailbox in deps), the run gets send_mail + its unread-mail block.
    *  goalDepth = the running goal's chain_depth (0 for chat/hand_off/standup runs). */
-  mailCtx?: { origin: { channel: string; chatId: string }; goalDepth: number };
+  mailCtx?: { origin: { channel: string; chatId: string }; goalDepth: number; goalId?: string; nodeKey?: string };
 }
 
 export type SpecialistRunFn = (
@@ -143,7 +143,7 @@ export function withMailOptions(base: Options, mailbox: Mailbox, ctx: MailSendCt
   const options = {
     ...base,
     mcpServers: { ...(base.mcpServers ?? {}), "aios-mail": buildMailServer(mailbox, ctx) },
-    allowedTools: [...new Set([...(base.allowedTools ?? []), MAIL_TOOL])],
+    allowedTools: [...new Set([...(base.allowedTools ?? []), MAIL_TOOL, ASK_TOOL])],
     ...(block ? { systemPrompt: `${base.systemPrompt}\n\n${block}` } : {}),
   };
   // deliveredIds committed by the caller via mailbox.markDelivered() ONLY on run success —
