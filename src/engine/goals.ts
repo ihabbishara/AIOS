@@ -432,8 +432,31 @@ export class GoalEngine {
         this.deps.store.refuseMail(m.id, `${canonical} is private — origin not the private chat`);
         continue;
       }
-      const goal = this.spawnFromMail(m, canonical, def.department);
-      void this.startGoal(goal);
+      const dept = def.department;
+      if (this.deps.planner && this.deps.registry.departments.get(dept)?.lead === canonical) {
+        // Mail to a department lead → planned multi-node graph (async). Claim first so a re-entrant
+        // pump pass cannot spawn a second goal for the same mail.
+        if (this.deps.store.claimMailPlanning(m.id)) void this.spawnGraphFromMail(m, dept);
+      } else {
+        const goal = this.spawnFromMail(m, canonical, dept);
+        void this.startGoal(goal);
+      }
+    }
+  }
+
+  /** The lead-mail graph path (spec §3). Async: the planner runs LLM calls. On success the mail is
+   *  flipped to spawned; on planner failure it is refused (sender-visible), and the pump continues. */
+  private async spawnGraphFromMail(m: MailRow, department: string): Promise<void> {
+    const title = (m.body.split("\n")[0] ?? "").slice(0, 80) || `mail from ${m.from_agent}`;
+    try {
+      const goal = await this.deps.planner!.planFromMail(this, {
+        department, title, request: m.body, channel: m.origin_channel, chatId: m.origin_chat_id,
+      }, m);
+      this.deps.store.markMailSpawned(m.id, goal.id);
+      this.emit({ type: "mail.spawned", mailId: m.id, goalId: goal.id });
+    } catch (err) {
+      this.deps.store.refuseMail(m.id, `planning failed: ${(err as Error).message}`);
+      this.pump();
     }
   }
 
@@ -570,6 +593,7 @@ export class GoalEngine {
 
   /** Startup only — reset orphaned running nodes (they re-run) and pump unfinished goals. */
   resumeUnfinished(): number {
+    this.deps.store.reconcilePlanningMail();
     this.deps.store.resetRunningNodes();
     const goals = this.deps.store.unfinishedGoals();
     for (const g of goals) if (g.status === "replanning" || g.status === "planning") this.setGoalStatus(g.id, "running");

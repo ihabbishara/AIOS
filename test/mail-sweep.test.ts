@@ -3,10 +3,10 @@ import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Store, type MailRow } from "../src/store/db.js";
+import { Store, type MailRow, type GoalRow } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { GoalEngine, MAIL_PREFIX } from "../src/engine/goals.js";
+import { GoalEngine, MAIL_PREFIX, type Planner } from "../src/engine/goals.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
 
@@ -42,7 +42,7 @@ function reqMail(over: Partial<MailRow> = {}): Omit<MailRow, "created_at" | "rea
   } as Omit<MailRow, "created_at" | "read_at">;
 }
 
-function harness(run: SpecialistRunFn, capUsd?: number) {
+function harness(run: SpecialistRunFn, capUsd?: number, planner?: Planner) {
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ms-vault-")), "AIOS");
   if (capUsd !== undefined) store.budgetAdd(new Date().toISOString().slice(0, 10), Math.round(capUsd * 100));
@@ -57,6 +57,7 @@ function harness(run: SpecialistRunFn, capUsd?: number) {
     prepareSandbox,
     primaryChat: PRIMARY,
     mailMaxDepth: 2,
+    planner,
   });
   return { store, vault, engine, onComplete, prepareSandbox };
 }
@@ -64,6 +65,21 @@ function harness(run: SpecialistRunFn, capUsd?: number) {
 const okRun: SpecialistRunFn = async (_r, brief) => {
   return { text: `done: ${brief.slice(0, 20)}`, costUsd: 0.01, numTurns: 1 };
 };
+
+// A two-node graph, mirroring production: startPlannedGoal with the mail's provenance, no workspace.
+const graphPlanner = (): Planner => ({
+  plan: async () => { throw new Error("unused"); },
+  replan: async () => {},
+  planFromMail: async (engine, params, mail): Promise<GoalRow> => engine.startPlannedGoal({
+    title: params.title, request: params.request, department: params.department, lead: "athena",
+    origin: { channel: params.channel, chatId: params.chatId }, summary: "graph plan",
+    nodes: [
+      { node_key: "n1", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
+      { node_key: "n2", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: ["n1"], max_rounds: 1 },
+    ],
+    needsWorkspace: "none", spawnedByMail: mail.id, chainDepth: mail.chain_depth,
+  }),
+});
 
 const flush = () => new Promise((r) => setTimeout(r, 50));
 
@@ -161,5 +177,70 @@ describe("mail sweep", () => {
     engine.pump();
     await flush();
     expect(seen).toEqual({ origin: { channel: "telegram", chatId: "1" }, goalDepth: 2 });
+  });
+
+  it("mail to a dept lead spawns a planned graph and reports back once (no workspace)", async () => {
+    const { store, engine, onComplete, prepareSandbox } = harness(okRun, undefined, graphPlanner());
+    store.insertMail(reqMail({ from_agent: "vulcan", to_agent: "athena" })); // recipient = engineering lead
+    engine.pump();
+    await flush();
+    const m = store.getMail("m1")!;
+    expect(m.status).toBe("spawned");
+    const goal = store.getGoal(m.goal_id!)!;
+    expect(goal.spawned_by_mail).toBe("m1");
+    expect(goal.chain_depth).toBe(1);
+    expect(goal.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();      // engine gate blocks sandbox on spawned_by_mail
+    expect(store.listNodes(goal.id)).toHaveLength(2);
+    expect(store.getGoal(goal.id)!.status).toBe("done");
+    const reports = store.unreadMailFor("vulcan").filter((x) => x.kind === "report");
+    expect(reports).toHaveLength(1);                     // exactly one report at the end, not per node
+    expect(onComplete).not.toHaveBeenCalled();           // no origin-chat ping
+  });
+
+  it("planner failure refuses the lead-mail; the queue keeps draining", async () => {
+    const failPlanner: Planner = {
+      plan: async () => { throw new Error("unused"); }, replan: async () => {},
+      planFromMail: async () => { throw new Error("no plan"); },
+    };
+    const { store, engine } = harness(okRun, undefined, failPlanner);
+    store.insertMail(reqMail({ id: "m1", from_agent: "vulcan", to_agent: "athena" })); // lead → graph (fails)
+    store.insertMail(reqMail({ id: "m2", from_agent: "athena", to_agent: "vulcan" })); // specialist → single node
+    engine.pump();
+    await flush();
+    expect(store.getMail("m1")!.status).toBe("refused");
+    expect(store.getMail("m1")!.error).toContain("no plan");
+    expect(store.getMail("m2")!.status).toBe("spawned");
+  });
+
+  it("a lead-mail graph is re-plannable (spawned_by_mail does not block re-plan)", async () => {
+    let replans = 0;
+    const store2Ref: { store?: Store } = {};
+    const rePlanner: Planner = {
+      plan: async () => { throw new Error("unused"); },
+      async replan(goal, failed) {
+        replans++;
+        store2Ref.store!.replaceNode(goal.id, failed.node_key,
+          { node_key: failed.node_key, type: "run", agent: "athena", critic: null, brief: "retry", depends_on: [], max_rounds: 1 });
+      },
+      planFromMail: async (engine, params, mail): Promise<GoalRow> => engine.startPlannedGoal({
+        title: params.title, request: params.request, department: params.department, lead: "athena",
+        origin: { channel: params.channel, chatId: params.chatId }, summary: "graph plan",
+        nodes: [{ node_key: "n1", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 }],
+        needsWorkspace: "none", spawnedByMail: mail.id, chainDepth: mail.chain_depth,
+      }),
+    };
+    let calls = 0;
+    const flaky: SpecialistRunFn = async () => {
+      calls++;
+      if (calls <= 2) throw new Error("boom"); // 2 throws (runOnce + retry) => node fails => onNodeFailure
+      return { text: "ok", costUsd: 0, numTurns: 1 };
+    };
+    const { store, engine } = harness(flaky, undefined, rePlanner);
+    store2Ref.store = store;
+    store.insertMail(reqMail({ from_agent: "vulcan", to_agent: "athena" }));
+    engine.pump();
+    await vi.waitFor(() => expect(store.getGoal(store.getMail("m1")!.goal_id!)!.status).toBe("done"));
+    expect(replans).toBe(1);
   });
 });
