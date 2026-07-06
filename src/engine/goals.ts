@@ -427,7 +427,8 @@ export class GoalEngine {
         this.resumeFromAnswer(m.id, `Declined: ${reason}`);
         continue;
       }
-      if (!this.deps.spendGuard.allow()) return; // stays queued; the midnight resume tick pumps again
+      if (!this.deps.spendGuard.allow()) continue; // stays queued (drains after midnight); keep
+      // scanning — a too-deep item further back must still get its budget-independent downgrade.
       const canonical = this.deps.registry.agentOf.get(m.to_agent);
       const def = canonical ? this.deps.registry.agents.get(canonical) : undefined;
       if (!canonical || !def) {

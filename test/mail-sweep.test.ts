@@ -8,6 +8,7 @@ import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { GoalEngine, MAIL_PREFIX, type Planner } from "../src/engine/goals.js";
 import { SpendGuard } from "../src/engine/budget.js";
+import { Mailbox } from "../src/mail/mailbox.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
 
 function fixtureRegistry() {
@@ -120,6 +121,15 @@ describe("mail sweep", () => {
     engine.pump();
     await flush();
     expect(store.getMail("m1")!.status).toBe("queued");
+  });
+
+  it("budget-blocked sweep still downgrades too-deep mail anywhere in the queue", () => {
+    const { store, engine } = harness(okRun, 0); // capUsd 0 → SpendGuard blocks
+    store.insertMail(reqMail({ id: "ok1", chain_depth: 1 }));
+    store.insertMail(reqMail({ id: "deep1", chain_depth: 9 }));
+    engine.pump();
+    expect(store.getMail("ok1")!.status).toBe("queued");            // waits for budget
+    expect(store.getMail("deep1")!.kind).toBe("note");               // downgraded immediately
   });
 
   it("unknown recipient and private wall refuse (sender-visible only)", async () => {
@@ -504,5 +514,37 @@ describe("M4 — resume node DAG wiring", () => {
     expect(engine.answerUserMail("ql", "A.")).toEqual({ ok: true });
     const resume = store.listNodes("gold").find((n) => n.node_key === "resume_1")!;
     expect(JSON.parse(resume.depends_on)).toEqual([]);              // legacy fallback unchanged
+  });
+});
+
+describe("late-reject guard (engine × real Mailbox.ask)", () => {
+  it("a run that parks via ask_mail then rejects does not fail the parked goal (late-reject guard)", async () => {
+    let mailboxRef!: Mailbox;
+    const run: SpecialistRunFn = async () => {
+      // Real runs are async SDK sessions — they always yield the event loop before any tool call,
+      // so the ask lands AFTER pump()'s synchronous pass (a sync ask would race the terminal check).
+      await Promise.resolve();
+      mailboxRef.ask(
+        { from: "athena", origin: PRIMARY, goalDepth: 0, goalId: "glate", nodeKey: "ask" },
+        { to: "user", question: "q?" }, // user-ask is awaiting-human — never swept → isolates the guard
+      );
+      throw new Error("late boom"); // session dies AFTER the ask parked the goal
+    };
+    const { store, engine } = harness(run);
+    mailboxRef = new Mailbox({ store, registry, maxDepth: 2, disabled: false, primaryChat: PRIMARY });
+    store.insertGoal({
+      id: "glate", slug: "glate", title: "L", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("glate", [
+      { node_key: "ask", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
+    ]);
+    engine.pump();
+    await vi.waitFor(() => expect(store.getGoal("glate")!.status).toBe("awaiting-mail"));
+    await new Promise((r) => setTimeout(r, 30)); // let the rejection land
+    const fresh = store.getGoal("glate")!;
+    expect(fresh.status).toBe("awaiting-mail");                                  // NOT failed
+    expect(store.listNodes("glate").find((n) => n.node_key === "ask")!.status).toBe("done");
   });
 });
