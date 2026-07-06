@@ -104,6 +104,10 @@ async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer
   return Buffer.concat(chunks);
 }
 
+/** Clamp a `?limit=` query param: junk (NaN) / 0 → default, negative → 1, huge → 200. */
+const clampLimit = (raw: string | null, dflt: number): number =>
+  Math.min(Math.max(1, Number(raw) || dflt), 200);
+
 function updateEnvFile(envPath: string, key: string, value: string): void {
   const lines = existsSync(envPath) ? readFileSync(envPath, "utf8").split("\n") : [];
   const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
@@ -407,7 +411,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
 
         // ---- goals ----
         if (path === "/api/goals" && req.method === "GET") {
-          return json(res, 200, buildGoalsView(store, Number(url.searchParams.get("limit") ?? 50)));
+          return json(res, 200, buildGoalsView(store, clampLimit(url.searchParams.get("limit"), 50)));
         }
 
         const goalMatch = /^\/api\/goals\/([\w-]+)$/.exec(path);
@@ -438,7 +442,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         if (path === "/api/mail" && req.method === "GET") {
           return json(res, 200, buildMailView(store, registry,
             url.searchParams.get("agent") ?? undefined,
-            Number(url.searchParams.get("limit") ?? 50)));
+            clampLimit(url.searchParams.get("limit"), 50)));
         }
 
         const threadMatch = /^\/api\/mail\/thread\/([\w-]+)$/.exec(path);

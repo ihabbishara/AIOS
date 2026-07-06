@@ -258,3 +258,25 @@ describe("POST /api/mail/:id/answer", () => {
     }
   });
 });
+
+describe("GET /api/mail limit clamping", () => {
+  it("limit param is clamped: junk → default, negative → 1, huge → 200", async () => {
+    const store = new Store(":memory:");
+    for (const id of ["m1", "m2", "m3"]) {
+      store.insertMail({
+        id, from_agent: "athena", to_agent: "vulcan", kind: "note", body: "x", goal_id: null,
+        origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+      });
+    }
+    const { base, auth, close } = await spinServer(store);
+    try {
+      const junk = await (await fetch(`${base}/api/mail?limit=abc`, { headers: auth })).json();
+      expect(junk.length).toBe(3); // default 50 applied, not NaN-crash / 500
+
+      const neg = await (await fetch(`${base}/api/mail?limit=-1`, { headers: auth })).json();
+      expect(neg.length).toBe(1); // clamped to 1, NOT a full-table dump
+    } finally {
+      await close();
+    }
+  });
+});

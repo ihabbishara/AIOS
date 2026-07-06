@@ -32,7 +32,7 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
     onConsumeAgentTarget();
   }, [agentTarget, onConsumeAgentTarget]);
 
-  if (selected) return <AgentProfile name={selected} events={events} onBack={() => setSelected(null)} onOpenChat={onOpenChat} onOpenGoal={onOpenGoal} />;
+  if (selected) return <AgentProfile name={selected} events={events} onBack={() => setSelected(null)} onOpenChat={onOpenChat} onOpenGoal={onOpenGoal} unreadByAgent={unreadByAgent} />;
   if (!org) return <div className="text-dim">loading…</div>;
 
   const depts = [...org].sort(
@@ -92,9 +92,10 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
   );
 }
 
-function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal }: {
+function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal, unreadByAgent }: {
   name: string; events: StoredEvent[]; onBack: () => void;
   onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
+  unreadByAgent: Record<string, number>;
 }) {
   const { data: p, error } = usePoll(() => api.agent(name), [name]);
   if (error) return <div className="text-alert text-[12px]">error: {error} <button className="text-dim underline" onClick={onBack}>back</button></div>;
@@ -142,7 +143,7 @@ function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal }: {
         </div>
       </div>
 
-      <MailSection name={p.name} events={events} onOpenGoal={onOpenGoal} />
+      <MailSection name={p.name} events={events} onOpenGoal={onOpenGoal} unread={unreadByAgent[name] ?? 0} />
 
       {p.trust.length > 0 && (
         <div className="hud p-4">
@@ -202,8 +203,8 @@ const MAIL_KIND: Record<string, string> = {
   request: "text-amber", note: "text-dim", report: "text-cyan", standup: "text-violet", refused: "text-alert",
 };
 
-function MailSection({ name, events, onOpenGoal }: {
-  name: string; events: StoredEvent[]; onOpenGoal: (slug: string, nodeKey: string | null) => void;
+function MailSection({ name, events, onOpenGoal, unread }: {
+  name: string; events: StoredEvent[]; onOpenGoal: (slug: string, nodeKey: string | null) => void; unread: number;
 }) {
   const lastMailEvt = useMemo(
     () => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id,
@@ -211,11 +212,6 @@ function MailSection({ name, events, onOpenGoal }: {
   );
   const { data: mail } = usePoll(() => api.mail(name), [name, lastMailEvt]);
   if (!mail) return null;
-
-  const received = mail.filter((m) => m.to === name);
-  // Unread = status 'unread' (what injectionFor drains), NOT readAt===null — the latter also
-  // flags already-spawned requests. Keeps this count == the org nav/card badge.
-  const unread = received.filter((m) => m.status === "unread").length;
 
   return (
     <div className="hud p-4">

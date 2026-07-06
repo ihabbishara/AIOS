@@ -126,6 +126,7 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
   const [msg, setMsg] = useState<string | null>(null);
   const [armAbandon, setArmAbandon] = useState(false);
   const [answer, setAnswer] = useState("");
+  const [sending, setSending] = useState(false);
 
   if (error) {
     return (
@@ -149,12 +150,14 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
 
   const sendAnswer = () => {
     const ask = goal.awaitingUserAsk;
-    if (!ask || !answer.trim()) return;
+    if (sending || !ask || !answer.trim()) return;
     const text = answer;
     setAnswer(""); // clear optimistically
+    setSending(true);
     api.answerMail(ask.mailId, text)
       .then(() => reload())
-      .catch((e) => { setMsg((e as Error).message); setAnswer(text); });
+      .catch((e) => { setMsg((e as Error).message); setAnswer(text); })
+      .finally(() => setSending(false));
   };
 
   const canPause = goal.status === "running" || goal.status === "replanning";
@@ -196,12 +199,12 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
             <input
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && answer.trim()) sendAnswer(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !sending && answer.trim()) sendAnswer(); }}
               placeholder="your answer…"
               className="flex-1 bg-void border border-cyan/40 px-2 py-1 text-[12px] text-bright outline-none focus:border-cyan"
             />
             <button
-              disabled={!answer.trim()}
+              disabled={sending || !answer.trim()}
               onClick={sendAnswer}
               className="text-[11px] text-cyan border border-cyan px-3 hover:bg-cyan hover:text-void transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan"
             >
