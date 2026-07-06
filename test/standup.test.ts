@@ -65,6 +65,28 @@ describe("activeDepartments", () => {
   });
 });
 
+describe("activity window (M7)", () => {
+  it("a weeks-old goal resumed recently still activates its department", () => {
+    const store = new Store(":memory:");
+    // 101 goals: g0 is the OLDEST-created but the only recently-updated one.
+    for (let i = 0; i <= 100; i++) {
+      goalRow(store, { id: `g${i}`, title: `G${i}`, department: "engineering", status: "done" });
+    }
+    const db = (store as unknown as { db: import("node:sqlite").DatabaseSync }).db;
+    const old = new Date(Date.now() - 30 * 864e5).toISOString();
+    // Everything is stale (updated long ago); g1..g100 keep their fresh created_at.
+    db.prepare("UPDATE goals SET updated_at = ?").run(old);
+    // g0 is the OLDEST-created — the 100 newer goals push it out of the created_at LIMIT window...
+    db.prepare("UPDATE goals SET created_at = ? WHERE id = 'g0'").run(old);
+    // ...but it was just resumed: ancient created_at, fresh updated_at (a just-resumed parked goal).
+    db.prepare("UPDATE goals SET updated_at = ? WHERE id = 'g0'").run(new Date().toISOString());
+
+    const since = new Date(Date.now() - 864e5).toISOString();
+    expect(activeDepartments(store, registry, since)).toContain("engineering");
+    expect(standupDigest(store, registry, "engineering", since)).toContain("G0");
+  });
+});
+
 describe("standupDigest", () => {
   it("includes goal titles, statuses, costs, failures, mail counts", () => {
     const store = new Store(":memory:");

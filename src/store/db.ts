@@ -520,6 +520,13 @@ export class Store {
       .all(limit) as unknown as GoalRow[];
   }
 
+  /** Goals touched since `sinceIso` — selected by updated_at in SQL, not a created_at-ordered
+   *  LIMIT window (a weeks-old goal resumed yesterday must still count as recent activity). */
+  goalsUpdatedSince(sinceIso: string): GoalRow[] {
+    return this.db.prepare("SELECT * FROM goals WHERE updated_at >= ? ORDER BY updated_at DESC")
+      .all(sinceIso) as unknown as GoalRow[];
+  }
+
   unfinishedGoals(): GoalRow[] {
     return this.db.prepare(
       "SELECT * FROM goals WHERE status IN ('planning','running','replanning') ORDER BY created_at ASC",

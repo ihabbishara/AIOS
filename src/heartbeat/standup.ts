@@ -16,7 +16,7 @@ function membersOf(registry: LoadedRegistry, dept: string): Set<string> {
 /** Departments with last-24h activity. privateMemo departments (finance) NEVER run standups —
  *  brief notes are vaulted + recall-indexed; private-dept content there would breach the money wall. */
 export function activeDepartments(store: Store, registry: LoadedRegistry, sinceIso: string): string[] {
-  const recentGoals = store.listGoals(100).filter((g) => g.updated_at >= sinceIso);
+  const recentGoals = store.goalsUpdatedSince(sinceIso);
   const recentMail = store.listMail(undefined, 500).filter((m) => m.created_at >= sinceIso);
   const out: string[] = [];
   for (const [dept, def] of registry.departments) {
@@ -33,7 +33,7 @@ export function activeDepartments(store: Store, registry: LoadedRegistry, sinceI
 /** Pure data digest — reads goals/task_nodes/mail ONLY (never personal_*, never email content). */
 export function standupDigest(store: Store, registry: LoadedRegistry, dept: string, sinceIso: string): string {
   const members = membersOf(registry, dept);
-  const goals = store.listGoals(100).filter((g) => g.department === dept && g.updated_at >= sinceIso);
+  const goals = store.goalsUpdatedSince(sinceIso).filter((g) => g.department === dept);
   const line = (g: GoalRow) => {
     const cost = store.listNodes(g.id).reduce((s, n) => s + n.cost_cents, 0);
     return `- ${g.title} [${g.status}]${cost ? ` ${usd(cost)}` : ""}${g.error ? ` — ${g.error.slice(0, 200)}` : ""}`;
