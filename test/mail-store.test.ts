@@ -31,6 +31,8 @@ describe("mail store", () => {
     s.insertMail(mail());
     s.insertMail(mail({ id: "m2" }));
     s.insertMail(mail({ id: "m3" }));
+    // FIFO order is guaranteed: queuedRequests() orders by created_at ASC, rowid ASC, so same-ms
+    // inserts break the tie by insertion order rather than being left unspecified.
     expect(s.queuedRequests().map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
     s.markMailSpawned("m1", "g1");
     expect(s.getMail("m1")).toMatchObject({ status: "spawned", goal_id: "g1" });
@@ -85,6 +87,13 @@ describe("mail store", () => {
       }),
     ).toThrow("boom");
     expect(s.getMail("m1")).toBeUndefined();
+  });
+
+  it("transaction() refuses to nest instead of silently breaking atomicity", () => {
+    const store = new Store(":memory:");
+    expect(() =>
+      store.transaction(() => store.transaction(() => 1)),
+    ).toThrow(/nesting not supported/);
   });
 
   it("stamps thread_id = own id by default and groups a thread in order", () => {

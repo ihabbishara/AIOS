@@ -671,7 +671,7 @@ export class Store {
 
   unreadMailFor(agent: string): MailRow[] {
     return this.db.prepare(
-      "SELECT * FROM mail WHERE to_agent = ? AND status = 'unread' ORDER BY created_at ASC",
+      "SELECT * FROM mail WHERE to_agent = ? AND status = 'unread' ORDER BY created_at ASC, rowid ASC",
     ).all(agent) as unknown as MailRow[];
   }
 
@@ -688,7 +688,7 @@ export class Store {
 
   refusedMailFrom(agent: string): MailRow[] {
     return this.db.prepare(
-      "SELECT * FROM mail WHERE from_agent = ? AND status = 'refused' AND read_at IS NULL ORDER BY created_at ASC",
+      "SELECT * FROM mail WHERE from_agent = ? AND status = 'refused' AND read_at IS NULL ORDER BY created_at ASC, rowid ASC",
     ).all(agent) as unknown as MailRow[];
   }
 
@@ -703,7 +703,7 @@ export class Store {
 
   queuedRequests(): MailRow[] {
     return this.db.prepare(
-      "SELECT * FROM mail WHERE kind = 'request' AND status = 'queued' ORDER BY created_at ASC",
+      "SELECT * FROM mail WHERE kind = 'request' AND status = 'queued' ORDER BY created_at ASC, rowid ASC",
     ).all() as unknown as MailRow[];
   }
 
@@ -740,7 +740,7 @@ export class Store {
   // --- Mail threads + mid-goal clarification ---
 
   mailThread(threadId: string): MailRow[] {
-    return this.db.prepare("SELECT * FROM mail WHERE thread_id = ? ORDER BY created_at ASC")
+    return this.db.prepare("SELECT * FROM mail WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC")
       .all(threadId) as unknown as MailRow[];
   }
 
@@ -791,7 +791,13 @@ export class Store {
       .all() as unknown as GoalRow[];
   }
 
+  private inTx = false;
+
   transaction<T>(fn: () => T): T {
+    // node:sqlite has no nested transactions/savepoints here — nesting would roll back the
+    // OUTER transaction from the inner catch and mask the real error. Fail loudly instead.
+    if (this.inTx) throw new Error("Store.transaction(): nesting not supported — compose one outer transaction");
+    this.inTx = true;
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const out = fn();
@@ -800,6 +806,8 @@ export class Store {
     } catch (err) {
       this.db.exec("ROLLBACK");
       throw err;
+    } finally {
+      this.inTx = false;
     }
   }
 
