@@ -333,7 +333,10 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   // mail is excluded from the brief, so it is also left unread (not silently consumed here).
   if (anchor === "morning") {
     const briefed = data.briefedMailIds ?? [];
-    if (briefed.length) deps.store.markMailRead(briefed);
+    if (briefed.length) {
+      deps.store.markMailRead(briefed);
+      deps.bus.emit({ type: "mail.read", ids: briefed });
+    }
   }
 
   if (deps.primary) {

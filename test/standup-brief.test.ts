@@ -72,6 +72,35 @@ describe("brief standups + mailroom", () => {
     expect(store.getMail("late")!.status).toBe("unread");  // NOT briefed → must resurface tomorrow
   });
 
+  it("morning brief emits mail.read for briefed mail (clears hermes badge); none when nothing briefed", async () => {
+    const store = new Store(":memory:");
+    hermesMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
+    hermesMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
+    const priv = new Set(["midas"]);
+    const bus = new EventBus(store);
+    const mailRead: string[][] = [];
+    bus.on((e) => { if (e.event.type === "mail.read") mailRead.push(e.event.ids); });
+    const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-mailread-")), "AIOS");
+    vault.init();
+    await runBrief({
+      store, bus, vault, narrate: async () => "n", send: async () => {},
+      primary: { channel: "cli", chatId: "local" }, privateAgents: priv,
+      nowFn: () => new Date(),
+    }, "morning");
+    expect(mailRead).toEqual([["pub"]]); // exactly the briefed (public) mail — private note excluded, not acked
+
+    // No briefed mail → no mail.read event fires.
+    const store2 = new Store(":memory:");
+    const bus2 = new EventBus(store2);
+    const mailRead2: string[][] = [];
+    bus2.on((e) => { if (e.event.type === "mail.read") mailRead2.push(e.event.ids); });
+    await runBrief({
+      store: store2, bus: bus2, vault, narrate: async () => "n", send: async () => {},
+      primary: { channel: "cli", chatId: "local" }, nowFn: () => new Date(),
+    }, "morning");
+    expect(mailRead2).toEqual([]);
+  });
+
   it("evening brief ignores hermes mail; empty morning stays empty", () => {
     const store = new Store(":memory:");
     hermesMail(store);

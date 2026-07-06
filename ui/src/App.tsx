@@ -37,7 +37,7 @@ export function App() {
     [events],
   );
   const { data: budget } = usePoll(() => api.budget(), [lastCostEvt]);
-  // Unread-mail badges (nav total + per-agent) refresh when mail.* events land.
+  // Unread-mail badges (nav total + per-agent) refresh when agent-mailbox events land (mail.sent/spawned/read).
   const lastMailEvt = useMemo(() => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id, [events]);
   const { data: unread } = usePoll(() => api.mailUnread(), [lastMailEvt]);
 
