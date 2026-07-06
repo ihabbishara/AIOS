@@ -42,7 +42,7 @@ function reqMail(over: Partial<MailRow> = {}): Omit<MailRow, "created_at" | "rea
   } as Omit<MailRow, "created_at" | "read_at">;
 }
 
-function harness(run: SpecialistRunFn, capUsd?: number, planner?: Planner) {
+function harness(run: SpecialistRunFn, capUsd?: number, planner?: Planner, opts?: { mailDisabled?: boolean }) {
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ms-vault-")), "AIOS");
   if (capUsd !== undefined) store.budgetAdd(new Date().toISOString().slice(0, 10), Math.round(capUsd * 100));
@@ -57,6 +57,7 @@ function harness(run: SpecialistRunFn, capUsd?: number, planner?: Planner) {
     prepareSandbox,
     primaryChat: PRIMARY,
     mailMaxDepth: 2,
+    mailDisabled: opts?.mailDisabled,
     planner,
   });
   return { store, vault, engine, onComplete, prepareSandbox };
@@ -320,5 +321,13 @@ describe("mail sweep", () => {
     expect(goals).toHaveLength(2); // buggy code re-spawns m2 from the stale snapshot → 3
     expect(goals.filter((g) => g.spawned_by_mail === "m1")).toHaveLength(1);
     expect(goals.filter((g) => g.spawned_by_mail === "m2")).toHaveLength(1);
+  });
+
+  it("AIOS_MAIL_DISABLED idles the sweep — queued requests never spawn (M5)", () => {
+    const { store, engine } = harness(okRun, undefined, undefined, { mailDisabled: true });
+    store.insertMail(reqMail({ id: "m1" }));
+    engine.pump();
+    expect(store.getMail("m1")!.status).toBe("queued"); // untouched, drains when re-enabled
+    expect(store.listGoals(10)).toHaveLength(0);
   });
 });

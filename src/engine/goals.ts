@@ -243,6 +243,8 @@ export interface GoalEngineDeps extends Omit<NodeRunDeps, "resolvePack"> {
   replanCap?: number;
   /** Chain-depth cap for mail-spawned goals (AIOS_MAIL_MAX_DEPTH). */
   mailMaxDepth: number;
+  /** AIOS_MAIL_DISABLED — when true the sweep idles: queued mail stays queued (spec §11). */
+  mailDisabled?: boolean;
   primaryChat?: { channel: string; chatId: string };
   projectsRoot?: string;
   workspaceRoot?: string;
@@ -414,6 +416,7 @@ export class GoalEngine {
 
   /** Convert queued request mail into single-node goals (spec §4). FIFO; fail-soft per item. */
   private sweepMail(): void {
+    if (this.deps.mailDisabled) return; // kill-switch: nothing spawns; queue drains on re-enable
     for (const m of this.deps.store.queuedRequests()) {
       // startGoal for a mail goal runs synchronously into pump() → sweepMail() re-enters and
       // may have already processed later items of THIS stale snapshot. Re-check the live row.

@@ -238,6 +238,7 @@ async function main(): Promise<void> {
     wallTimeMs: config.jobWallTimeMs,
     maxConcurrentNodes: config.maxConcurrentNodes,
     mailMaxDepth: config.mailMaxDepth,
+    mailDisabled: config.mailDisabled,
     model: config.specialistModel,
     spendGuard,
     onComplete: onGoalComplete,

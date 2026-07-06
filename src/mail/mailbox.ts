@@ -101,6 +101,7 @@ export class Mailbox {
    *  run actually succeeds; a run that crashes after injection never commits, so the mail
    *  re-surfaces on the next run (durable delivery — no lost notes on crash). */
   peekInbound(canonical: string): { block: string; ids: string[] } {
+    if (this.deps.disabled) return { block: "", ids: [] }; // kill-switch: no injection
     const inbound = this.deps.store.unreadMailFor(canonical);
     const refusals = this.deps.store.refusedMailFrom(canonical);
     const picked = [...inbound, ...refusals].slice(0, INJECT_CAP);

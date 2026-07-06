@@ -219,4 +219,15 @@ describe("Mailbox.peekInbound + markDelivered", () => {
     expect(store.getMail("n1")!.status).toBe("read");
     expect(store.unreadMailFor("vulcan")).toEqual([]);
   });
+
+  it("disabled mailbox injects nothing (M5)", () => {
+    const { store, mb } = harness({ disabled: true });
+    store.insertMail({
+      id: "n1", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "heads up",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    const { block, ids } = mb.peekInbound("vulcan");
+    expect(block).toBe("");
+    expect(ids).toEqual([]);
+  });
 });
