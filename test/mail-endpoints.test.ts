@@ -273,6 +273,9 @@ describe("GET /api/mail limit clamping", () => {
       const junk = await (await fetch(`${base}/api/mail?limit=abc`, { headers: auth })).json();
       expect(junk.length).toBe(3); // default 50 applied, not NaN-crash / 500
 
+      const zero = await (await fetch(`${base}/api/mail?limit=0`, { headers: auth })).json();
+      expect(zero.length).toBe(3); // 0 (and ?limit= empty, Number("")===0) → default, not 1
+
       const neg = await (await fetch(`${base}/api/mail?limit=-1`, { headers: auth })).json();
       expect(neg.length).toBe(1); // clamped to 1, NOT a full-table dump
     } finally {

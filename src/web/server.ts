@@ -104,7 +104,8 @@ async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer
   return Buffer.concat(chunks);
 }
 
-/** Clamp a `?limit=` query param: junk (NaN) / 0 → default, negative → 1, huge → 200. */
+/** Clamp a `?limit=` query param: junk (NaN) / 0 → default, negative → 1, huge → 200.
+ *  (0 includes ?limit= empty — Number("")===0 — default, not 1.) */
 const clampLimit = (raw: string | null, dflt: number): number =>
   Math.min(Math.max(1, Number(raw) || dflt), 200);
 
