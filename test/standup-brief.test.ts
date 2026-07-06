@@ -53,6 +53,25 @@ describe("brief standups + mailroom", () => {
     expect(store.getMail("priv")!.status).toBe("unread"); // never surfaced, never silently dropped
   });
 
+  it("mail arriving during narration is NOT marked read by the brief (M2)", async () => {
+    const store = new Store(":memory:");
+    hermesMail(store, { id: "early", from: "athena", kind: "report", body: "Done: early thing" });
+    const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-race-")), "AIOS");
+    vault.init();
+    await runBrief({
+      store, bus: new EventBus(store), vault,
+      narrate: async () => {
+        // Simulates a report landing mid-narration (the race window).
+        hermesMail(store, { id: "late", from: "vulcan", kind: "report", body: "Done: late thing" });
+        return "n";
+      },
+      send: async () => {}, primary: { channel: "cli", chatId: "local" },
+      nowFn: () => new Date(),
+    }, "morning");
+    expect(store.getMail("early")!.status).toBe("read");   // briefed → acked
+    expect(store.getMail("late")!.status).toBe("unread");  // NOT briefed → must resurface tomorrow
+  });
+
   it("evening brief ignores hermes mail; empty morning stays empty", () => {
     const store = new Store(":memory:");
     hermesMail(store);

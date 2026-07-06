@@ -31,6 +31,8 @@ export interface BriefData {
   standups?: Array<{ lead: string; text: string }>;
   /** Hermes's other unread mail (reports/notes), one line each — morning brief only. */
   hermesMail?: Array<{ from: string; kind: string; line: string }>;
+  /** Ids of the hermes mail consumed by THIS brief — runBrief marks exactly these read. */
+  briefedMailIds?: string[];
 }
 
 const TWELVE_H = 12 * 60 * 60 * 1000;
@@ -170,6 +172,7 @@ export function assembleBrief(
 
   let standups: BriefData["standups"];
   let hermesMail: BriefData["hermesMail"];
+  let briefedMailIds: BriefData["briefedMailIds"];
   if (anchor === "morning") {
     // Drop private-dept senders before anything reaches the vaulted/indexed brief.
     const unread = store.unreadMailFor("hermes").filter((m) => !privateAgents.has(m.from_agent));
@@ -179,6 +182,7 @@ export function assembleBrief(
     const other = unread.filter((m) => m.kind !== "standup")
       .map((m) => ({ from: m.from_agent, kind: m.kind, line: (m.body.split("\n")[0] ?? "").slice(0, 120) }));
     if (other.length) hermesMail = other;
+    if (unread.length) briefedMailIds = unread.map((m) => m.id);
   }
 
   return {
@@ -206,6 +210,7 @@ export function assembleBrief(
     openLoops,
     standups,
     hermesMail,
+    briefedMailIds,
   };
 }
 
@@ -327,7 +332,7 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   // Hermes's inbox is read via the morning brief — briefed mail is acknowledged. Private-dept
   // mail is excluded from the brief, so it is also left unread (not silently consumed here).
   if (anchor === "morning") {
-    const briefed = deps.store.unreadMailFor("hermes").filter((m) => !privateAgents.has(m.from_agent)).map((m) => m.id);
+    const briefed = data.briefedMailIds ?? [];
     if (briefed.length) deps.store.markMailRead(briefed);
   }
 
