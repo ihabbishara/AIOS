@@ -542,7 +542,7 @@ export class GoalEngine {
   answerFromChat(text: string): string | null {
     const m = /^@([\w-]+)\s+([\s\S]+)$/.exec(text.trim());
     if (!m) return null;
-    const agent = this.deps.registry.agentOf.get(m[1]);
+    const agent = this.deps.registry.agentOf.get(m[1].toLowerCase());
     if (!agent) return null;
     const pending = this.deps.store.pendingUserAsksFrom(agent);
     if (!pending.length) return null;

@@ -403,7 +403,7 @@ describe("answerUserMail", () => {
     expect(engine.answerFromChat("hello no mention")).toBeNull();
     expect(engine.answerFromChat("@athena but athena asked nothing")).toBeNull();
     expect(engine.answerFromChat("@ghost not an agent")).toBeNull();
-    const reply = engine.answerFromChat("@vulcan Vendor B.");
+    const reply = engine.answerFromChat("@Vulcan Vendor B."); // mixed-case mention, canonical key is lowercase
     expect(reply).toContain("Answer sent to vulcan");
     expect(store.getGoal("gask")!.status).toBe("running");
     expect(engine.answerFromChat("@vulcan again")).toBeNull(); // nothing pending anymore → normal routing
