@@ -188,3 +188,7 @@ Following the existing `mail-store` / `mail-sweep` / `goal-scheduler` split:
   stamps `in_reply_to` + `thread_id`.
 - `src/web/goals-view.ts` (or a `mail-view.ts`) + route — thread builder + endpoint.
 - `test/{mail-store,mail-sweep,goal-scheduler,goal-store}.test.ts` — coverage above.
+
+## Addendum (2026-07-06, user-approved)
+- M3: a sibling node failure that transitions a parked goal also clears `awaiting_mail` (no dangling pointer / permanent ask-block). The goal still fails or re-plans; the late answer remains dropped-but-visible in the thread.
+- M4: the "no extra resume columns" lock is relaxed by exactly one nullable column — `mail.from_node` (the asking node, stamped from the baked ctx) — so `resume_<n>` joins the DAG: it depends on the asking node, carries its brief, and the asking node's dependents are repointed onto it. Legacy rows (NULL) keep the detached shape.

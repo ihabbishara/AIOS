@@ -80,7 +80,6 @@ export async function runStandups(deps: StandupDeps): Promise<number> {
     try {
       const res = await deps.run(lead, PROMPT + standupDigest(deps.store, deps.registry, dept, since), {
         cwd: process.cwd(),
-        mailCtx: { origin: { channel: "system", chatId: "standup" }, goalDepth: 0 },
       });
       const id = randomUUID();
       deps.store.insertMail({

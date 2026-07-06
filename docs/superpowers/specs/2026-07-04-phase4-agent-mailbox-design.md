@@ -140,7 +140,10 @@ Scheduling, wall-time, pause/resume/abandon, restart recovery, vault artifacts
   agent's system prompt containing (a) unread mail addressed TO the agent (`note/report/standup`,
   status `unread`) and (b) the agent's OWN refused requests not yet acknowledged ("your request to
   X was refused: <error>"). Cap 5 total, each body truncated at 500 chars, oldest first; `read_at`
-  stamped at injection (doubles as refusal acknowledgment). `request` rows never inject —
+  is stamped when the CONSUMING run succeeds (`peekInbound` peeks without marking; `markDelivered`
+  commits) — durable delivery: a run that crashes after injection never commits, so the mail
+  re-surfaces. Refusal acknowledgment clears on the sender's next successful run. (Ratified
+  2026-07-06 — deliberate improvement over the original at-injection wording.) `request` rows never inject —
   their delivery IS the spawned goal's brief. No polling tool in v1.
 - **Hermes's inbox:** the morning brief (not the session) is hermes's read path — see §6.
 

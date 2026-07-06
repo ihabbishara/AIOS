@@ -7,7 +7,7 @@ import { Store } from "../src/store/db.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import { activeDepartments, standupDigest, runStandups } from "../src/heartbeat/standup.js";
-import type { SpecialistRunFn } from "../src/agents/runner.js";
+import type { SpecialistRunFn, RunOptions } from "../src/agents/runner.js";
 
 function fixtureRegistry() {
   const root = mkdtempSync(join(tmpdir(), "su-"));
@@ -123,6 +123,19 @@ describe("runStandups", () => {
     const m = store.unreadMailFor("hermes")[0];
     expect(m).toMatchObject({ kind: "standup", from_agent: "athena" });
     expect(m.body).toContain("blockers: none");
+  });
+
+  it("standup one-shot does not drain the lead's inbox (no mailCtx)", async () => {
+    const store = new Store(":memory:");
+    goalRow(store);
+    let captured: RunOptions | undefined;
+    const run: SpecialistRunFn = async (_role, _brief, opts) => {
+      captured = opts;
+      return { text: "done: X / today: Y / blockers: none", costUsd: 0.01, numTurns: 1 };
+    };
+    await runStandups({ store, registry, run, spendGuard: new SpendGuard({ store }) });
+    expect(captured).toBeDefined();
+    expect(captured!.mailCtx).toBeUndefined();
   });
 
   it("SpendGuard at cap skips; lead failure is contained", async () => {
