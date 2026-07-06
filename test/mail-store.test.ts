@@ -1,5 +1,8 @@
 // test/mail-store.test.ts
 import { describe, it, expect } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Store, type MailRow } from "../src/store/db.js";
 import { defaultVerdict, Triage } from "../src/heartbeat/triage.js";
 import { EventBus } from "../src/events.js";
@@ -93,6 +96,20 @@ describe("mail store", () => {
     expect(s.getMail("rep")!.in_reply_to).toBe("root");
     expect(s.mailThread("root").map((m) => m.id)).toEqual(["root", "rep"]);
     expect(s.mailAnsweringRequest("root")!.id).toBe("rep");
+  });
+
+  it("migration backfills thread_id = id for legacy rows (reopen)", () => {
+    const f = join(mkdtempSync(join(tmpdir(), "mst-mig-")), "t.db");
+    const s1 = new Store(f);
+    s1.insertMail({
+      id: "legacy", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "old",
+      goal_id: null, origin_channel: "t", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    // Simulate a pre-thread_id row (insert-time defaulting can't produce this).
+    (s1 as unknown as { db: import("node:sqlite").DatabaseSync }).db
+      .prepare("UPDATE mail SET thread_id = NULL WHERE id = 'legacy'").run();
+    const s2 = new Store(f); // reopen → constructor re-runs migration + backfill
+    expect(s2.getMail("legacy")!.thread_id).toBe("legacy");
   });
 
   it("parks a goal on a mail and finds/clears it", () => {
