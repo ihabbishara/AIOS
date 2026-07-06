@@ -4,7 +4,7 @@ import { resumableTurn } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer } from "./attachment-server.js";
-import { buildMailServer, MAIL_TOOL } from "../mail/server.js";
+import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox } from "../mail/mailbox.js";
 import { buildCloudflareServer } from "../senses/cloudflare/server.js";
 import { HALALO_EXPORTS_DIR } from "./guards/halalo-readonly.js";
@@ -94,7 +94,7 @@ export class DirectChats {
       if (this.deps.mailbox) {
         const mailCtx = { from: canonical, origin: { channel, chatId }, goalDepth: 0 };
         mailServers["aios-mail"] = buildMailServer(this.deps.mailbox, mailCtx);
-        options = { ...options, allowedTools: [...new Set([...(options.allowedTools ?? []), MAIL_TOOL])] };
+        options = { ...options, allowedTools: [...new Set([...(options.allowedTools ?? []), MAIL_TOOL, ASK_TOOL])] };
         const peek = this.deps.mailbox.peekInbound(canonical);
         mailBlock = peek.block;
         deliveredIds = peek.ids; // committed on turn success via onSuccess below (crash re-surfaces)

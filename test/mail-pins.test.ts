@@ -9,6 +9,7 @@ describe("mail invariant pins", () => {
     const handoff = readFileSync("src/moderator/handoff.ts", "utf8");
     expect(runner).toContain("withMailOptions(merged");           // node runs + hand_off runs
     expect(direct).toContain("buildMailServer(this.deps.mailbox"); // @mention turns
+    expect(direct).toContain("MAIL_TOOL, ASK_TOOL");               // @mention widens ask parity too (matches runner)
     expect(handoff).toContain("mailCtx: { origin, goalDepth: 0 }"); // hand_off threads ctx
   });
 
