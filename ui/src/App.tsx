@@ -16,6 +16,9 @@ import { Packs } from "./views/Packs.js";
 const TABS = ["org", "chat", "routing", "goals", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
+// Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
+const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read"]);
+
 export function App() {
   const [tab, setTab] = useState<Tab>("org");
   const [chatTarget, setChatTarget] = useState("hermes");
@@ -35,7 +38,7 @@ export function App() {
   );
   const { data: budget } = usePoll(() => api.budget(), [lastCostEvt]);
   // Unread-mail badges (nav total + per-agent) refresh when mail.* events land.
-  const lastMailEvt = useMemo(() => events.filter((e) => e.event.type.startsWith("mail.")).at(-1)?.id, [events]);
+  const lastMailEvt = useMemo(() => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id, [events]);
   const { data: unread } = usePoll(() => api.mailUnread(), [lastMailEvt]);
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;

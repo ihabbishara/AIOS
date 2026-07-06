@@ -161,6 +161,7 @@ describe("mail triage defaults", () => {
     });
     await triage.handle({ type: "mail.sent", id: "m", from: "a", to: "b", kind: "report" });
     await triage.handle({ type: "mail.spawned", mailId: "m", goalId: "g" });
+    await triage.handle({ type: "mail.read", ids: ["x"] });
     expect(notified).toEqual([]); // hard guard returns before the rule is consulted
   });
 });

@@ -117,6 +117,8 @@ export class Mailbox {
   /** Commit delivery — stamp read_at (unread→read; refused keeps its status, read_at = ack).
    *  Idempotent and empty-safe; call only from a successful run's completion path. */
   markDelivered(ids: string[]): void {
-    if (ids.length) this.deps.store.markMailRead(ids);
+    if (!ids.length) return;
+    this.deps.store.markMailRead(ids);
+    this.deps.onEvent?.({ type: "mail.read", ids });
   }
 }

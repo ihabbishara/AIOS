@@ -23,7 +23,8 @@ export type AiosEvent =
   | { type: "goal.status"; goalId: string; status: string; error?: string }
   | { type: "node.status"; goalId: string; nodeKey: string; status: string; agent: string; error?: string }
   | { type: "mail.sent"; id: string; from: string; to: string; kind: string }
-  | { type: "mail.spawned"; mailId: string; goalId: string };
+  | { type: "mail.spawned"; mailId: string; goalId: string }
+  | { type: "mail.read"; ids: string[] };
 
 export interface StoredEvent {
   id: number;

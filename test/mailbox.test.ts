@@ -208,6 +208,20 @@ describe("Mailbox.peekInbound + markDelivered", () => {
     expect(() => mb.markDelivered([])).not.toThrow();
   });
 
+  it("markDelivered emits mail.read with the committed ids; empty is silent (M6)", () => {
+    const { store, mb, events } = harness();
+    store.insertMail({
+      id: "n1", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "heads up",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    const { ids } = mb.peekInbound("vulcan");
+    mb.markDelivered(ids);
+    expect(events).toContainEqual({ type: "mail.read", ids });
+    events.length = 0;
+    mb.markDelivered([]);
+    expect(events).toEqual([]);
+  });
+
   it("markDelivered is idempotent — a double commit of the same ids is harmless", () => {
     const { store, mb } = harness();
     store.insertMail({

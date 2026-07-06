@@ -5,6 +5,9 @@ import { usePoll } from "../hooks.js";
 
 const DEPT_ORDER = ["operations", "engineering", "research", "finance", "life", "clients"];
 
+// Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
+const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read"]);
+
 const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   idle: "bg-panel-2 border border-line",
   working: "bg-amber live-dot",
@@ -203,7 +206,7 @@ function MailSection({ name, events, onOpenGoal }: {
   name: string; events: StoredEvent[]; onOpenGoal: (slug: string, nodeKey: string | null) => void;
 }) {
   const lastMailEvt = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("mail.")).at(-1)?.id,
+    () => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id,
     [events],
   );
   const { data: mail } = usePoll(() => api.mail(name), [name, lastMailEvt]);
