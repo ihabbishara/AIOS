@@ -415,6 +415,9 @@ export class GoalEngine {
   /** Convert queued request mail into single-node goals (spec §4). FIFO; fail-soft per item. */
   private sweepMail(): void {
     for (const m of this.deps.store.queuedRequests()) {
+      // startGoal for a mail goal runs synchronously into pump() → sweepMail() re-enters and
+      // may have already processed later items of THIS stale snapshot. Re-check the live row.
+      if (this.deps.store.getMail(m.id)?.status !== "queued") continue;
       if (m.chain_depth > this.deps.mailMaxDepth) {
         const reason = `downgraded: chain too deep (cap ${this.deps.mailMaxDepth})`;
         this.deps.store.downgradeMailToNote(m.id, reason);

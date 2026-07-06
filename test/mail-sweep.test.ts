@@ -279,4 +279,17 @@ describe("mail sweep", () => {
     await vi.waitFor(() => expect(store.getGoal(store.getMail("m1")!.goal_id!)!.status).toBe("done"));
     expect(replans).toBe(1);
   });
+
+  it("two queued single-node requests swept together spawn exactly one goal each (H1)", () => {
+    const { store, engine } = harness(okRun);
+    store.insertMail(reqMail({ id: "m1", body: "task one" }));
+    store.insertMail(reqMail({ id: "m2", body: "task two" }));
+
+    engine.pump(); // single pass sweeps both; spawn is synchronous
+
+    const goals = store.listGoals(10);
+    expect(goals).toHaveLength(2); // buggy code re-spawns m2 from the stale snapshot → 3
+    expect(goals.filter((g) => g.spawned_by_mail === "m1")).toHaveLength(1);
+    expect(goals.filter((g) => g.spawned_by_mail === "m2")).toHaveLength(1);
+  });
 });
