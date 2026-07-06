@@ -797,8 +797,8 @@ export class Store {
     // node:sqlite has no nested transactions/savepoints here — nesting would roll back the
     // OUTER transaction from the inner catch and mask the real error. Fail loudly instead.
     if (this.inTx) throw new Error("Store.transaction(): nesting not supported — compose one outer transaction");
-    this.inTx = true;
     this.db.exec("BEGIN IMMEDIATE");
+    this.inTx = true;
     try {
       const out = fn();
       this.db.exec("COMMIT");

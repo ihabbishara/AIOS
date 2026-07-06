@@ -493,6 +493,45 @@ describe("M4 — resume node DAG wiring", () => {
     expect(JSON.parse(writeup.depends_on)).toEqual(["resume_1"]);   // answer flows downstream
   });
 
+  it("boot reconcile takes the identical from_node DAG-wiring path (crash-then-resume)", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    store.insertGoal({
+      id: "gdag2", slug: "gdag2", title: "G", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("gdag2", [
+      { node_key: "research", type: "run", agent: "vulcan", critic: null, brief: "find vendor options", depends_on: [], max_rounds: 1 },
+      { node_key: "writeup", type: "run", agent: "athena", critic: null, brief: "write the summary", depends_on: ["research"], max_rounds: 1 },
+    ]);
+    // research asked mid-run, then the daemon crashed before the answer landed.
+    store.updateNodeStatus("gdag2", "research", "done");
+    store.insertMail({
+      id: "qd2", from_agent: "vulcan", to_agent: "user", kind: "request", body: "vendor A or B?",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "awaiting-human", error: null, thread_id: "qd2", from_node: "research",
+    });
+    store.parkGoalAwaiting("gdag2", "qd2");
+    // Answer arrived while down: report row inserted directly (not via answerUserMail).
+    store.insertMail({
+      id: "rd2", from_agent: "user", to_agent: "vulcan", kind: "report", body: "Vendor B.",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "unread", error: null, thread_id: "qd2", in_reply_to: "qd2",
+    });
+
+    engine.resumeUnfinished(); // boot-reconcile drives resumeFromAnswer, not a live answer
+
+    expect(store.getGoal("gdag2")!.status).toBe("running");
+    const nodes = store.listNodes("gdag2");
+    const resume = nodes.find((n) => n.node_key === "resume_1")!;
+    expect(JSON.parse(resume.depends_on)).toEqual(["research"]);    // same ancestor wiring
+    expect(resume.brief).toContain("find vendor options");           // asking brief carried
+    expect(resume.brief).toContain("Vendor B.");                     // answer carried
+    const writeup = nodes.find((n) => n.node_key === "writeup")!;
+    expect(JSON.parse(writeup.depends_on)).toEqual(["resume_1"]);    // dependents repointed
+  });
+
   it("legacy request without from_node resumes exactly as before", () => {
     const hangRun: SpecialistRunFn = () => new Promise(() => {});
     const { store, engine } = harness(hangRun);
