@@ -115,6 +115,7 @@ describe("Mailbox.ask", () => {
     expect(out).toContain("pause");
     const m = store.queuedRequests()[0];
     expect(m).toMatchObject({ from_agent: "athena", to_agent: "vulcan", kind: "request", chain_depth: 1 });
+    expect(store.getMail(m.id)!.from_node).toBe("task"); // ctx.nodeKey, baked — non-spoofable
     expect(store.getGoal("g1")).toMatchObject({ status: "awaiting-mail", awaiting_mail: m.id });
     expect(events).toContainEqual({ type: "goal.status", goalId: "g1", status: "awaiting-mail" });
     expect(queuedCount()).toBe(1);
@@ -182,6 +183,7 @@ describe("ask_mail → user", () => {
       const m = store.pendingUserAsks()[0];
       expect(m.to_agent).toBe("user");
       expect(m.status).toBe("awaiting-human");
+      expect(store.getMail(m.id)!.from_node).toBe("ask"); // ctx.nodeKey, baked — non-spoofable
       expect(m.chain_depth).toBe(2);            // goalDepth+1
       expect(m.thread_id).toBe(m.id);            // fresh thread (goal not mail-spawned)
       expect(store.getGoal("g1")!.status).toBe("awaiting-mail");

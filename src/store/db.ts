@@ -54,6 +54,9 @@ export interface MailRow {
   thread_id?: string;
   /** The request id this report/reply answers; null for fresh requests/notes. */
   in_reply_to?: string | null;
+  /** node_key of the asking node when this request came from ask_mail (nullable; drives
+   *  M4 resume wiring). Stamped from the baked MailSendCtx.nodeKey — never model-supplied. */
+  from_node?: string | null;
 }
 
 export interface TaskNodeRow {
@@ -275,6 +278,8 @@ export class Store {
     // Migration (mail-threads): conversation id + reply pointer on existing mail rows.
     try { this.db.exec("ALTER TABLE mail ADD COLUMN thread_id TEXT"); } catch { /* exists */ }
     try { this.db.exec("ALTER TABLE mail ADD COLUMN in_reply_to TEXT"); } catch { /* exists */ }
+    // Migration (M4a): the asking node's key on ask_mail requests (NULL for legacy/no-node).
+    try { this.db.exec("ALTER TABLE mail ADD COLUMN from_node TEXT"); } catch { /* exists */ }
     // Backfill: pre-thread mail each becomes its own singleton thread.
     this.db.exec("UPDATE mail SET thread_id = id WHERE thread_id IS NULL");
     // Migration (mail-clarification): the request a parked goal is blocked on.
@@ -638,10 +643,10 @@ export class Store {
   insertMail(m: Omit<MailRow, "created_at" | "read_at">): void {
     this.db.prepare(
       `INSERT INTO mail (id, from_agent, to_agent, kind, body, goal_id, origin_channel, origin_chat_id,
-                         chain_depth, status, error, thread_id, in_reply_to, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         chain_depth, status, error, thread_id, in_reply_to, from_node, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(m.id, m.from_agent, m.to_agent, m.kind, m.body, m.goal_id, m.origin_channel, m.origin_chat_id,
-          m.chain_depth, m.status, m.error, m.thread_id ?? m.id, m.in_reply_to ?? null, new Date().toISOString());
+          m.chain_depth, m.status, m.error, m.thread_id ?? m.id, m.in_reply_to ?? null, m.from_node ?? null, new Date().toISOString());
   }
 
   getMail(id: string): MailRow | undefined {

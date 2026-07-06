@@ -91,6 +91,7 @@ export class Mailbox {
           // sweeper, and asking the owner terminates a chain (the human doesn't fan out).
           chain_depth: ctx.goalDepth + 1, status: "awaiting-human", error: null,
           thread_id: parentThread ?? id, in_reply_to: null,
+          from_node: ctx.nodeKey ?? null,
         });
         this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
         if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
@@ -116,6 +117,7 @@ export class Mailbox {
         goal_id: null, origin_channel: ctx.origin.channel, origin_chat_id: ctx.origin.chatId,
         chain_depth: ctx.goalDepth + 1, status: "queued", error: null,
         thread_id: parentThread ?? id, in_reply_to: null,
+        from_node: ctx.nodeKey ?? null,
       });
       this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
       // The asking node did its job (it asked) — mark it done inside the same tx so a later

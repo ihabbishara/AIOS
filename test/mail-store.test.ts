@@ -112,6 +112,24 @@ describe("mail store", () => {
     expect(s2.getMail("legacy")!.thread_id).toBe("legacy");
   });
 
+  it("from_node column: persisted on insert, NULL for legacy rows after reopen", () => {
+    const f = join(mkdtempSync(join(tmpdir(), "mst-fn-")), "t.db");
+    const s1 = new Store(f);
+    s1.insertMail({
+      id: "m1", from_agent: "athena", to_agent: "vulcan", kind: "request", body: "b",
+      goal_id: null, origin_channel: "t", origin_chat_id: "1", chain_depth: 1,
+      status: "queued", error: null, from_node: "step2",
+    });
+    s1.insertMail({
+      id: "m2", from_agent: "athena", to_agent: "vulcan", kind: "note", body: "b",
+      goal_id: null, origin_channel: "t", origin_chat_id: "1", chain_depth: 1,
+      status: "unread", error: null, // from_node omitted → NULL
+    });
+    const s2 = new Store(f); // reopen — migration idempotent
+    expect(s2.getMail("m1")!.from_node).toBe("step2");
+    expect(s2.getMail("m2")!.from_node).toBeNull();
+  });
+
   it("parks a goal on a mail and finds/clears it", () => {
     const s = new Store(":memory:");
     s.insertGoal({
