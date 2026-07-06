@@ -449,3 +449,60 @@ describe("M3 — sibling failure on a parked goal", () => {
     expect(h.store.getGoal("gpar")!.awaiting_mail).toBeNull();
   });
 });
+
+describe("M4 — resume node DAG wiring", () => {
+  it("resume node depends on the asking node, dependents are repointed, brief carries the asking brief", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    store.insertGoal({
+      id: "gdag", slug: "gdag", title: "G", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("gdag", [
+      { node_key: "research", type: "run", agent: "vulcan", critic: null, brief: "find vendor options", depends_on: [], max_rounds: 1 },
+      { node_key: "writeup", type: "run", agent: "athena", critic: null, brief: "write the summary", depends_on: ["research"], max_rounds: 1 },
+    ]);
+    // research asked mid-run (ask_mail semantics: node done, goal parked, from_node stamped)
+    store.updateNodeStatus("gdag", "research", "done");
+    store.insertMail({
+      id: "qd", from_agent: "vulcan", to_agent: "user", kind: "request", body: "vendor A or B?",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "awaiting-human", error: null, thread_id: "qd", from_node: "research",
+    });
+    store.parkGoalAwaiting("gdag", "qd");
+
+    expect(engine.answerUserMail("qd", "Vendor B.")).toEqual({ ok: true });
+
+    const nodes = store.listNodes("gdag");
+    const resume = nodes.find((n) => n.node_key === "resume_1")!;
+    expect(JSON.parse(resume.depends_on)).toEqual(["research"]);   // inherits ancestor artifacts
+    expect(resume.brief).toContain("find vendor options");          // asking brief carried
+    expect(resume.brief).toContain("Vendor B.");
+    const writeup = nodes.find((n) => n.node_key === "writeup")!;
+    expect(JSON.parse(writeup.depends_on)).toEqual(["resume_1"]);   // answer flows downstream
+  });
+
+  it("legacy request without from_node resumes exactly as before", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    store.insertGoal({
+      id: "gold", slug: "gold", title: "G", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("gold", [
+      { node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
+    ]);
+    store.updateNodeStatus("gold", "ask", "done");
+    store.insertMail({
+      id: "ql", from_agent: "vulcan", to_agent: "user", kind: "request", body: "q?",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "awaiting-human", error: null, thread_id: "ql", // from_node omitted → NULL
+    });
+    store.parkGoalAwaiting("gold", "ql");
+    expect(engine.answerUserMail("ql", "A.")).toEqual({ ok: true });
+    const resume = store.listNodes("gold").find((n) => n.node_key === "resume_1")!;
+    expect(JSON.parse(resume.depends_on)).toEqual([]);              // legacy fallback unchanged
+  });
+});

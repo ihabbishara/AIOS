@@ -598,6 +598,12 @@ export class Store {
     this.db.prepare(sql).run(...args);
   }
 
+  /** Rewrite one node's dependency list (M4 resume re-wiring). */
+  updateNodeDeps(goalId: string, nodeKey: string, deps: string[]): void {
+    this.db.prepare("UPDATE task_nodes SET depends_on = ? WHERE goal_id = ? AND node_key = ?")
+      .run(JSON.stringify(deps), goalId, nodeKey);
+  }
+
   addNodeCost(goalId: string, key: string, cents: number): void {
     this.db.prepare("UPDATE task_nodes SET cost_cents = cost_cents + ? WHERE goal_id = ? AND node_key = ?")
       .run(cents, goalId, key);

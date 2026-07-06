@@ -556,14 +556,30 @@ export class GoalEngine {
     if (!g) return;
     const req = this.deps.store.getMail(requestId);
     if (!req) return;
-    const n = this.deps.store.listNodes(g.id).filter((x) => x.node_key.startsWith("resume_")).length + 1;
+    const nodes = this.deps.store.listNodes(g.id);
+    const n = nodes.filter((x) => x.node_key.startsWith("resume_")).length + 1;
     const key = `resume_${n}`;
-    const brief = `Earlier you asked ${req.to_agent}: "${req.body}"\n\nThey answered:\n${answerBody}\n\n` +
+    // M4: when the request records its asking node, the continuation joins the DAG there —
+    // it inherits the asking node's brief + artifacts, and the asking node's dependents are
+    // repointed so the answer actually flows downstream. Legacy rows (from_node NULL) keep
+    // the old detached shape.
+    const asking = req.from_node ? nodes.find((x) => x.node_key === req.from_node) : undefined;
+    const brief = (asking ? `${asking.brief}\n\n---\n\n` : "") +
+      `Earlier you asked ${req.to_agent}: "${req.body}"\n\nThey answered:\n${answerBody}\n\n` +
       `Continue and complete the task with this answer.`;
     this.deps.store.transaction(() => {
       this.deps.store.insertNodes(g.id, [{
-        node_key: key, type: "run", agent: req.from_agent, critic: null, brief, depends_on: [], max_rounds: 1,
+        node_key: key, type: "run", agent: req.from_agent, critic: null, brief,
+        depends_on: asking ? [asking.node_key] : [], max_rounds: 1,
       }]);
+      if (asking) {
+        for (const d of nodes) {
+          const deps = JSON.parse(d.depends_on) as string[];
+          if (deps.includes(asking.node_key) && !["done", "failed", "skipped"].includes(d.status)) {
+            this.deps.store.updateNodeDeps(g.id, d.node_key, deps.map((k) => (k === asking.node_key ? key : k)));
+          }
+        }
+      }
       this.deps.store.clearAwaiting(g.id);
       this.deps.store.updateGoalStatus(g.id, "running");
     });
