@@ -249,6 +249,35 @@ describe("mail sweep", () => {
     expect(resume.brief).toContain("Refused: planning failed: boom");
   });
 
+  it("abandoning a mail-spawned goal reports back and resumes the asker (M1)", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {}); // node never finishes
+    const { store, engine } = harness(hangRun);
+    // Asker parked on m1 (same setup as the H2 test).
+    store.insertGoal({
+      id: "gask", slug: "asker2", title: "Asker", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("gask", [{ node_key: "ask", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+    store.updateNodeStatus("gask", "ask", "done");
+    store.parkGoalAwaiting("gask", "m1");
+    store.insertMail(reqMail({ id: "m1", from_agent: "athena", to_agent: "vulcan" }));
+
+    engine.pump(); // spawns vulcan's goal, node hangs
+    const spawned = store.listGoals(10).find((g) => g.spawned_by_mail === "m1")!;
+    expect(spawned).toBeDefined();
+
+    engine.abandonGoal(spawned.id);
+
+    const report = store.mailAnsweringRequest("m1")!;
+    expect(report).toBeDefined();
+    expect(report.kind).toBe("report");
+    expect(report.body).toContain("abandoned");
+    const gask = store.getGoal("gask")!;
+    expect(gask.status).toBe("running"); // resumed with the bad news
+    expect(store.listNodes("gask").some((n) => n.node_key === "resume_1")).toBe(true);
+  });
+
   it("a lead-mail graph is re-plannable (spawned_by_mail does not block re-plan)", async () => {
     let replans = 0;
     const store2Ref: { store?: Store } = {};

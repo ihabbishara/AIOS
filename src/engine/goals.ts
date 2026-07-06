@@ -627,6 +627,12 @@ export class GoalEngine {
     if (["done", "failed", "abandoned"].includes(g.status)) return `Goal ${g.slug} is already ${g.status}.`;
     this.setGoalStatus(g.id, "abandoned");
     this.deps.store.skipUnfinishedNodes(g.id);
+    // A mail-spawned goal must still answer its request — otherwise the request stays
+    // 'spawned' forever and a parked asker never resumes (boot reconcile has no branch for it).
+    if (g.spawned_by_mail) {
+      const files = this.deps.store.listNodes(g.id).filter((n) => n.artifact).map((n) => n.artifact!);
+      this.mailReport(this.deps.store.getGoal(g.id)!, false, "abandoned by user", files);
+    }
     return `Goal ${g.slug} abandoned; unfinished nodes skipped.`;
   }
 
