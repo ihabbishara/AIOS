@@ -515,6 +515,27 @@ export class GoalEngine {
     this.resumeFromAnswer(src.id, body);
   }
 
+  /** Owner answers a pending user-ask (Mission Control POST or chat intercept): insert the
+   *  answering report, then resume the parked asker via the shared path. Double-submit safe —
+   *  answered-ness is derived from mailAnsweringRequest, the request's status never changes. */
+  answerUserMail(mailId: string, text: string): { ok: true } | { ok: false; reason: string } {
+    const m = this.deps.store.getMail(mailId);
+    if (!m || m.kind !== "request" || m.to_agent !== "user" || m.status !== "awaiting-human")
+      return { ok: false, reason: "not a pending question" };
+    if (this.deps.store.mailAnsweringRequest(m.id)) return { ok: false, reason: "already answered" };
+    if (!text.trim()) return { ok: false, reason: "empty answer" };
+    const id = randomUUID();
+    this.deps.store.insertMail({
+      id, from_agent: "user", to_agent: m.from_agent, kind: "report", body: text,
+      goal_id: null, origin_channel: m.origin_channel, origin_chat_id: m.origin_chat_id,
+      chain_depth: m.chain_depth, status: "unread", error: null,
+      thread_id: m.thread_id ?? m.id, in_reply_to: m.id,
+    });
+    this.emit({ type: "mail.sent", id, from: "user", to: m.from_agent, kind: "report" });
+    this.resumeFromAnswer(m.id, text);
+    return { ok: true };
+  }
+
   /** Un-park a goal waiting on `requestId` by adding a continuation node carrying the answer.
    *  Idempotent: a no-op when no goal is parked on that request (already resumed / never parked). */
   private resumeFromAnswer(requestId: string, answerBody: string): void {

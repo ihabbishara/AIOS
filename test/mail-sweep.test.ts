@@ -331,3 +331,68 @@ describe("mail sweep", () => {
     expect(store.listGoals(10)).toHaveLength(0);
   });
 });
+
+describe("answerUserMail", () => {
+  function parkedOnUserAsk(store: Store) {
+    store.insertGoal({
+      id: "gask", slug: "ask-user", title: "Asker", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("gask", [{ node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+    store.updateNodeStatus("gask", "ask", "done");
+    store.insertMail({
+      id: "u1", from_agent: "vulcan", to_agent: "user", kind: "request", body: "which vendor?",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "awaiting-human", error: null, thread_id: "u1",
+    });
+    store.parkGoalAwaiting("gask", "u1");
+  }
+
+  it("answers a pending user-ask: report inserted, goal resumed with Q+A", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    parkedOnUserAsk(store);
+    const res = engine.answerUserMail("u1", "Vendor B, cap $200.");
+    expect(res).toEqual({ ok: true });
+    const report = store.mailAnsweringRequest("u1")!;
+    expect(report.from_agent).toBe("user");
+    expect(report.to_agent).toBe("vulcan");
+    expect(report.thread_id).toBe("u1");
+    const gask = store.getGoal("gask")!;
+    expect(gask.status).toBe("running");
+    expect(gask.awaiting_mail).toBeNull();
+    const resume = store.listNodes("gask").find((n) => n.node_key === "resume_1")!;
+    expect(resume.agent).toBe("vulcan");
+    expect(resume.brief).toContain("which vendor?");
+    expect(resume.brief).toContain("Vendor B, cap $200.");
+  });
+
+  it("boot reconcile: answered user-ask resumes, unanswered stays parked", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    parkedOnUserAsk(store); // gask awaiting u1, unanswered
+    engine.resumeUnfinished();
+    expect(store.getGoal("gask")!.status).toBe("awaiting-mail"); // indefinite park is correct
+    store.insertMail({
+      id: "r-boot", from_agent: "user", to_agent: "vulcan", kind: "report", body: "answered pre-crash",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "unread", error: null, thread_id: "u1", in_reply_to: "u1",
+    });
+    engine.resumeUnfinished();
+    expect(store.getGoal("gask")!.status).toBe("running");
+    expect(store.listNodes("gask").some((n) => n.node_key === "resume_1")).toBe(true);
+  });
+
+  it("rejects double-answer, unknown id, non-user request, empty text", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    parkedOnUserAsk(store);
+    expect(engine.answerUserMail("u1", "A.")).toEqual({ ok: true });
+    expect(engine.answerUserMail("u1", "again")).toEqual({ ok: false, reason: "already answered" });
+    expect(engine.answerUserMail("nope", "x").ok).toBe(false);
+    expect(engine.answerUserMail("u1", "  ").ok).toBe(false);
+    store.insertMail(reqMail({ id: "m-agent" })); // ordinary agent-addressed request
+    expect(engine.answerUserMail("m-agent", "x")).toEqual({ ok: false, reason: "not a pending question" });
+  });
+});
