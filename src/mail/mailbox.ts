@@ -24,6 +24,12 @@ export interface MailSendCtx {
   nodeKey?: string;
 }
 
+/** Reserved human target — NOT a registry entry. A registry agent named/aliased one of
+ *  these would be shadowed here (the user branch is checked first); don't name agents these. */
+export const USER = "user";
+const USER_ALIASES = new Set([USER, "you", "me", "owner", "principal"]);
+export const isUserTarget = (to: string): boolean => USER_ALIASES.has(to.trim().toLowerCase());
+
 const INJECT_CAP = 5;
 const BODY_TRUNCATE = 500;
 const clip = (s: string) => (s.length <= BODY_TRUNCATE ? s : `${s.slice(0, BODY_TRUNCATE)}…`);
@@ -70,6 +76,30 @@ export class Mailbox {
   ask(ctx: MailSendCtx, args: { to: string; question: string }): string {
     if (this.deps.disabled) return "Refused: the mailbox is disabled (AIOS_MAIL_DISABLED).";
     if (!ctx.goalId) return "Refused: ask_mail only works inside a goal (use send_mail for fire-and-forget).";
+    if (isUserTarget(args.to)) {
+      const goal = this.deps.store.getGoal(ctx.goalId);
+      if (goal?.awaiting_mail) return `Refused: you already have a pending question (mail ${goal.awaiting_mail}).`;
+      // No private-visibility wall: the owner is always reachable (spec §6).
+      const parentThread = goal?.spawned_by_mail
+        ? this.deps.store.getMail(goal.spawned_by_mail)?.thread_id : undefined;
+      const id = randomUUID();
+      this.deps.store.transaction(() => {
+        this.deps.store.insertMail({
+          id, from_agent: ctx.from, to_agent: USER, kind: "request", body: args.question,
+          goal_id: null, origin_channel: ctx.origin.channel, origin_chat_id: ctx.origin.chatId,
+          // ponytail: depth-cap exempt by construction — awaiting-human never enters the
+          // sweeper, and asking the owner terminates a chain (the human doesn't fan out).
+          chain_depth: ctx.goalDepth + 1, status: "awaiting-human", error: null,
+          thread_id: parentThread ?? id, in_reply_to: null,
+        });
+        this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
+        if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
+      });
+      this.deps.onEvent?.({ type: "mail.asked_user", id, from: ctx.from, question: args.question, goalId: ctx.goalId });
+      // NO onQueued — nothing to sweep/spawn.
+      return `Question sent to you — your task pauses and resumes automatically when you answer ` +
+        `(Mission Control, or reply @${ctx.from} in chat).`;
+    }
     const r = this.resolveRecipient(ctx, args.to, "ask");
     if ("refusal" in r) return r.refusal;
     const { canonical } = r;

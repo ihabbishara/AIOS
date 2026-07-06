@@ -81,7 +81,8 @@ export class Triage {
     // Own outputs + internal machinery are never triageable — not even via user rules. A rule
     // matching "triage.*"/"mail.*" would otherwise re-emit synchronously and storm the bus.
     if (event.type === "triage.decision" || event.type === "brief.sent" ||
-        event.type === "mail.sent" || event.type === "mail.spawned" || event.type === "mail.read") return;
+        event.type === "mail.sent" || event.type === "mail.spawned" || event.type === "mail.read" ||
+        event.type === "mail.asked_user") return;
     try {
       let verdict: TriageVerdict | undefined;
       let via: "rule" | "default" | "model";

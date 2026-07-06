@@ -160,6 +160,86 @@ describe("Mailbox.ask", () => {
   });
 });
 
+describe("ask_mail → user", () => {
+  // helper: a running goal g1 with one node "ask" (mirror the file's existing ask-test setup)
+  function goalFixture(store: Store) {
+    store.insertGoal({
+      id: "g1", slug: "g1", title: "T", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("g1", [{ node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+  }
+
+  it("each user alias parks the goal with an awaiting-human request", () => {
+    for (const alias of ["user", "you", "me", "owner", "principal", "You "]) {
+      const { store, mb } = harness();
+      goalFixture(store);
+      const out = mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 1, goalId: "g1", nodeKey: "ask" },
+        { to: alias, question: "which vendor?" });
+      expect(out).toContain("Question sent to you");
+      const m = store.pendingUserAsks()[0];
+      expect(m.to_agent).toBe("user");
+      expect(m.status).toBe("awaiting-human");
+      expect(m.chain_depth).toBe(2);            // goalDepth+1
+      expect(m.thread_id).toBe(m.id);            // fresh thread (goal not mail-spawned)
+      expect(store.getGoal("g1")!.status).toBe("awaiting-mail");
+      expect(store.getGoal("g1")!.awaiting_mail).toBe(m.id);
+      expect(store.listNodes("g1").find((n) => n.node_key === "ask")!.status).toBe("done");
+    }
+  });
+
+  it("user-ask emits mail.asked_user and does NOT call onQueued", () => {
+    const { store, mb, events, queuedCount } = harness();
+    goalFixture(store);
+    mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 0, goalId: "g1", nodeKey: "ask" },
+      { to: "you", question: "q?" });
+    expect(events.some((e) => e.type === "mail.asked_user" && e.from === "vulcan" && e.goalId === "g1")).toBe(true);
+    expect(queuedCount()).toBe(0);
+  });
+
+  it("a private agent CAN ask the user from any origin (no wall on the owner)", () => {
+    const { store, mb } = harness();
+    goalFixture(store);
+    const out = mb.ask({ from: "midas", origin: { channel: "web", chatId: "ui" }, goalDepth: 0, goalId: "g1", nodeKey: "ask" },
+      { to: "user", question: "budget?" });
+    expect(out).toContain("Question sent to you");
+    expect(store.pendingUserAsks()).toHaveLength(1);
+  });
+
+  it("user-ask refuses outside a goal, when disabled, and when already parked", () => {
+    const { mb: disabled } = harness({ disabled: true });
+    expect(disabled.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 0, goalId: "g1" }, { to: "user", question: "q" }))
+      .toContain("disabled");
+    const { store, mb } = harness();
+    goalFixture(store);
+    expect(mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 0 }, { to: "user", question: "q" }))
+      .toContain("only works inside a goal");
+    mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 0, goalId: "g1", nodeKey: "ask" }, { to: "user", question: "q1" });
+    expect(mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 0, goalId: "g1" }, { to: "user", question: "q2" }))
+      .toContain("already have a pending question");
+  });
+
+  it("user-ask inside a mail-spawned goal continues the incoming thread", () => {
+    const { store, mb } = harness();
+    store.insertMail({
+      id: "m0", from_agent: "athena", to_agent: "vulcan", kind: "request", body: "b",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
+      status: "spawned", error: null, thread_id: "t-root",
+    });
+    store.insertGoal({
+      id: "g2", slug: "g2", title: "T", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "mail:m0", replans_used: 0, chain_depth: 1, error: null,
+      spawned_by_mail: "m0",
+    });
+    store.insertNodes("g2", [{ node_key: "task", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+    mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 1, goalId: "g2", nodeKey: "task" },
+      { to: "user", question: "q?" });
+    expect(store.pendingUserAsks()[0].thread_id).toBe("t-root");
+  });
+});
+
 describe("Mailbox.peekInbound + markDelivered", () => {
   it("renders unread inbound + own refusals, truncates, caps at 5; peek alone does NOT mark read", () => {
     const { store, mb } = harness();
