@@ -125,6 +125,7 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
   const [selectedNode, setSelectedNode] = useState<string | null>(initialNode);
   const [msg, setMsg] = useState<string | null>(null);
   const [armAbandon, setArmAbandon] = useState(false);
+  const [answer, setAnswer] = useState("");
 
   if (error) {
     return (
@@ -144,6 +145,16 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
     api.goalAction(goal.id, verb)
       .then((r) => { setMsg(r.message); reload(); })
       .catch((e) => setMsg((e as Error).message));
+  };
+
+  const sendAnswer = () => {
+    const ask = goal.awaitingUserAsk;
+    if (!ask || !answer.trim()) return;
+    const text = answer;
+    setAnswer(""); // clear optimistically
+    api.answerMail(ask.mailId, text)
+      .then(() => reload())
+      .catch((e) => { setMsg((e as Error).message); setAnswer(text); });
   };
 
   const canPause = goal.status === "running" || goal.status === "replanning";
@@ -175,6 +186,28 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
           className="text-[11px] text-cyan underline decoration-dotted cursor-pointer hover:text-bright w-fit"
         >
           ← spawned by mail from {goal.spawnedBy.from}
+        </div>
+      )}
+      {goal.awaitingUserAsk && (
+        <div className="hud hud-cyan p-3">
+          <div className="text-[10px] uppercase tracking-widest text-cyan">🙋 {goal.awaitingUserAsk.from} is asking</div>
+          <div className="text-[12px] text-bright mt-1 whitespace-pre-wrap">{goal.awaitingUserAsk.question}</div>
+          <div className="flex gap-2 mt-2">
+            <input
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && answer.trim()) sendAnswer(); }}
+              placeholder="your answer…"
+              className="flex-1 bg-void border border-cyan/40 px-2 py-1 text-[12px] text-bright outline-none focus:border-cyan"
+            />
+            <button
+              disabled={!answer.trim()}
+              onClick={sendAnswer}
+              className="text-[11px] text-cyan border border-cyan px-3 hover:bg-cyan hover:text-void transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan"
+            >
+              send
+            </button>
+          </div>
         </div>
       )}
       <div className="text-[11px] text-dim">{goal.planSummary}</div>

@@ -17,7 +17,7 @@ const TABS = ["org", "chat", "routing", "goals", "approvals", "trust", "permissi
 type Tab = (typeof TABS)[number];
 
 // Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
-const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read"]);
+const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read", "mail.asked_user"]);
 
 export function App() {
   const [tab, setTab] = useState<Tab>("org");
@@ -89,6 +89,9 @@ export function App() {
               {t}
               {t === "org" && unread && unread.total > 0 && (
                 <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.total}</span>
+              )}
+              {t === "goals" && unread && unread.pendingUser > 0 && (
+                <span className="ml-2 text-[9px] text-void bg-cyan px-1.5 rounded-full tracking-normal align-middle">🙋 {unread.pendingUser}</span>
               )}
             </button>
           ))}

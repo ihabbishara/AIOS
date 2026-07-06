@@ -6,7 +6,7 @@ import { usePoll } from "../hooks.js";
 const DEPT_ORDER = ["operations", "engineering", "research", "finance", "life", "clients"];
 
 // Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
-const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read"]);
+const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read", "mail.asked_user"]);
 
 const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   idle: "bg-panel-2 border border-line",
