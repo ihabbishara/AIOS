@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -112,7 +112,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
   writeFileSync(envPath, lines.join("\n").replace(/\n*$/, "\n"));
 }
 
-export function startWebServer(deps: WebDeps, port: number): void {
+export function startWebServer(deps: WebDeps, port: number): Server {
   const { store, bus, goals, vault, config, router, gate, voice, registry, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
@@ -446,6 +446,14 @@ export function startWebServer(deps: WebDeps, port: number): void {
           return json(res, 200, buildMailThread(store, threadMatch[1]));
         }
 
+        const answerMatch = /^\/api\/mail\/([\w-]+)\/answer$/.exec(path);
+        if (answerMatch && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { text?: string };
+          if (!body.text?.trim()) return json(res, 400, { error: "text required" });
+          const result = goals.answerUserMail(answerMatch[1], body.text);
+          return result.ok ? json(res, 200, { resumed: true }) : json(res, 409, { error: result.reason });
+        }
+
         if (path === "/api/permissions" && req.method === "GET") {
           return json(res, 200, buildPermissionsView(store, bus, registry));
         }
@@ -497,4 +505,5 @@ export function startWebServer(deps: WebDeps, port: number): void {
   });
 
   server.listen(port, "127.0.0.1", () => log(`mission control: http://localhost:${port}`));
+  return server;
 }

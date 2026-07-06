@@ -53,7 +53,13 @@ export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: stri
         return m ? { mailId: m.id, from: m.from_agent } : null;
       })()
     : null;
-  return { ...goalView(g, store), artifacts, spawnedBy };
+  const askMail = g.awaiting_mail ? store.getMail(g.awaiting_mail) : undefined;
+  const awaitingUserAsk =
+    askMail && askMail.to_agent === "user" && askMail.status === "awaiting-human" &&
+    !store.mailAnsweringRequest(askMail.id)
+      ? { mailId: askMail.id, question: askMail.body, from: askMail.from_agent }
+      : null;
+  return { ...goalView(g, store), artifacts, spawnedBy, awaitingUserAsk };
 }
 
 export interface MailView {
@@ -77,11 +83,11 @@ export function buildMailThread(store: Store, threadId: string): MailView[] {
   }));
 }
 
-/** Unread inbound mail per agent + grand total — feeds the org nav badge and per-card badges. */
-export function buildMailUnread(store: Store): { total: number; byAgent: Record<string, number> } {
+/** Unread inbound mail per agent + grand total + questions waiting on the human. */
+export function buildMailUnread(store: Store): { total: number; byAgent: Record<string, number>; pendingUser: number } {
   const byAgent = store.unreadCountsByAgent();
   const total = Object.values(byAgent).reduce((s, n) => s + n, 0);
-  return { total, byAgent };
+  return { total, byAgent, pendingUser: store.pendingUserAsks().length };
 }
 
 export function buildBudgetView(guard: SpendGuard, todayFn?: () => string) {
