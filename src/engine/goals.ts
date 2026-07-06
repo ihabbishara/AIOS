@@ -460,7 +460,11 @@ export class GoalEngine {
       this.deps.store.markMailSpawned(m.id, goal.id);
       this.emit({ type: "mail.spawned", mailId: m.id, goalId: goal.id });
     } catch (err) {
-      this.deps.store.refuseMail(m.id, `planning failed: ${(err as Error).message}`);
+      const reason = `planning failed: ${(err as Error).message}`;
+      this.deps.store.refuseMail(m.id, reason);
+      // The ONLY refusal path that previously skipped this — an asker parked on this
+      // request would otherwise stay awaiting-mail until the next daemon restart.
+      this.resumeFromAnswer(m.id, `Refused: ${reason}`);
       this.pump();
     }
   }

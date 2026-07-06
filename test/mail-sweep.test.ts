@@ -216,6 +216,39 @@ describe("mail sweep", () => {
     expect(store.getMail("m2")!.status).toBe("spawned");
   });
 
+  it("planner failure on a lead request resumes the parked asker (H2)", async () => {
+    const failingPlanner = {
+      planFromMail: async () => { throw new Error("boom"); },
+    } as unknown as Planner;
+    // The resume the fix adds re-pumps the asker, which launches its resume node. Hold that node
+    // in-flight (never settles) so the un-parked "running" state is observable — otherwise the
+    // hand-inserted goal (no goal_dir/pack) would race straight to "failed" before we assert.
+    const heldRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(heldRun, undefined, failingPlanner);
+    // Asker goal, parked awaiting m1 (mirrors Mailbox.ask's post-state).
+    store.insertGoal({
+      id: "gask", slug: "asker", title: "Asker", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
+      plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    store.insertNodes("gask", [{ node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+    store.updateNodeStatus("gask", "ask", "done");
+    store.parkGoalAwaiting("gask", "m1");
+    // Request to the LEAD (graph path).
+    store.insertMail(reqMail({ id: "m1", from_agent: "vulcan", to_agent: "athena" }));
+
+    engine.pump();
+    // spawnGraphFromMail is async (void-called) — wait for the catch to land.
+    await vi.waitFor(() => expect(store.getMail("m1")!.status).toBe("refused"));
+
+    const gask = store.getGoal("gask")!;
+    expect(gask.status).toBe("running");           // un-parked
+    expect(gask.awaiting_mail).toBeNull();
+    const resume = store.listNodes("gask").find((n) => n.node_key === "resume_1")!;
+    expect(resume).toBeDefined();
+    expect(resume.brief).toContain("Refused: planning failed: boom");
+  });
+
   it("a lead-mail graph is re-plannable (spawned_by_mail does not block re-plan)", async () => {
     let replans = 0;
     const store2Ref: { store?: Store } = {};
