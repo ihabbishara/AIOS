@@ -468,8 +468,7 @@ export class GoalEngine {
     } catch (err) {
       const reason = `planning failed: ${(err as Error).message}`;
       this.deps.store.refuseMail(m.id, reason);
-      // The ONLY refusal path that previously skipped this — an asker parked on this
-      // request would otherwise stay awaiting-mail until the next daemon restart.
+      // Planner-failure refusals must resume the waiter, like every other refusal path.
       this.resumeFromAnswer(m.id, `Refused: ${reason}`);
       this.pump();
     }
@@ -594,6 +593,11 @@ export class GoalEngine {
   }
 
   private async onNodeFailure(goal: GoalRow, node: TaskNodeRow, err: Error): Promise<void> {
+    // A sibling failure transitioning a parked goal must not leave its ask pointer dangling —
+    // that would block every future ask on this goal and turn the late answer into a silent
+    // no-op. The goal still fails/replans (a genuinely-failing sibling must fail the goal —
+    // locked decision); the late answer stays visible in the thread (accepted tradeoff).
+    if (goal.awaiting_mail) this.deps.store.clearAwaiting(goal.id);
     if (err instanceof SessionLimitError) {
       this.setGoalStatus(goal.id, "paused-user", err.message);
       return;

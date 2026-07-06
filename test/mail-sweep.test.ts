@@ -409,3 +409,43 @@ describe("answerUserMail", () => {
     expect(engine.answerFromChat("@vulcan again")).toBeNull(); // nothing pending anymore → normal routing
   });
 });
+
+describe("M3 — sibling failure on a parked goal", () => {
+  it("clears awaiting_mail when a sibling failure fails the parked goal", async () => {
+    let engineRef!: GoalEngine;
+    let storeRef!: Store;
+    const run: SpecialistRunFn = async (_r, brief) => {
+      if (brief.includes("PARKER")) {
+        // Simulate ask_mail's park (same store writes, same tx shape).
+        storeRef.transaction(() => {
+          storeRef.insertMail({
+            id: "q1", from_agent: "vulcan", to_agent: "athena", kind: "request", body: "q?",
+            goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+            chain_depth: 1, status: "queued", error: null, thread_id: "q1",
+          });
+          storeRef.parkGoalAwaiting("gpar", "q1");
+          storeRef.updateNodeStatus("gpar", "parker", "done");
+        });
+        return { text: "asked", costUsd: 0, numTurns: 1 };
+      }
+      // Sibling fails while the goal is (about to be) parked.
+      await new Promise((r) => setTimeout(r, 20));
+      throw new Error("sibling boom");
+    };
+    const h = harness(run);
+    engineRef = h.engine; storeRef = h.store;
+    h.store.insertGoal({
+      id: "gpar", slug: "gpar", title: "P", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
+      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    });
+    h.store.insertNodes("gpar", [
+      { node_key: "parker", type: "run", agent: "vulcan", critic: null, brief: "PARKER", depends_on: [], max_rounds: 1 },
+      { node_key: "sibling", type: "run", agent: "vulcan", critic: null, brief: "SIBLING", depends_on: [], max_rounds: 1 },
+    ]);
+    h.engine.pump();
+    await vi.waitFor(() => expect(h.store.getGoal("gpar")!.status).toBe("failed"));
+    // The pointer must NOT dangle: no permanent ask-block, late answer no-ops cleanly.
+    expect(h.store.getGoal("gpar")!.awaiting_mail).toBeNull();
+  });
+});
