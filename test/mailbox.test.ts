@@ -109,13 +109,14 @@ describe("Mailbox.ask", () => {
   }
 
   it("queues a request, parks the caller's goal, fires onQueued", () => {
-    const { store, mb, queuedCount } = harness();
+    const { store, mb, events, queuedCount } = harness();
     withGoal(store);
     const out = mb.ask(GCTX, { to: "vulcan", question: "which framework?" });
     expect(out).toContain("pause");
     const m = store.queuedRequests()[0];
     expect(m).toMatchObject({ from_agent: "athena", to_agent: "vulcan", kind: "request", chain_depth: 1 });
     expect(store.getGoal("g1")).toMatchObject({ status: "awaiting-mail", awaiting_mail: m.id });
+    expect(events).toContainEqual({ type: "goal.status", goalId: "g1", status: "awaiting-mail" });
     expect(queuedCount()).toBe(1);
   });
 
@@ -195,6 +196,7 @@ describe("ask_mail → user", () => {
     mb.ask({ from: "vulcan", origin: PRIMARY, goalDepth: 0, goalId: "g1", nodeKey: "ask" },
       { to: "you", question: "q?" });
     expect(events.some((e) => e.type === "mail.asked_user" && e.from === "vulcan" && e.goalId === "g1")).toBe(true);
+    expect(events).toContainEqual({ type: "goal.status", goalId: "g1", status: "awaiting-mail" });
     expect(queuedCount()).toBe(0);
   });
 

@@ -96,6 +96,7 @@ export class Mailbox {
         if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
       });
       this.deps.onEvent?.({ type: "mail.asked_user", id, from: ctx.from, question: args.question, goalId: ctx.goalId });
+      this.deps.onEvent?.({ type: "goal.status", goalId: ctx.goalId, status: "awaiting-mail" });
       // NO onQueued — nothing to sweep/spawn.
       return `Question sent to you — your task pauses and resumes automatically when you answer ` +
         `(Mission Control, or reply @${ctx.from} in chat).`;
@@ -122,6 +123,7 @@ export class Mailbox {
       if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
     });
     this.deps.onEvent?.({ type: "mail.sent", id, from: ctx.from, to: canonical, kind: "request" });
+    this.deps.onEvent?.({ type: "goal.status", goalId: ctx.goalId!, status: "awaiting-mail" });
     this.deps.onQueued?.();
     return `Question sent to ${canonical}. Your task will pause and resume automatically when they answer.`;
   }
