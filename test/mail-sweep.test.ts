@@ -395,4 +395,17 @@ describe("answerUserMail", () => {
     store.insertMail(reqMail({ id: "m-agent" })); // ordinary agent-addressed request
     expect(engine.answerUserMail("m-agent", "x")).toEqual({ ok: false, reason: "not a pending question" });
   });
+
+  it("answerFromChat: '@agent answer' answers the oldest pending ask; everything else passes through", () => {
+    const hangRun: SpecialistRunFn = () => new Promise(() => {});
+    const { store, engine } = harness(hangRun);
+    parkedOnUserAsk(store); // vulcan asked u1
+    expect(engine.answerFromChat("hello no mention")).toBeNull();
+    expect(engine.answerFromChat("@athena but athena asked nothing")).toBeNull();
+    expect(engine.answerFromChat("@ghost not an agent")).toBeNull();
+    const reply = engine.answerFromChat("@vulcan Vendor B.");
+    expect(reply).toContain("Answer sent to vulcan");
+    expect(store.getGoal("gask")!.status).toBe("running");
+    expect(engine.answerFromChat("@vulcan again")).toBeNull(); // nothing pending anymore → normal routing
+  });
 });

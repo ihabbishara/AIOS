@@ -536,6 +536,20 @@ export class GoalEngine {
     return { ok: true };
   }
 
+  /** Primary-chat "@agent <answer>" intercept core. Fires ONLY when that agent has a pending
+   *  user-ask (oldest wins); returns the confirmation reply, or null → normal routing.
+   *  Bare messages and unknown/idle @mentions are never intercepted. */
+  answerFromChat(text: string): string | null {
+    const m = /^@([\w-]+)\s+([\s\S]+)$/.exec(text.trim());
+    if (!m) return null;
+    const agent = this.deps.registry.agentOf.get(m[1]);
+    if (!agent) return null;
+    const pending = this.deps.store.pendingUserAsksFrom(agent);
+    if (!pending.length) return null;
+    const res = this.answerUserMail(pending[0].id, m[2]);
+    return res.ok ? `Answer sent to ${agent} — resuming.` : null; // lost race → fall through
+  }
+
   /** Un-park a goal waiting on `requestId` by adding a continuation node carrying the answer.
    *  Idempotent: a no-op when no goal is parked on that request (already resumed / never parked). */
   private resumeFromAnswer(requestId: string, answerBody: string): void {

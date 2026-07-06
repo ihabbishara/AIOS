@@ -315,6 +315,15 @@ async function main(): Promise<void> {
   const onMessage = async (msg: import("./channels/types.js").InboundMessage): Promise<void> => {
     log(`<- ${msg.channel}:${msg.chatId} ${msg.text.slice(0, 80)}`);
     try {
+      // Owner answering a pending agent question — primary chat only, BEFORE routing.
+      if (config.primaryChat && msg.channel === config.primaryChat.channel &&
+          msg.chatId === config.primaryChat.chatId) {
+        const answered = goals.answerFromChat(msg.text);
+        if (answered) {
+          await channels.get(msg.channel)?.send(msg.chatId, answered);
+          return;
+        }
+      }
       const result = await router.handle(msg);
       if (result !== null) {
         await deliverReply({ voice, log }, channels.get(msg.channel), msg, result.text);
@@ -419,6 +428,15 @@ async function main(): Promise<void> {
   const sendVia = async (channel: string, chatId: string, text: string): Promise<void> => {
     await channels.get(channel)?.send(chatId, text);
   };
+
+  // An agent asked the human a question — ping the owner's primary chat (transport-only,
+  // never vaulted/indexed; safe even for private-dept askers — it's the owner's own channel).
+  bus.on((e) => {
+    if (e.event.type !== "mail.asked_user" || !config.primaryChat) return;
+    void sendVia(config.primaryChat.channel, config.primaryChat.chatId,
+      `🙋 ${e.event.from} is asking:\n${e.event.question}\n\nAnswer in Mission Control, or reply here: @${e.event.from} <your answer>`,
+    ).catch((err) => log(`ask ping failed: ${(err as Error).message}`));
+  });
 
   const notify = async (e: import("./events.js").AiosEvent): Promise<void> => {
     if (e.type === "reminder.due") {
