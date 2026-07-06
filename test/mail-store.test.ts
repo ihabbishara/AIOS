@@ -182,3 +182,40 @@ describe("mail triage defaults", () => {
     expect(notified).toEqual([]); // hard guard returns before the rule is consulted
   });
 });
+
+describe("user-ask store layer", () => {
+  const userAsk = (store: Store, id: string, from = "vulcan") =>
+    store.insertMail({
+      id, from_agent: from, to_agent: "user", kind: "request", body: `q-${id}`,
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "awaiting-human", error: null,
+    });
+
+  it("awaiting-human requests never enter the sweeper's queue", () => {
+    const store = new Store(":memory:");
+    userAsk(store, "u1");
+    expect(store.queuedRequests()).toHaveLength(0);
+  });
+
+  it("pendingUserAsks lists unanswered user-asks oldest-first; answered ones drop out", () => {
+    const store = new Store(":memory:");
+    userAsk(store, "u1");
+    userAsk(store, "u2");
+    expect(store.pendingUserAsks().map((m) => m.id)).toEqual(["u1", "u2"]); // same-ms → rowid tiebreak
+    store.insertMail({
+      id: "r1", from_agent: "user", to_agent: "vulcan", kind: "report", body: "a",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
+      chain_depth: 1, status: "unread", error: null, in_reply_to: "u1",
+    });
+    expect(store.pendingUserAsks().map((m) => m.id)).toEqual(["u2"]); // derived, status untouched
+    expect(store.getMail("u1")!.status).toBe("awaiting-human");
+  });
+
+  it("pendingUserAsksFrom filters by asking agent", () => {
+    const store = new Store(":memory:");
+    userAsk(store, "u1", "vulcan");
+    userAsk(store, "u2", "athena");
+    expect(store.pendingUserAsksFrom("vulcan").map((m) => m.id)).toEqual(["u1"]);
+    expect(store.pendingUserAsksFrom("nobody")).toHaveLength(0);
+  });
+});

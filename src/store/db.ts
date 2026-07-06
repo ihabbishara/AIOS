@@ -34,7 +34,7 @@ export interface GoalRow {
 }
 
 export type MailKind = "request" | "note" | "report" | "standup";
-export type MailStatus = "queued" | "planning" | "spawned" | "refused" | "unread" | "read";
+export type MailStatus = "queued" | "planning" | "spawned" | "refused" | "unread" | "read" | "awaiting-human";
 export interface MailRow {
   id: string;
   from_agent: string;
@@ -737,6 +737,26 @@ export class Store {
   mailAnsweringRequest(requestId: string): MailRow | undefined {
     return this.db.prepare("SELECT * FROM mail WHERE in_reply_to = ? ORDER BY created_at DESC LIMIT 1")
       .get(requestId) as MailRow | undefined;
+  }
+
+  /** Unanswered questions addressed to the human, oldest first. Answered-ness is DERIVED
+   *  (a report carrying in_reply_to exists) — the request's own status never changes. */
+  pendingUserAsks(): MailRow[] {
+    return this.db.prepare(
+      "SELECT * FROM mail WHERE kind = 'request' AND to_agent = 'user' AND status = 'awaiting-human' " +
+      "AND id NOT IN (SELECT in_reply_to FROM mail WHERE in_reply_to IS NOT NULL) " +
+      "ORDER BY created_at ASC, rowid ASC",
+    ).all() as unknown as MailRow[];
+  }
+
+  /** Same, filtered to one asking agent (drives the chat @agent-answer intercept). */
+  pendingUserAsksFrom(agent: string): MailRow[] {
+    return this.db.prepare(
+      "SELECT * FROM mail WHERE kind = 'request' AND to_agent = 'user' AND status = 'awaiting-human' " +
+      "AND from_agent = ? " +
+      "AND id NOT IN (SELECT in_reply_to FROM mail WHERE in_reply_to IS NOT NULL) " +
+      "ORDER BY created_at ASC, rowid ASC",
+    ).all(agent) as unknown as MailRow[];
   }
 
   parkGoalAwaiting(goalId: string, mailId: string): void {
