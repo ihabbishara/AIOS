@@ -1,5 +1,5 @@
 // test/compose-cold-mail.test.ts
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -307,6 +307,21 @@ describe("cold mail end-to-end (sweep)", () => {
     indexMailThread(store, registry, m.thread_id ?? m.id);
     const hits = recall(store, "flaky nightly backup");
     expect(hits[0]?.source).toBe("mail");
+  });
+
+  it("user↔private-agent thread is never indexed — recall stays blind, no memory doc written", async () => {
+    const { store, mailbox, events } = engineHarness(okRun);
+    const r = mailbox.sendFromUser({ to: "midas", body: "confidential runway forecast question" });
+    expect(r.ok).toBe(true);
+    const id = (r as { ok: true; id: string }).id;
+    const sent = events.find((e) => e.type === "mail.sent" && e.from === "user");
+    expect(sent && sent.type === "mail.sent" ? sent.id : undefined).toBe(id);
+    const m = store.getMail(id)!;
+    const threadId = m.thread_id ?? m.id;
+    indexMailThread(store, registry, threadId);
+    const hits = recall(store, "confidential runway forecast question");
+    expect(hits).toHaveLength(0);
+    expect(store.memoryFingerprint("mail", `thread:${threadId}`)).toBeUndefined();
   });
 
   it("reply-in-thread spawns a second goal in the SAME thread", async () => {
