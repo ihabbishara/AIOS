@@ -27,6 +27,8 @@ function fixtureRegistry() {
     "department: finance\nmission: Money.\nlead: midas\nmemoDomain: money\nplaybooks: []\nprivateMemo: true\n");
   writeFileSync(join(fin, "midas.yaml"),
     "name: midas\ntitle: CFO\ndepartment: finance\ncharter: c.\npersona: p.\nprompt: x.\ntools: []\nvisibility: private\n");
+  writeFileSync(join(fin, "plutus.yaml"),
+    "name: plutus\ntitle: Analyst\ndepartment: finance\ncharter: c.\npersona: p.\nprompt: x.\ntools: []\n");
   // verdict critic in engineering for loop tests
   writeFileSync(join(eng, "minos-eng.yaml"), agent("minos-eng", "outputSchema: verdict\n"));
   return loadRegistry(agentsDir, join(root, "playbooks"));
@@ -60,9 +62,16 @@ describe("validateGraph", () => {
     expect(validateGraph(many, ctx()).ok).toBe(false);
   });
 
-  it("rejects foreign-department agents; aliases canonicalize", () => {
-    expect(validateGraph([run("a", [], "midas")], ctx()).ok).toBe(false);
+  it("accepts foreign-department agents (cross-dept graphs); aliases canonicalize", () => {
+    expect(validateGraph([run("a", [], "midas")], ctx()).ok).toBe(true); // private agent, primary origin
     expect(validateGraph([run("a", [], "developer")], ctx()).ok).toBe(true);
+  });
+
+  it("cross-dept: foreign shared agent OK from any origin; foreign private only from private origin", () => {
+    const shared = ctx({ origin: { channel: "telegram", chatId: "999" } });
+    expect(validateGraph([run("a", [], "plutus")], shared).ok).toBe(true);
+    expect(validateGraph([run("a", [], "midas")], shared).ok).toBe(false); // private wall holds
+    expect(validateGraph([run("a", [], "nobody")], shared).ok).toBe(false); // unknown still rejected
   });
 
   it("loop needs a verdict critic; verify needs a test-report runner + fixer", () => {

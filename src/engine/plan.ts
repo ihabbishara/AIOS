@@ -23,9 +23,8 @@ function agentCheck(name: string, role: "agent" | "critic", node: string, ctx: V
   const canonical = ctx.registry.agentOf.get(name);
   const def = canonical ? ctx.registry.agents.get(canonical) : undefined;
   if (!def) return `node ${node}: unknown ${role} "${name}"`;
-  if (def.department !== ctx.department) {
-    return `node ${node}: ${role} "${name}" is in ${def.department}, not ${ctx.department} (single-department goals)`;
-  }
+  // Cross-department graphs (spec 2026-07-07): any shared agent from any department may be
+  // planned in; the per-agent private-origin rule below is the only cross-dept gate.
   if (def.manifest.visibility === "private" &&
       !isPrivateOrigin(ctx.primaryChat, ctx.origin.channel, ctx.origin.chatId)) {
     return `node ${node}: ${role} "${name}" is private and this goal's origin is not the private chat`;
