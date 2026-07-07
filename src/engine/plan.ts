@@ -1,5 +1,5 @@
 // src/engine/plan.ts — graph validation (fail-closed) + lead planner (Task 7).
-import type { LoadedRegistry } from "../agents/registry/loader.js";
+import type { LoadedRegistry, AgentDef } from "../agents/registry/loader.js";
 import { isPrivateOrigin } from "../agents/direct.js";
 import { isUnder } from "../code/paths.js";
 import { toNewTaskNodes, type GraphNodeSpec } from "./compile.js";
@@ -139,19 +139,37 @@ interface RawPlan {
   nodes: Array<{ key: string; type: "run" | "loop" | "verify"; agent: string; critic?: string; brief: string; deps: string[]; maxRounds?: number }>;
 }
 
-function rosterBlock(registry: LoadedRegistry, department: string): string {
-  return [...registry.agents.values()]
-    .filter((a) => a.department === department)
-    .map((a) => {
-      const schema = a.manifest.outputSchema ? ` [outputSchema: ${a.manifest.outputSchema}]` : "";
-      return `- ${a.manifest.name} — ${a.manifest.title} — ${a.manifest.charter.trim().split(/(?<=\.)\s/)[0]}${schema}`;
-    })
-    .join("\n");
+const firstSentence = (s: string) => s.trim().split(/(?<=\.)\s/)[0];
+
+function agentLine(a: AgentDef): string {
+  const schema = a.manifest.outputSchema ? ` [outputSchema: ${a.manifest.outputSchema}]` : "";
+  return `- ${a.manifest.name} — ${a.manifest.title} — ${firstSentence(a.manifest.charter)}${schema}`;
+}
+
+/** Own department's full roster first, then foreign agents grouped under Borrowable headers.
+ *  Foreign private-visibility agents are listed only for private-chat origins — roster
+ *  filtering is UX; validateGraph remains the enforcement layer (fail-closed on races). */
+export function rosterBlock(
+  registry: LoadedRegistry, department: string,
+  origin: { channel: string; chatId: string }, primaryChat?: { channel: string; chatId: string },
+): string {
+  const all = [...registry.agents.values()];
+  const own = all.filter((a) => a.department === department).map(agentLine).join("\n");
+  const privateOk = isPrivateOrigin(primaryChat, origin.channel, origin.chatId);
+  const foreign: string[] = [];
+  for (const [name, d] of registry.departments) {
+    if (name === department) continue;
+    const members = all.filter((a) =>
+      a.department === name && (privateOk || a.manifest.visibility !== "private"));
+    if (!members.length) continue;
+    foreign.push(`## Borrowable — ${name} (${firstSentence(d.mission)})\n${members.map(agentLine).join("\n")}`);
+  }
+  return [own, ...foreign].join("\n\n");
 }
 
 function planningBrief(dept: string, title: string, request: string, roster: string, retryError?: string): string {
   return [
-    `You are the ${dept} department lead. Decompose the goal below into a task graph for YOUR department's agents.`,
+    `You are the ${dept} department lead. Decompose the goal below into a task graph.`,
     `# Goal: ${title}\n${request}`,
     `# Your agents\n${roster}`,
     `# Node types
@@ -161,6 +179,7 @@ function planningBrief(dept: string, title: string, request: string, roster: str
 # Rules
 - 1-12 nodes. Keys: lowercase-kebab. "deps" lists node keys that must finish first; independent nodes run in parallel.
 - Only agents from the roster above.
+- Prefer your own department's agents; borrow agents listed under other departments only when the task genuinely needs them.
 - Each brief must stand alone: the agent sees the goal request + prior artifacts of its deps, nothing else.
 - needsWorkspace: "worktree" (edit an existing repo safely) | "analyze" (read-only repo) | "greenfield" (new scratch dir) | "none". projectDir required for worktree/analyze.`,
     retryError ? `# Your previous plan was INVALID — fix this and return a corrected plan\n${retryError}` : "",
@@ -199,7 +218,7 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     const dept = deps.registry.departments.get(params.department);
     if (!dept?.lead) throw new Error(`unknown department or no lead: "${params.department}" — use hand_off or run_playbook instead`);
     const origin = { channel: params.channel, chatId: params.chatId };
-    const roster = rosterBlock(deps.registry, params.department);
+    const roster = rosterBlock(deps.registry, params.department, origin, deps.primaryChat);
     let raw: RawPlan | undefined;
     let error = "";
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -259,7 +278,7 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
         key: n.node_key, type: n.type, agent: n.agent, critic: n.critic ?? undefined,
         status: n.status, deps: JSON.parse(n.depends_on) as string[], error: n.error ?? undefined,
       }));
-      const roster = rosterBlock(deps.registry, goal.department);
+      const roster = rosterBlock(deps.registry, goal.department, origin, deps.primaryChat);
       const brief = [
         `You are the ${goal.department} lead. A node in your plan failed — patch the plan.`,
         `# Goal: ${goal.title}\n${goal.request}`,

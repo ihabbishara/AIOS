@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { validateGraph } from "../src/engine/plan.js";
+import { validateGraph, rosterBlock } from "../src/engine/plan.js";
 import type { GraphNodeSpec } from "../src/engine/compile.js";
 
 function fixtureRegistry() {
@@ -94,5 +94,25 @@ describe("validateGraph", () => {
     expect(validateGraph([run("a", [], "midas")], finGroup).ok).toBe(false);
     const noPrimary = ctx({ department: "finance", primaryChat: undefined });
     expect(validateGraph([run("a", [], "midas")], noPrimary).ok).toBe(false);
+  });
+});
+
+describe("rosterBlock (cross-dept)", () => {
+  it("own dept first; foreign shared under Borrowable; foreign private gated by origin", () => {
+    const shared = rosterBlock(registry, "engineering", { channel: "telegram", chatId: "999" }, PRIMARY);
+    expect(shared).toContain("athena");
+    expect(shared).toContain("## Borrowable — finance");
+    expect(shared).toContain("plutus");
+    expect(shared).not.toContain("midas"); // private, shared origin
+    expect(shared.indexOf("athena")).toBeLessThan(shared.indexOf("## Borrowable — finance"));
+
+    const priv = rosterBlock(registry, "engineering", { channel: "telegram", chatId: "1" }, PRIMARY);
+    expect(priv).toContain("midas"); // private chat origin unlocks private agents
+  });
+
+  it("departments with no eligible agents produce no Borrowable header", () => {
+    const fromFinance = rosterBlock(registry, "finance", { channel: "telegram", chatId: "999" }, PRIMARY);
+    expect(fromFinance).toContain("## Borrowable — engineering");
+    expect(fromFinance).toContain("vulcan");
   });
 });
