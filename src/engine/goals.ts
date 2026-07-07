@@ -12,6 +12,7 @@ import type { Playbook } from "./playbook.js";
 import { compilePlaybook, toNewTaskNodes } from "./compile.js";
 import type { Stage } from "./playbook.js";
 import { assertInplaceTarget, resolveReal } from "../code/paths.js";
+import { indexMailThread } from "../memory/indexer.js";
 import type { SpendGuard } from "./budget.js";
 
 /** All role names a stage references, across every stage shape. */
@@ -434,6 +435,7 @@ export class GoalEngine {
       if (!canonical || !def) {
         this.deps.store.refuseMail(m.id, `unknown recipient "${m.to_agent}"`);
         this.resumeFromAnswer(m.id, `Refused: unknown recipient "${m.to_agent}"`);
+        this.reindexMailThread(m);
         continue;
       }
       // Defense in depth: re-check the private wall against the stored provenance (send-time raced).
@@ -442,6 +444,7 @@ export class GoalEngine {
         const reason = `${canonical} is private — origin not the private chat`;
         this.deps.store.refuseMail(m.id, reason);
         this.resumeFromAnswer(m.id, `Refused: ${reason}`);
+        this.reindexMailThread(m);
         continue;
       }
       const dept = def.department;
@@ -471,8 +474,16 @@ export class GoalEngine {
       this.deps.store.refuseMail(m.id, reason);
       // Planner-failure refusals must resume the waiter, like every other refusal path.
       this.resumeFromAnswer(m.id, `Refused: ${reason}`);
+      this.reindexMailThread(m);
       this.pump();
     }
+  }
+
+  /** Re-index a mail thread after a sweep-time refusal flips a message's status.
+   *  Recall indexing is best-effort — it must never break the sweep. */
+  private reindexMailThread(m: MailRow): void {
+    try { indexMailThread(this.deps.store, this.deps.registry, m.thread_id ?? m.id); }
+    catch { /* best-effort */ }
   }
 
   private spawnFromMail(m: MailRow, canonical: string, department: string): GoalRow {

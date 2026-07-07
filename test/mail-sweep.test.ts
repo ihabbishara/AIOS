@@ -9,6 +9,7 @@ import { loadRegistry } from "../src/agents/registry/loader.js";
 import { GoalEngine, MAIL_PREFIX, type Planner } from "../src/engine/goals.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import { Mailbox } from "../src/mail/mailbox.js";
+import { indexMailThread } from "../src/memory/indexer.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
 
 function fixtureRegistry() {
@@ -585,5 +586,19 @@ describe("late-reject guard (engine × real Mailbox.ask)", () => {
     const fresh = store.getGoal("glate")!;
     expect(fresh.status).toBe("awaiting-mail");                                  // NOT failed
     expect(store.listNodes("glate").find((n) => n.node_key === "ask")!.status).toBe("done");
+  });
+});
+
+describe("sweep refusal recall re-index", () => {
+  it("sweep refusal re-indexes the thread (refused body drops out of recall)", async () => {
+    const { store, engine } = harness(okRun);
+    store.insertMail(reqMail({ id: "m1", to_agent: "nobody", body: "find the perf regression" }));
+    indexMailThread(store, registry, "m1"); // stands in for the live mail.sent listener
+    expect(store.memoryFingerprint("mail", "thread:m1")).toBe("1:m1");
+    engine.pump();
+    await flush();
+    expect(store.getMail("m1")!.status).toBe("refused");
+    // single-message thread, now all-refused → doc deleted by the refusal-site re-index
+    expect(store.memoryFingerprint("mail", "thread:m1")).toBeUndefined();
   });
 });

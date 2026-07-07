@@ -40,7 +40,7 @@ import { CalendarWatcher } from "./senses/google/calendar.js";
 import { emailExecutors } from "./senses/google/executors.js";
 import { BunqSense } from "./senses/bunq/index.js";
 import { BunqSync } from "./senses/bunq/sync.js";
-import { reconcile, reindexVault, indexEvent, indexDecision } from "./memory/indexer.js";
+import { reconcile, reindexVault, indexEvent, indexDecision, indexMailThread } from "./memory/indexer.js";
 import { distill, curateLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
@@ -101,6 +101,9 @@ async function main(): Promise<void> {
       if (e.event.type === "calendar.changed") indexEvent(store, e);
       else if (e.event.type === "action.executed" || e.event.type === "action.resolved") {
         indexDecision(store, e.event.actionId);
+      } else if (e.event.type === "mail.sent" || e.event.type === "mail.asked_user") {
+        const m = store.getMail(e.event.id);
+        if (m) indexMailThread(store, registry, m.thread_id ?? m.id);
       }
     } catch (err) {
       log(`memory index (write-time) failed: ${(err as Error).message}`);
