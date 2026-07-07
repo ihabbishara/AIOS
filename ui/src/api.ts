@@ -143,7 +143,7 @@ export interface MailView {
 }
 
 export interface UserThreadView {
-  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number;
+  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number; refused: number;
 }
 
 export interface BudgetInfo { date: string; spentCents: number; capCents: number | null }

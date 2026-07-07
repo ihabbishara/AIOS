@@ -21,7 +21,7 @@ export function Mail({ events }: { events: StoredEvent[] }) {
   return (
     <div className="flex gap-4 h-full min-h-0">
       <div className="w-72 shrink-0 flex flex-col gap-3 min-h-0">
-        <Compose agents={agents} onSent={reload} />
+        <Compose agents={agents} onSent={(id) => { reload(); if (id) setOpen(id); }} />
         <div className="label">Threads</div>
         <div className="flex-1 overflow-auto flex flex-col gap-1">
           {(mine?.threads ?? []).map((t) => (
@@ -32,7 +32,7 @@ export function Mail({ events }: { events: StoredEvent[] }) {
       </div>
       <div className="flex-1 min-w-0 overflow-auto">
         {open
-          ? <ThreadDetail threadId={open} lastMailEvt={lastMailEvt} onChanged={reload} />
+          ? <ThreadDetail key={open} threadId={open} lastMailEvt={lastMailEvt} onChanged={reload} />
           : <div className="text-dim text-[11px] pt-8 text-center">Select a thread — or compose cold mail to any agent.</div>}
       </div>
     </div>
@@ -49,6 +49,7 @@ function ThreadRow({ t, active, onOpen }: { t: UserThreadView; active: boolean; 
         <span className={t.unread > 0 ? "text-bright font-bold" : "text-fg"}>{t.lastFrom}</span>
         {t.unread > 0 && <span className="text-void bg-amber px-1 rounded-full text-[9px]">{t.unread}</span>}
         {t.pendingAsk > 0 && <span className="text-[10px]">🙋</span>}
+        {t.refused > 0 && <span className="text-alert text-[10px]" title="a request in this thread was refused">⚠</span>}
         <span className="ml-auto text-dim text-[10px]">{t.lastTs.slice(5, 16)}</span>
       </div>
       <div className="text-dim text-[11px] truncate">{t.lastBody}</div>
@@ -148,7 +149,7 @@ function ReplyBox({ threadId, inReplyTo, other, onSent }:
   );
 }
 
-function Compose({ agents, onSent }: { agents: Array<{ name: string; dept: string }>; onSent: () => void }) {
+function Compose({ agents, onSent }: { agents: Array<{ name: string; dept: string }>; onSent: (id?: string) => void }) {
   const [to, setTo] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -158,7 +159,10 @@ function Compose({ agents, onSent }: { agents: Array<{ name: string; dept: strin
     setBusy(true);
     setMsg(null);
     api.composeMail({ to, body })
-      .then((r) => { if (!r.ok) setMsg(r.refusal); else { setBody(""); setMsg("sent ✓"); onSent(); } })
+      .then((r) => {
+        if (!r.ok) setMsg(r.refusal);
+        else { setBody(""); setTo(""); setMsg("sent ✓"); onSent(r.id); }
+      })
       .catch((e) => setMsg((e as Error).message))
       .finally(() => setBusy(false));
   };
