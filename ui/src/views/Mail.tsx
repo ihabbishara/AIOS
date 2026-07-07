@@ -84,6 +84,7 @@ function ThreadDetail({ threadId, lastMailEvt, onChanged }:
           <div className="text-[11px] text-dim">
             <span className={m.from === "user" ? "text-cyan" : "text-amber"}>{m.from}</span>
             {" → "}{m.to} · {m.kind} · {m.createdAt.slice(0, 16)}
+            {m.status === "refused" && <span className="text-alert"> · refused{m.error ? `: ${m.error}` : ""}</span>}
           </div>
           <div className="text-[12px] whitespace-pre-wrap">{m.body}</div>
         </div>
