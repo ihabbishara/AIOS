@@ -29,6 +29,12 @@ function fixtureRegistry() {
     "name: midas\ntitle: CFO\ndepartment: finance\ncharter: c.\npersona: p.\nprompt: x.\ntools: []\nvisibility: private\n");
   writeFileSync(join(fin, "plutus.yaml"),
     "name: plutus\ntitle: Analyst\ndepartment: finance\ncharter: c.\npersona: p.\nprompt: x.\ntools: []\n");
+  const sec = join(agentsDir, "secretops");
+  mkdirSync(sec, { recursive: true });
+  writeFileSync(join(sec, "department.yaml"),
+    "department: secretops\nmission: Hush.\nlead: nyx\nmemoDomain: general\nplaybooks: []\n");
+  writeFileSync(join(sec, "nyx.yaml"),
+    "name: nyx\ntitle: T\ndepartment: secretops\ncharter: c.\npersona: p.\nprompt: x.\ntools: []\nvisibility: private\n");
   // verdict critic in engineering for loop tests
   writeFileSync(join(eng, "minos-eng.yaml"), agent("minos-eng", "outputSchema: verdict\n"));
   return loadRegistry(agentsDir, join(root, "playbooks"));
@@ -114,5 +120,15 @@ describe("rosterBlock (cross-dept)", () => {
     const fromFinance = rosterBlock(registry, "finance", { channel: "telegram", chatId: "999" }, PRIMARY);
     expect(fromFinance).toContain("## Borrowable — engineering");
     expect(fromFinance).toContain("vulcan");
+    // secretops' only agent is private → whole section absent on a shared origin...
+    expect(fromFinance).not.toContain("## Borrowable — secretops");
+    // ...but present from the private chat.
+    const priv = rosterBlock(registry, "finance", { channel: "telegram", chatId: "1" }, PRIMARY);
+    expect(priv).toContain("## Borrowable — secretops");
+  });
+
+  it("critic schema rules apply to foreign critics too", () => {
+    const loopForeign: GraphNodeSpec = { key: "l", type: "loop", agent: "vulcan", critic: "plutus", brief: "b", deps: [] };
+    expect(validateGraph([loopForeign], ctx()).ok).toBe(false); // plutus has no verdict schema
   });
 });

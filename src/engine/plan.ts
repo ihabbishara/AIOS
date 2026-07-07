@@ -157,14 +157,14 @@ export function rosterBlock(
   const own = all.filter((a) => a.department === department).map(agentLine).join("\n");
   const privateOk = isPrivateOrigin(primaryChat, origin.channel, origin.chatId);
   const foreign: string[] = [];
-  for (const [name, d] of registry.departments) {
+  for (const [name, d] of [...registry.departments].sort(([a], [b]) => a.localeCompare(b))) {
     if (name === department) continue;
     const members = all.filter((a) =>
       a.department === name && (privateOk || a.manifest.visibility !== "private"));
     if (!members.length) continue;
     foreign.push(`## Borrowable — ${name} (${firstSentence(d.mission)})\n${members.map(agentLine).join("\n")}`);
   }
-  return [own, ...foreign].join("\n\n");
+  return [own, ...foreign].filter(Boolean).join("\n\n");
 }
 
 function planningBrief(dept: string, title: string, request: string, roster: string, retryError?: string): string {
