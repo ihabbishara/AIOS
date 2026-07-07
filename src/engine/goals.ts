@@ -526,9 +526,10 @@ export class GoalEngine {
     const src = this.deps.store.getMail(goal.spawned_by_mail!);
     if (!src) return;
     const refs = files.map((f) => `goals/${goal.goal_dir}/${f}`).join(", ");
+    const ws = goal.project_dir ? `\nWorkspace: ${goal.project_dir}` : "";
     const body = ok
-      ? `Done: ${goal.title}\nArtifacts: ${refs || "(none)"}`
-      : `Failed: ${goal.title}\n${error ?? "unknown error"}`;
+      ? `Done: ${goal.title}\nArtifacts: ${refs || "(none)"}${ws}`
+      : `Failed: ${goal.title}\n${error ?? "unknown error"}${ws}`;
     const id = randomUUID();
     this.deps.store.insertMail({
       id, from_agent: src.to_agent, to_agent: src.from_agent, kind: "report", body,

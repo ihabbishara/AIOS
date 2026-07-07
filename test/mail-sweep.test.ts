@@ -662,6 +662,34 @@ describe("mail workspace (user-gated, spec 2026-07-07)", () => {
     expect(prepareSandbox).not.toHaveBeenCalled();
   });
 
+  it("reports name the workspace on success and failure; workspace-less reports do not", async () => {
+    // success + workspace
+    const a = harness(okRun, undefined, workspacePlanner("/tmp/projects/x"));
+    a.store.insertMail(reqMail({ from_agent: "user", to_agent: "athena", chain_depth: 0 }));
+    a.engine.pump();
+    await flush();
+    expect(a.store.unreadMailFor("user")[0].body).toContain("Workspace: /tmp/ms-sandbox");
+
+    // failure + workspace (sandbox is allocated before nodes run). Graphs re-plan on node
+    // failure; a throwing replan stub is the shortest path to a failed goal + failure report.
+    const failRun: SpecialistRunFn = async () => { throw new Error("agent exploded"); };
+    const failPlanner: Planner = { ...workspacePlanner("/tmp/projects/x"), replan: async () => { throw new Error("no replan"); } };
+    const b = harness(failRun, undefined, failPlanner);
+    b.store.insertMail(reqMail({ from_agent: "user", to_agent: "athena", chain_depth: 0 }));
+    b.engine.pump();
+    await flush();
+    const failed = b.store.unreadMailFor("user")[0];
+    expect(failed.body).toContain("Failed");
+    expect(failed.body).toContain("Workspace: /tmp/ms-sandbox");
+
+    // workspace-less mail-goal -> no Workspace line
+    const c = harness(okRun);
+    c.store.insertMail(reqMail());
+    c.engine.pump();
+    await flush();
+    expect(c.store.unreadMailFor("athena")[0].body).not.toContain("Workspace:");
+  });
+
   it("fail-closed: spawned_by_mail pointing at a missing row strips the workspace", async () => {
     const { store, engine, prepareSandbox } = harness(okRun);
     engine.startPlannedGoal({
