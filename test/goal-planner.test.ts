@@ -134,6 +134,46 @@ describe("planFromMail", () => {
     await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
   });
 
+  const insertUserMail = (store: Store) => {
+    store.insertMail({
+      id: "mu1", from_agent: "user", to_agent: "athena", kind: "request", body: "do x",
+      goal_id: null, origin_channel: "web", origin_chat_id: "ui", chain_depth: 0,
+      status: "planning", error: null, thread_id: null, in_reply_to: null,
+    } as Omit<MailRow, "created_at" | "read_at">);
+    return store.getMail("mu1")!;
+  };
+
+  it("user mail passes a validated workspace through to the goal", async () => {
+    const WORKTREE_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/tmp/projects/x" };
+    const { engine, store } = harness([WORKTREE_PLAN]);
+    const m = insertUserMail(store);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Do X", request: "do x", channel: "web", chatId: "ui",
+    }, m);
+    expect(g.project_dir).toBe("/tmp/projects/x"); // no prepareSandbox in this harness — raw dir survives
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+  });
+
+  it("user mail with a projectDir outside projectsRoot fails planning", async () => {
+    const BAD_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/etc" };
+    const { engine, store } = harness([BAD_PLAN]);
+    const m = insertUserMail(store);
+    await expect(engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Do X", request: "do x", channel: "web", chatId: "ui",
+    }, m)).rejects.toThrow(/projectDir under/);
+    expect(store.listGoals()).toHaveLength(0);
+  });
+
+  it("user mail with needsWorkspace none stays workspace-less", async () => {
+    const { engine, store } = harness([GOOD_PLAN]);
+    const m = insertUserMail(store);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Do X", request: "do x", channel: "web", chatId: "ui",
+    }, m);
+    expect(g.project_dir).toBeNull();
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+  });
+
   it("planner failure propagates (caller refuses the mail)", async () => {
     const bad = { ...GOOD_PLAN, nodes: [{ key: "a", type: "run", agent: "nobody", brief: "x", deps: [] }] };
     const { engine } = harness([bad, bad]);

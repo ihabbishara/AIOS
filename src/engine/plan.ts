@@ -215,16 +215,20 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     return { dept, lead: dept.lead, raw, specs, origin };
   };
 
+  /** worktree/analyze require a projectDir under projectsRoot; returns the resolved dir
+   *  (undefined for greenfield/none). Throws a planning error otherwise — fail-closed. */
+  const resolveWorkspaceDir = (raw: RawPlan): string | undefined => {
+    if (raw.needsWorkspace !== "worktree" && raw.needsWorkspace !== "analyze") return undefined;
+    if (!raw.projectDir || !resolve(raw.projectDir).startsWith(resolve(deps.projectsRoot))) {
+      throw new Error(`planning failed: needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`);
+    }
+    return resolve(raw.projectDir);
+  };
+
   return {
     async plan(engine, params) {
       const { lead, raw, specs, origin } = await buildValidatedPlan(params);
-      let projectDir: string | undefined;
-      if (raw.needsWorkspace === "worktree" || raw.needsWorkspace === "analyze") {
-        if (!raw.projectDir || !resolve(raw.projectDir).startsWith(resolve(deps.projectsRoot))) {
-          throw new Error(`planning failed: needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`);
-        }
-        projectDir = resolve(raw.projectDir);
-      }
+      const projectDir = resolveWorkspaceDir(raw);
       await deps.postPreview(origin, renderPlanPreview(params.title, raw.summary, specs));
       return engine.startPlannedGoal({
         title: params.title, request: params.request, department: params.department, lead,
@@ -233,12 +237,16 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     },
 
     async planFromMail(engine, params, mail) {
-      // Mail-origin: no chat preview (no human waiting) and no workspace (code only via code_task, §2/§5).
+      // Mail-origin: no chat preview (no human waiting). Workspace only for user-sent mail to
+      // engineering (spec 2026-07-07-workspace-mail-goals) — agent mail keeps the hard
+      // force-none wall (§2/§5); the engine strips independently as defense in depth.
       const { lead, raw, specs, origin } = await buildValidatedPlan(params);
+      const workspaceEligible = mail.from_agent === "user" && params.department === "engineering";
       return engine.startPlannedGoal({
         title: params.title, request: params.request, department: params.department, lead,
         origin, summary: raw.summary, nodes: toNewTaskNodes(specs),
-        projectDir: undefined, needsWorkspace: "none",
+        projectDir: workspaceEligible ? resolveWorkspaceDir(raw) : undefined,
+        needsWorkspace: workspaceEligible ? raw.needsWorkspace : "none",
         spawnedByMail: mail.id, chainDepth: mail.chain_depth,
       });
     },
