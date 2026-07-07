@@ -14,6 +14,8 @@ import { GoalEngine } from "../src/engine/goals.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import { startWebServer, type WebDeps } from "../src/web/server.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
+import { indexMailThread } from "../src/memory/indexer.js";
+import { recall } from "../src/memory/recall.js";
 
 /** engineering (code): athena lead, vulcan (alias developer) — shared. finance: midas private. */
 function fixtureRegistry() {
@@ -251,5 +253,72 @@ describe("compose/mine/read endpoints", () => {
       const notUser = await fetch(`${base}/api/mail/n1/read`, { method: "POST", headers: auth });
       expect(notUser.status).toBe(400);
     } finally { await close(); }
+  });
+});
+
+const okRun: SpecialistRunFn = async (_r, brief) => ({ text: `done: ${brief.slice(0, 20)}`, costUsd: 0.01, numTurns: 1 });
+const flush = () => new Promise((r) => setTimeout(r, 50));
+
+function engineHarness(run: SpecialistRunFn) {
+  const store = new Store(":memory:");
+  const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "cc-vault-")), "AIOS");
+  const engine = new GoalEngine({
+    store, vault, run, registry,
+    playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
+    spendGuard: new SpendGuard({ store }),
+    onComplete: async () => {},
+    resolveDeptFor: () => undefined,
+    prepareSandbox: async () => ({ taskDir: "/tmp/should-not-be-used", mode: "build" as const }),
+    primaryChat: PRIMARY,
+    mailMaxDepth: 2,
+  });
+  const mailbox = new Mailbox({
+    store, registry, maxDepth: 2, disabled: false, primaryChat: PRIMARY,
+    onQueued: () => engine.pump(),
+  });
+  return { store, engine, mailbox };
+}
+
+describe("cold mail end-to-end (sweep)", () => {
+  it("compose → goal spawns depth 0 → report lands unread to user in the same thread", async () => {
+    const { store, mailbox } = engineHarness(okRun);
+    const r = mailbox.sendFromUser({ to: "vulcan", body: "audit the deploy scripts" });
+    const id = (r as { ok: true; id: string }).id;
+    await flush();
+    const m = store.getMail(id)!;
+    expect(m.status).toBe("spawned");
+    const goal = store.getGoal(m.goal_id!)!;
+    expect(goal.chain_depth).toBe(0);
+    expect(goal).toMatchObject({ origin_channel: "web", origin_chat_id: "ui" });
+    const report = store.mailThread(m.thread_id!).find((x) => x.kind === "report")!;
+    expect(report).toMatchObject({ to_agent: "user", from_agent: "vulcan", status: "unread", in_reply_to: id });
+    expect(store.unreadUserInbox()).toBe(1);
+  });
+
+  it("compose path is recall-indexable — mail.sent carries the id the indexer listener needs (spec §10.7)", async () => {
+    const { store, mailbox } = engineHarness(okRun);
+    // Mirror the index.ts listener: on mail.sent → indexMailThread(store, registry, thread).
+    const r = mailbox.sendFromUser({ to: "vulcan", body: "investigate the flaky nightly backup" });
+    const m = store.getMail((r as { ok: true; id: string }).id)!;
+    indexMailThread(store, registry, m.thread_id ?? m.id);
+    const hits = recall(store, "flaky nightly backup");
+    expect(hits[0]?.source).toBe("mail");
+  });
+
+  it("reply-in-thread spawns a second goal in the SAME thread", async () => {
+    const { store, mailbox } = engineHarness(okRun);
+    const first = mailbox.sendFromUser({ to: "vulcan", body: "first task" });
+    const firstId = (first as { ok: true; id: string }).id;
+    await flush();
+    const thread = store.getMail(firstId)!.thread_id!;
+    const report = store.mailThread(thread).find((x) => x.kind === "report")!;
+    const second = mailbox.sendFromUser({ to: "vulcan", body: "follow-up task", threadId: thread, inReplyTo: report.id });
+    await flush();
+    const secondRow = store.getMail((second as { ok: true; id: string }).id)!;
+    expect(secondRow.status).toBe("spawned");
+    expect(secondRow.goal_id).not.toBe(store.getMail(firstId)!.goal_id); // a NEW goal
+    const msgs = store.mailThread(thread);
+    expect(msgs.length).toBe(4); // request, report, follow-up, second report
+    expect(msgs.filter((x) => x.kind === "report" && x.to_agent === "user").length).toBe(2);
   });
 });

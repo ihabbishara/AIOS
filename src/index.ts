@@ -14,7 +14,7 @@ import { makePlanner } from "./engine/plan.js";
 import type { GoalRow } from "./store/db.js";
 import type { Playbook } from "./engine/playbook.js";
 import { makeRunSpecialist } from "./agents/runner.js";
-import { Mailbox } from "./mail/mailbox.js";
+import { Mailbox, isUserReportEvent } from "./mail/mailbox.js";
 import { Moderator } from "./moderator/session.js";
 import { makeHandOff } from "./moderator/handoff.js";
 import { DirectChats } from "./agents/direct.js";
@@ -439,6 +439,17 @@ async function main(): Promise<void> {
     void sendVia(config.primaryChat.channel, config.primaryChat.chatId,
       `🙋 ${e.event.from} is asking:\n${e.event.question}\n\nAnswer in Mission Control, or reply here: @${e.event.from} <your answer>`,
     ).catch((err) => log(`ask ping failed: ${(err as Error).message}`));
+  });
+
+  // A report for the owner landed (reply to their cold mail) — courtesy copy to primary chat.
+  // Transport-only: no read-marking, no vaulting; the Mail tab is the source of truth.
+  bus.on((e) => {
+    if (!isUserReportEvent(e.event) || !config.primaryChat) return;
+    if (e.event.type !== "mail.sent") return; // narrow for TypeScript
+    const first = (store.getMail(e.event.id)?.body.split("\n")[0] ?? "").slice(0, 200);
+    void sendVia(config.primaryChat.channel, config.primaryChat.chatId,
+      `📨 ${e.event.from} → you: ${first}\n\nFull report in Mission Control → Mail.`,
+    ).catch((err) => log(`report ping failed: ${(err as Error).message}`));
   });
 
   const notify = async (e: import("./events.js").AiosEvent): Promise<void> => {
