@@ -23,6 +23,12 @@ function fixtureRegistry() {
     writeFileSync(join(eng, `${n}.yaml`),
       `name: ${n}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n${extra}`);
   }
+  const fin = join(root, "agents", "finance");
+  mkdirSync(fin, { recursive: true });
+  writeFileSync(join(fin, "department.yaml"),
+    "department: finance\nmission: Money.\nlead: plutus\nmemoDomain: money\nplaybooks: []\n");
+  writeFileSync(join(fin, "plutus.yaml"),
+    "name: plutus\ntitle: Analyst\ndepartment: finance\ncharter: c.\npersona: p.\nprompt: x.\ntools: []\n");
   return loadRegistry(join(root, "agents"), join(root, "playbooks"));
 }
 
@@ -32,6 +38,15 @@ const GOOD_PLAN = {
   nodes: [
     { key: "research", type: "run", agent: "odin", brief: "look", deps: [] },
     { key: "build", type: "loop", agent: "vulcan", critic: "minos-eng", brief: "make", deps: ["research"] },
+  ],
+};
+
+const XDEPT_PLAN = {
+  summary: "cross-dept",
+  needsWorkspace: "none",
+  nodes: [
+    { key: "analyze", type: "run", agent: "plutus", brief: "money side", deps: [] },
+    { key: "build", type: "run", agent: "vulcan", brief: "eng side", deps: ["analyze"] },
   ],
 };
 
@@ -54,15 +69,19 @@ function harness(planOutputs: unknown[]) {
     projectsRoot: "/tmp/projects",
     postPreview: async (_o, text) => { previews.push(text); },
   });
+  const resolvedAgents: string[] = [];
   const engine = new GoalEngine({
     store, vault, registry, run,
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2, mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
-    resolveDeptFor: () => undefined,
+    resolveDeptFor: (key: string, _o: { channel: string; chatId: string }, byAgent?: boolean) => {
+      if (byAgent) resolvedAgents.push(key);
+      return undefined;
+    },
     planner,
   });
-  return { store, engine, previews, planCallsRef: () => planCalls };
+  return { store, engine, previews, planCallsRef: () => planCalls, resolvedAgents };
 }
 
 describe("lead planner", () => {
@@ -76,7 +95,7 @@ describe("lead planner", () => {
   });
 
   it("invalid plan retries once with the error, then succeeds", async () => {
-    const bad = { ...GOOD_PLAN, nodes: [{ key: "a", type: "run", agent: "midas", brief: "x", deps: [] }] };
+    const bad = { ...GOOD_PLAN, nodes: [{ key: "a", type: "run", agent: "nobody", brief: "x", deps: [] }] };
     const { engine, planCallsRef } = harness([bad, GOOD_PLAN]);
     await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
     expect(planCallsRef()).toBe(2);
@@ -94,6 +113,25 @@ describe("lead planner", () => {
     const { engine } = harness([]);
     await expect(engine.planGoal({ department: "nope", title: "t", request: "r", channel: "t", chatId: "1" }))
       .rejects.toThrow(/unknown department/i);
+  });
+
+  it("plans a cross-department graph; each node resolves its own agent's pack", async () => {
+    const { engine, store, resolvedAgents } = harness([XDEPT_PLAN]);
+    const g = await engine.planGoal({ department: "engineering", title: "X", request: "x", channel: "telegram", chatId: "1" });
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+    expect(store.listNodes(g.id).map((n) => n.agent).sort()).toEqual(["plutus", "vulcan"]);
+    expect(g.department).toBe("engineering"); // ownership unchanged
+    expect(resolvedAgents).toContain("plutus"); // pack resolved per agent, not per goal dept
+    expect(resolvedAgents).toContain("vulcan");
+  });
+
+  it("a replan patch may add a foreign shared agent", async () => {
+    const PATCH = { ops: [{ op: "add", nodes: [{ key: "money-check", type: "run", agent: "plutus", brief: "check", deps: [] }] }] };
+    const { engine, store } = harness([GOOD_PLAN, PATCH]);
+    const g = await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+    await engine["deps"].planner!.replan(store.getGoal(g.id)!, store.listNodes(g.id)[0], "boom");
+    expect(store.listNodes(g.id).map((n) => n.agent)).toContain("plutus");
   });
 
   it("renderPlanPreview lists nodes with agents and deps", () => {
@@ -175,6 +213,15 @@ describe("planFromMail", () => {
     }, m);
     expect(g.project_dir).toBeNull();
     await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+  });
+
+  it("mail-spawned graphs may be cross-department too", async () => {
+    const { engine, store } = harness([XDEPT_PLAN]);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "t", request: "r", channel: "telegram", chatId: "1",
+    }, mail());
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+    expect(store.listNodes(g.id).map((n) => n.agent).sort()).toEqual(["plutus", "vulcan"]);
   });
 
   it("planner failure propagates (caller refuses the mail)", async () => {
