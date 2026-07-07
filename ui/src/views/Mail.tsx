@@ -1,5 +1,5 @@
 // ui/src/views/Mail.tsx — the human's correspondence: inbox threads + compose (spec 2026-07-07).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type MailView, type StoredEvent, type UserThreadView } from "../api.js";
 import { usePoll } from "../hooks.js";
 
@@ -60,15 +60,23 @@ function ThreadDetail({ threadId, lastMailEvt, onChanged }:
   { threadId: string; lastMailEvt: number | undefined; onChanged: () => void }) {
   const { data: msgs, reload } = usePoll(() => api.mailThreadView(threadId), [threadId, lastMailEvt]);
   // Human opened the thread = read (fire-and-forget per unread to-user message).
+  // Track ids already sent so effect re-runs (triggered by our own mail.read events racing
+  // an in-flight POST whose fetched snapshot is still "unread") don't re-POST the same id.
+  const sentRead = useRef(new Set<string>());
   useEffect(() => {
     for (const m of msgs ?? []) {
-      if (m.to === "user" && m.status === "unread") void api.markMailRead(m.id).catch(() => {});
+      if (m.to === "user" && m.status === "unread" && !sentRead.current.has(m.id)) {
+        sentRead.current.add(m.id);
+        void api.markMailRead(m.id).catch(() => {});
+      }
     }
   }, [msgs]);
   // Answered-ness isn't derivable client-side (MailView carries no inReplyTo) — show the box
   // for any awaiting-human message; the server's existing 409 guards double answers.
   const pendingAsk = (msgs ?? []).find((m) => m.to === "user" && m.status === "awaiting-human");
   const lastReport = [...(msgs ?? [])].reverse().find((m) => m.kind === "report" && m.to === "user");
+  // Reply target = the last participant who isn't the user; server refuses unknowns anyway.
+  const other = [...(msgs ?? [])].reverse().map((m) => (m.from === "user" ? m.to : m.from)).find((n) => n !== "user") ?? "";
   return (
     <div className="flex flex-col gap-2">
       {(msgs ?? []).map((m) => (
@@ -81,7 +89,7 @@ function ThreadDetail({ threadId, lastMailEvt, onChanged }:
         </div>
       ))}
       {pendingAsk && <AnswerBox mailId={pendingAsk.id} onDone={() => { reload(); onChanged(); }} />}
-      <ReplyBox threadId={threadId} inReplyTo={lastReport?.id} onSent={() => { reload(); onChanged(); }} />
+      <ReplyBox threadId={threadId} inReplyTo={lastReport?.id} other={other} onSent={() => { reload(); onChanged(); }} />
     </div>
   );
 }
@@ -112,34 +120,26 @@ function AnswerBox({ mailId, onDone }: { mailId: string; onDone: () => void }) {
   );
 }
 
-function ReplyBox({ threadId, inReplyTo, onSent }:
-  { threadId: string; inReplyTo: string | undefined; onSent: () => void }) {
+function ReplyBox({ threadId, inReplyTo, other, onSent }:
+  { threadId: string; inReplyTo: string | undefined; other: string; onSent: () => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  // Reply target = the last participant who isn't the user; server refuses unknowns anyway.
-  const send = (to: string) => {
+  const send = () => {
     if (busy || !text.trim()) return;
     setBusy(true);
-    api.composeMail({ to, body: text, threadId, inReplyTo })
+    api.composeMail({ to: other, body: text, threadId, inReplyTo })
       .then((r) => { if (!r.ok) setMsg(r.refusal); else { setText(""); onSent(); } })
       .catch((e) => setMsg((e as Error).message))
       .finally(() => setBusy(false));
   };
-  return <ReplyTarget threadId={threadId} busy={busy} text={text} setText={setText} msg={msg} onSend={send} />;
-}
-
-function ReplyTarget({ threadId, busy, text, setText, msg, onSend }:
-  { threadId: string; busy: boolean; text: string; setText: (s: string) => void; msg: string | null; onSend: (to: string) => void }) {
-  const { data: msgs } = usePoll(() => api.mailThreadView(threadId), [threadId]);
-  const other = [...(msgs ?? [])].reverse().map((m) => (m.from === "user" ? m.to : m.from)).find((n) => n !== "user") ?? "";
   return (
     <div className="border border-line px-3 py-2 flex flex-col gap-1">
       <div className="label">reply → {other || "…"}</div>
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2}
         className="bg-panel-2 border border-line px-2 py-1 text-[12px]" />
       <div className="flex items-center gap-2">
-        <button onClick={() => onSend(other)} disabled={busy || !text.trim() || !other}
+        <button onClick={send} disabled={busy || !text.trim() || !other}
           className="text-[11px] border border-line px-3 py-1 hover:border-fg disabled:opacity-50">send follow-up</button>
         {msg && <span className="text-alert text-[11px]">{msg}</span>}
       </div>
