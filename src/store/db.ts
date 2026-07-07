@@ -61,7 +61,7 @@ export interface MailRow {
 
 export interface UserThreadRow {
   thread_id: string; last_ts: string; last_from: string; last_body: string;
-  unread: number; pending_ask: number;
+  unread: number; pending_ask: number; refused: number;
 }
 
 export interface TaskNodeRow {
@@ -764,13 +764,14 @@ export class Store {
     return this.db.prepare(`
       SELECT t.thread_id,
              l.created_at AS last_ts, l.from_agent AS last_from, substr(l.body, 1, 160) AS last_body,
-             t.unread, t.pending_ask
+             t.unread, t.pending_ask, t.refused
       FROM (
         SELECT thread_id,
                SUM(CASE WHEN status = 'unread' AND to_agent = 'user' THEN 1 ELSE 0 END) AS unread,
                SUM(CASE WHEN kind = 'request' AND to_agent = 'user' AND status = 'awaiting-human'
                          AND id NOT IN (SELECT in_reply_to FROM mail WHERE in_reply_to IS NOT NULL)
-                        THEN 1 ELSE 0 END) AS pending_ask
+                        THEN 1 ELSE 0 END) AS pending_ask,
+               SUM(CASE WHEN status = 'refused' THEN 1 ELSE 0 END) AS refused
         FROM mail
         WHERE thread_id IN (SELECT DISTINCT thread_id FROM mail WHERE from_agent = 'user' OR to_agent = 'user')
         GROUP BY thread_id

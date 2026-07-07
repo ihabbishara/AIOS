@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { Store, type MailRow } from "../src/store/db.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { Mailbox, isUserReportEvent } from "../src/mail/mailbox.js";
+import { buildUserThreads } from "../src/web/goals-view.js";
 import type { AiosEvent } from "../src/events.js";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -115,7 +116,7 @@ function rawMail(store: Store, over: Partial<MailRow>): void {
     id: over.id ?? "m1", from_agent: over.from_agent ?? "athena", to_agent: over.to_agent ?? "vulcan",
     kind: over.kind ?? "request", body: over.body ?? "body", goal_id: null,
     origin_channel: "web", origin_chat_id: "ui", chain_depth: over.chain_depth ?? 0,
-    status: over.status ?? "queued", error: null,
+    status: over.status ?? "queued", error: over.error ?? null,
     thread_id: over.thread_id, in_reply_to: over.in_reply_to ?? null,
   });
 }
@@ -137,6 +138,22 @@ describe("store user-inbox queries", () => {
     expect(ta.last_body).toContain("audit finished");
     const tb = threads.find((t) => t.thread_id === "tb")!;
     expect(tb).toMatchObject({ unread: 0, pending_ask: 1 });
+  });
+
+  it("userThreads: refused count surfaces per thread (store + view)", () => {
+    const store = new Store(":memory:");
+    // thread R: user cold mail that the sweep refused
+    rawMail(store, { id: "r1", from_agent: "user", to_agent: "vulcan", status: "refused", thread_id: "tr", error: "unknown recipient" });
+    // thread A: clean cold mail + report
+    rawMail(store, { id: "a1", from_agent: "user", to_agent: "vulcan", status: "spawned", thread_id: "ta" });
+    rawMail(store, { id: "a2", from_agent: "vulcan", to_agent: "user", kind: "report", status: "unread", thread_id: "ta", in_reply_to: "a1", body: "done" });
+    const byId = Object.fromEntries(store.userThreads().map((t) => [t.thread_id, t]));
+    expect(byId["tr"].refused).toBe(1);
+    expect(byId["ta"].refused).toBe(0);
+    // view carries it through
+    const view = Object.fromEntries(buildUserThreads(store).map((t) => [t.threadId, t]));
+    expect(view["tr"].refused).toBe(1);
+    expect(view["ta"].refused).toBe(0);
   });
 
   it("pending_ask drops to 0 once a reply answers the ask (derived, status untouched)", () => {

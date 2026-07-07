@@ -91,14 +91,14 @@ export function buildMailUnread(store: Store): { total: number; byAgent: Record<
 }
 
 export interface UserThreadView {
-  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number;
+  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number; refused: number;
 }
 
 /** The human's correspondence — thread summaries for the Mail tab (spec §6). */
 export function buildUserThreads(store: Store): UserThreadView[] {
   return store.userThreads().map((t) => ({
     threadId: t.thread_id, lastTs: t.last_ts, lastFrom: t.last_from, lastBody: t.last_body,
-    unread: t.unread, pendingAsk: t.pending_ask,
+    unread: t.unread, pendingAsk: t.pending_ask, refused: t.refused,
   }));
 }
 
