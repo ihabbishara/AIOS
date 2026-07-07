@@ -138,7 +138,7 @@ describe("planFromMail", () => {
     store.insertMail({
       id: "mu1", from_agent: "user", to_agent: "athena", kind: "request", body: "do x",
       goal_id: null, origin_channel: "web", origin_chat_id: "ui", chain_depth: 0,
-      status: "planning", error: null, thread_id: null, in_reply_to: null,
+      status: "planning", error: null,
     } as Omit<MailRow, "created_at" | "read_at">);
     return store.getMail("mu1")!;
   };
