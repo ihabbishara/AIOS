@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { api, setToken, getToken, type BudgetInfo } from "./api.js";
 import { useEvents, usePoll } from "./hooks.js";
 import { Goals, type GoalTarget } from "./views/Goals.js";
+import { Mail } from "./views/Mail.js";
 import { Org } from "./views/Org.js";
 import { RoutingTrail } from "./views/RoutingTrail.js";
 import { Chat } from "./views/Chat.js";
@@ -13,7 +14,7 @@ import { Trust } from "./views/Trust.js";
 import { Permissions } from "./views/Permissions.js";
 import { Packs } from "./views/Packs.js";
 
-const TABS = ["org", "chat", "routing", "goals", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
+const TABS = ["org", "mail", "chat", "routing", "goals", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
 // Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
@@ -90,6 +91,9 @@ export function App() {
               {t === "org" && unread && unread.total > 0 && (
                 <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.total}</span>
               )}
+              {t === "mail" && unread && unread.userInbox > 0 && (
+                <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.userInbox}</span>
+              )}
               {t === "goals" && unread && unread.pendingUser > 0 && (
                 <span className="ml-2 text-[9px] text-void bg-cyan px-1.5 rounded-full tracking-normal align-middle">🙋 {unread.pendingUser}</span>
               )}
@@ -105,6 +109,7 @@ export function App() {
         {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
           <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} agentTarget={agentTarget} onConsumeAgentTarget={consumeAgentTarget} unreadByAgent={unread?.byAgent ?? {}} /></div>
+          <div className={tab === "mail" ? "h-full" : "hidden"}><Mail events={events} /></div>
           <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
           <div className={tab === "goals" ? "h-full" : "hidden"}>
             <Goals events={events} target={goalTarget} onConsumeTarget={consumeGoalTarget} onOpenAgent={openAgent} />

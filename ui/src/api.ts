@@ -142,6 +142,10 @@ export interface MailView {
   goalId: string | null; chainDepth: number; createdAt: string; readAt: string | null; error: string | null;
 }
 
+export interface UserThreadView {
+  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number;
+}
+
 export interface BudgetInfo { date: string; spentCents: number; capCents: number | null }
 
 export function getToken(): string {
@@ -176,7 +180,15 @@ export const api = {
     request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
   mail: (agent?: string, limit = 50) =>
     request<MailView[]>(`/api/mail?${agent ? `agent=${encodeURIComponent(agent)}&` : ""}limit=${limit}`),
-  mailUnread: () => request<{ total: number; byAgent: Record<string, number>; pendingUser: number }>("/api/mail/unread"),
+  mailUnread: () => request<{ total: number; byAgent: Record<string, number>; pendingUser: number; userInbox: number }>("/api/mail/unread"),
+  mailMine: () => request<{ threads: UserThreadView[] }>("/api/mail/mine"),
+  mailThreadView: (id: string) => request<MailView[]>(`/api/mail/thread/${encodeURIComponent(id)}`),
+  composeMail: (args: { to: string; body: string; threadId?: string; inReplyTo?: string }) =>
+    request<{ ok: true; id: string } | { ok: false; refusal: string }>("/api/mail/compose", {
+      method: "POST", body: JSON.stringify(args),
+    }),
+  markMailRead: (id: string) =>
+    request<{ ok: boolean }>(`/api/mail/${encodeURIComponent(id)}/read`, { method: "POST" }),
   answerMail: (id: string, text: string) =>
     request<{ resumed: boolean }>(`/api/mail/${encodeURIComponent(id)}/answer`, {
       method: "POST", body: JSON.stringify({ text }),
