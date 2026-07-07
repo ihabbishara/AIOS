@@ -262,6 +262,7 @@ const flush = () => new Promise((r) => setTimeout(r, 50));
 function engineHarness(run: SpecialistRunFn) {
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "cc-vault-")), "AIOS");
+  const events: AiosEvent[] = [];
   const engine = new GoalEngine({
     store, vault, run, registry,
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
@@ -274,9 +275,9 @@ function engineHarness(run: SpecialistRunFn) {
   });
   const mailbox = new Mailbox({
     store, registry, maxDepth: 2, disabled: false, primaryChat: PRIMARY,
-    onQueued: () => engine.pump(),
+    onEvent: (e) => events.push(e), onQueued: () => engine.pump(),
   });
-  return { store, engine, mailbox };
+  return { store, engine, mailbox, events };
 }
 
 describe("cold mail end-to-end (sweep)", () => {
@@ -296,10 +297,13 @@ describe("cold mail end-to-end (sweep)", () => {
   });
 
   it("compose path is recall-indexable — mail.sent carries the id the indexer listener needs (spec §10.7)", async () => {
-    const { store, mailbox } = engineHarness(okRun);
-    // Mirror the index.ts listener: on mail.sent → indexMailThread(store, registry, thread).
+    const { store, mailbox, events } = engineHarness(okRun);
     const r = mailbox.sendFromUser({ to: "vulcan", body: "investigate the flaky nightly backup" });
-    const m = store.getMail((r as { ok: true; id: string }).id)!;
+    // The production index.ts listener keys off the EMITTED event's id — assert the event
+    // carries the composed mail's id, then mirror the listener using the event, not the row.
+    const sent = events.find((e) => e.type === "mail.sent" && e.from === "user");
+    expect(sent && sent.type === "mail.sent" ? sent.id : undefined).toBe((r as { ok: true; id: string }).id);
+    const m = store.getMail((sent as { type: "mail.sent"; id: string }).id)!;
     indexMailThread(store, registry, m.thread_id ?? m.id);
     const hits = recall(store, "flaky nightly backup");
     expect(hits[0]?.source).toBe("mail");
