@@ -14,10 +14,11 @@ import type { MessageRouter } from "../router.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { VoiceService } from "../voice/index.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
+import type { Mailbox } from "../mail/mailbox.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
 import { buildOrgView, buildAgentProfile } from "./org-view.js";
-import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread } from "./goals-view.js";
+import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -73,6 +74,8 @@ export interface WebDeps {
   voice: VoiceService;
   /** Live registry — source of truth for the agents catalog and permissions view. */
   registry: LoadedRegistry;
+  /** Mailbox — compose (sendFromUser) and human read-marking (markDelivered → mail.read). */
+  mailbox: Mailbox;
   reloadPacks: () => void;
   envPath: string;
   uiDist: string;
@@ -118,7 +121,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): Server {
-  const { store, bus, goals, vault, config, router, gate, voice, registry, reloadPacks, log = () => {} } = deps;
+  const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
 
@@ -440,6 +443,20 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           return json(res, 200, buildMailUnread(store));
         }
 
+        if (path === "/api/mail/mine" && req.method === "GET") {
+          return json(res, 200, { threads: buildUserThreads(store) });
+        }
+
+        if (path === "/api/mail/compose" && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { to?: string; body?: string; threadId?: string; inReplyTo?: string };
+          if (!body.to?.trim() || !body.body?.trim()) return json(res, 400, { error: "to and body required" });
+          const result = mailbox.sendFromUser({
+            to: body.to, body: body.body.slice(0, 4000),
+            threadId: body.threadId || undefined, inReplyTo: body.inReplyTo || undefined,
+          });
+          return json(res, 200, result);
+        }
+
         if (path === "/api/mail" && req.method === "GET") {
           return json(res, 200, buildMailView(store, registry,
             url.searchParams.get("agent") ?? undefined,
@@ -457,6 +474,14 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           if (!body.text?.trim()) return json(res, 400, { error: "text required" });
           const result = goals.answerUserMail(answerMatch[1], body.text);
           return result.ok ? json(res, 200, { resumed: true }) : json(res, 409, { error: result.reason });
+        }
+
+        const readMatch = /^\/api\/mail\/([\w-]+)\/read$/.exec(path);
+        if (readMatch && req.method === "POST") {
+          const m = store.getMail(readMatch[1]);
+          if (!m || m.to_agent !== "user") return json(res, 400, { error: "not user mail" });
+          mailbox.markDelivered([m.id]);
+          return json(res, 200, { ok: true });
         }
 
         if (path === "/api/permissions" && req.method === "GET") {

@@ -633,7 +633,7 @@ async function main(): Promise<void> {
   }
 
   startWebServer(
-    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, mailbox, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
 

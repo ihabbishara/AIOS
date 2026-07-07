@@ -84,10 +84,22 @@ export function buildMailThread(store: Store, threadId: string): MailView[] {
 }
 
 /** Unread inbound mail per agent + grand total + questions waiting on the human. */
-export function buildMailUnread(store: Store): { total: number; byAgent: Record<string, number>; pendingUser: number } {
+export function buildMailUnread(store: Store): { total: number; byAgent: Record<string, number>; pendingUser: number; userInbox: number } {
   const byAgent = store.unreadCountsByAgent();
   const total = Object.values(byAgent).reduce((s, n) => s + n, 0);
-  return { total, byAgent, pendingUser: store.pendingUserAsks().length };
+  return { total, byAgent, pendingUser: store.pendingUserAsks().length, userInbox: store.unreadUserInbox() };
+}
+
+export interface UserThreadView {
+  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number;
+}
+
+/** The human's correspondence — thread summaries for the Mail tab (spec §6). */
+export function buildUserThreads(store: Store): UserThreadView[] {
+  return store.userThreads().map((t) => ({
+    threadId: t.thread_id, lastTs: t.last_ts, lastFrom: t.last_from, lastBody: t.last_body,
+    unread: t.unread, pendingAsk: t.pending_ask,
+  }));
 }
 
 export function buildBudgetView(guard: SpendGuard, todayFn?: () => string) {

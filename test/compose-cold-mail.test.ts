@@ -7,6 +7,13 @@ import { Store, type MailRow } from "../src/store/db.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { Mailbox, isUserReportEvent } from "../src/mail/mailbox.js";
 import type { AiosEvent } from "../src/events.js";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import { VaultWriter } from "../src/vault/writer.js";
+import { GoalEngine } from "../src/engine/goals.js";
+import { SpendGuard } from "../src/engine/budget.js";
+import { startWebServer, type WebDeps } from "../src/web/server.js";
+import type { SpecialistRunFn } from "../src/agents/runner.js";
 
 /** engineering (code): athena lead, vulcan (alias developer) — shared. finance: midas private. */
 function fixtureRegistry() {
@@ -146,5 +153,103 @@ describe("store user-inbox queries", () => {
     const counts = store.unreadCountsByAgent();
     expect(counts.vulcan).toBe(1);
     expect(counts.user).toBeUndefined(); // reports to the human never pollute agent badges
+  });
+});
+
+const TOKEN = "test-ui-token";
+const hangRun: SpecialistRunFn = () => new Promise(() => {});
+
+/** Real server + real Mailbox (no onQueued — endpoint tests pin HTTP contracts, not spawning). */
+async function spinServer(store: Store) {
+  const prev = process.env.AIOS_UI_TOKEN;
+  process.env.AIOS_UI_TOKEN = TOKEN;
+  const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "cc-http-vault-")), "AIOS");
+  const engine = new GoalEngine({
+    store, vault, run: hangRun, registry,
+    playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
+    spendGuard: new SpendGuard({ store }),
+    onComplete: async () => {},
+    resolveDeptFor: () => undefined,
+    prepareSandbox: async () => ({ taskDir: "/tmp/should-not-be-used", mode: "build" as const }),
+    primaryChat: PRIMARY,
+    mailMaxDepth: 2,
+  });
+  const mailbox = new Mailbox({ store, registry, maxDepth: 2, disabled: false, primaryChat: PRIMARY });
+  const deps = {
+    store, goals: engine, vault, registry, mailbox,
+    reloadPacks: () => {}, envPath: "", uiDist: "", log: () => {},
+    bus: {}, spendGuard: new SpendGuard({ store }), config: {}, router: {}, gate: {}, voice: {},
+  } as unknown as WebDeps;
+  const server = startWebServer(deps, 0);
+  if (!server.listening) await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  return {
+    base: `http://127.0.0.1:${port}`,
+    auth: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" } as Record<string, string>,
+    close: async () => {
+      await new Promise<void>((r) => server.close(() => r()));
+      if (prev === undefined) delete process.env.AIOS_UI_TOKEN; else process.env.AIOS_UI_TOKEN = prev;
+    },
+  };
+}
+
+describe("compose/mine/read endpoints", () => {
+  it("compose 200 ok+id, refusal for unknown, 400 for missing fields, 4000-char clamp", async () => {
+    const store = new Store(":memory:");
+    const { base, auth, close } = await spinServer(store);
+    try {
+      const ok = await fetch(`${base}/api/mail/compose`, {
+        method: "POST", headers: auth, body: JSON.stringify({ to: "vulcan", body: "x".repeat(5000) }),
+      });
+      const okBody = (await ok.json()) as { ok: boolean; id: string };
+      expect(ok.status).toBe(200);
+      expect(okBody.ok).toBe(true);
+      expect(store.getMail(okBody.id)!.body.length).toBe(4000); // clamped server-side
+      const refused = await (await fetch(`${base}/api/mail/compose`, {
+        method: "POST", headers: auth, body: JSON.stringify({ to: "nobody", body: "x" }),
+      })).json() as { ok: boolean; refusal: string };
+      expect(refused.ok).toBe(false);
+      expect(refused.refusal).toContain("Unknown");
+      const bad = await fetch(`${base}/api/mail/compose`, {
+        method: "POST", headers: auth, body: JSON.stringify({ to: "vulcan" }),
+      });
+      expect(bad.status).toBe(400);
+      const noauth = await fetch(`${base}/api/mail/compose`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: "vulcan", body: "x" }),
+      });
+      expect(noauth.status).toBe(401);
+    } finally { await close(); }
+  });
+
+  it("mine returns camelCased user threads; unread carries userInbox", async () => {
+    const store = new Store(":memory:");
+    rawMail(store, { id: "a1", from_agent: "user", to_agent: "vulcan", status: "spawned", thread_id: "ta" });
+    rawMail(store, { id: "a2", from_agent: "vulcan", to_agent: "user", kind: "report", status: "unread", thread_id: "ta", in_reply_to: "a1" });
+    const { base, auth, close } = await spinServer(store);
+    try {
+      const mine = (await (await fetch(`${base}/api/mail/mine`, { headers: auth })).json()) as
+        { threads: Array<{ threadId: string; unread: number; pendingAsk: number; lastFrom: string }> };
+      expect(mine.threads).toHaveLength(1);
+      expect(mine.threads[0]).toMatchObject({ threadId: "ta", unread: 1, pendingAsk: 0, lastFrom: "vulcan" });
+      const unread = (await (await fetch(`${base}/api/mail/unread`, { headers: auth })).json()) as { userInbox: number };
+      expect(unread.userInbox).toBe(1);
+    } finally { await close(); }
+  });
+
+  it("read marks user mail read (idempotent); 400 on non-user mail", async () => {
+    const store = new Store(":memory:");
+    rawMail(store, { id: "r1", from_agent: "vulcan", to_agent: "user", kind: "report", status: "unread", thread_id: "t1" });
+    rawMail(store, { id: "n1", from_agent: "athena", to_agent: "vulcan", kind: "note", status: "unread", thread_id: "t2" });
+    const { base, auth, close } = await spinServer(store);
+    try {
+      const ok = await fetch(`${base}/api/mail/r1/read`, { method: "POST", headers: auth });
+      expect(ok.status).toBe(200);
+      expect(store.getMail("r1")!.status).toBe("read");
+      expect(store.getMail("r1")!.read_at).toBeTruthy();
+      const again = await fetch(`${base}/api/mail/r1/read`, { method: "POST", headers: auth });
+      expect(again.status).toBe(200); // idempotent
+      const notUser = await fetch(`${base}/api/mail/n1/read`, { method: "POST", headers: auth });
+      expect(notUser.status).toBe(400);
+    } finally { await close(); }
   });
 });

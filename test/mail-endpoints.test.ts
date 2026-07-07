@@ -58,11 +58,11 @@ describe("buildMailUnread", () => {
     put("u2", "athena", "unread", "report");
     put("q1", "vulcan", "queued", "request"); // excluded — work, not inbox
     put("rd", "athena", "read");              // excluded — already seen
-    expect(buildMailUnread(store)).toEqual({ total: 2, byAgent: { vulcan: 1, athena: 1 }, pendingUser: 0 });
+    expect(buildMailUnread(store)).toEqual({ total: 2, byAgent: { vulcan: 1, athena: 1 }, pendingUser: 0, userInbox: 0 });
   });
 
   it("empty store → zero total, empty map, no pending user asks", () => {
-    expect(buildMailUnread(new Store(":memory:"))).toEqual({ total: 0, byAgent: {}, pendingUser: 0 });
+    expect(buildMailUnread(new Store(":memory:"))).toEqual({ total: 0, byAgent: {}, pendingUser: 0, userInbox: 0 });
   });
 
   it("pendingUser counts unanswered questions addressed to the human", () => {
