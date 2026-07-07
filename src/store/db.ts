@@ -744,6 +744,11 @@ export class Store {
       .all(threadId) as unknown as MailRow[];
   }
 
+  listMailThreadIds(): string[] {
+    const rows = this.db.prepare("SELECT DISTINCT thread_id FROM mail").all() as unknown as Array<{ thread_id: string }>;
+    return rows.map((r) => r.thread_id);
+  }
+
   /** Newest mail answering a given request (report/refusal-note carrying in_reply_to). */
   mailAnsweringRequest(requestId: string): MailRow | undefined {
     return this.db.prepare("SELECT * FROM mail WHERE in_reply_to = ? ORDER BY created_at DESC LIMIT 1")

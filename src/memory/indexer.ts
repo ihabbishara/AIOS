@@ -1,9 +1,10 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import type { Store } from "../store/db.js";
+import type { Store, MailRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { StoredEvent } from "../events.js";
-import { indexDoc, type Domain, type MemorySource } from "./recall.js";
+import type { LoadedRegistry } from "../agents/registry/loader.js";
+import { indexDoc, DOMAINS, type Domain, type MemorySource } from "./recall.js";
 
 /** Event types worth recalling. Inbound email is deliberately absent (security). */
 export const EVENT_INDEX_ALLOW = new Set(["calendar.changed"]);
@@ -99,4 +100,44 @@ export function reconcile(store: Store, vault: VaultWriter): void {
       indexEvent(store, { id: row.id, ts: row.ts, event });
     } catch { /* skip malformed */ }
   }
+}
+
+/** Recall domain for a mail thread: the root recipient's dept memoDomain; asks to the
+ *  owner fall back to the asking agent's dept; unresolvable agents → general. */
+function mailThreadDomain(registry: LoadedRegistry, root: MailRow): Domain {
+  const target = root.to_agent === "user" ? root.from_agent : root.to_agent;
+  const canonical = registry.agentOf.get(target);
+  const def = canonical ? registry.agents.get(canonical) : undefined;
+  const memoDomain = def ? registry.departments.get(def.department)?.memoDomain : undefined;
+  return DOMAINS.includes(memoDomain as Domain) ? (memoDomain as Domain) : "general";
+}
+
+/** Index one mail thread as a single recall doc — or delete it. Privacy wall at index
+ *  time: a thread with ANY private-visibility participant is never indexed, and a stale
+ *  doc is deleted (self-healing on visibility flips). Refused messages are excluded from
+ *  the body; the count in the fingerprint forces a rebuild when a sweep refusal flips a
+ *  message after insert. Bodies may embed external data — indexed as retrieval context
+ *  only; the Action Gate still protects all effects (same posture as indexEvent). */
+export function indexMailThread(store: Store, registry: LoadedRegistry, threadId: string): void {
+  const rows = store.mailThread(threadId);
+  if (!rows.length) return;
+  const ref = `thread:${threadId}`;
+  const participants = new Set<string>();
+  for (const m of rows) { participants.add(m.from_agent); participants.add(m.to_agent); }
+  participants.delete("user");
+  for (const p of participants) {
+    const canonical = registry.agentOf.get(p);
+    const def = canonical ? registry.agents.get(canonical) : undefined;
+    if (def?.manifest.visibility === "private") { store.deleteMemoryDoc("mail", ref); return; }
+  }
+  const included = rows.filter((m) => m.status !== "refused");
+  if (!included.length) { store.deleteMemoryDoc("mail", ref); return; }
+  const root = rows[0];
+  indexDoc(store, {
+    source: "mail", ref, domain: mailThreadDomain(registry, root),
+    title: `mail ${root.from_agent} ↔ ${root.to_agent} (${root.kind})`,
+    body: included.map((m) => `${m.from_agent} → ${m.to_agent}: ${m.body}`).join("\n"),
+    ts: included[included.length - 1].created_at,
+    fingerprint: `${included.length}:${rows[rows.length - 1].id}`,
+  });
 }

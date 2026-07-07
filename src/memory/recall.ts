@@ -1,7 +1,7 @@
 import type { Store } from "../store/db.js";
 import { tokenize } from "./tokenize.js";
 
-export type MemorySource = "vault" | "event" | "decision" | "memo";
+export type MemorySource = "vault" | "event" | "decision" | "memo" | "mail";
 export type Domain = "inbox" | "money" | "code" | "research" | "lifeops" | "general" | "profile";
 export const DOMAINS: Domain[] = ["inbox", "money", "code", "research", "lifeops", "general", "profile"];
 
