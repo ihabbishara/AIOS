@@ -49,7 +49,7 @@ function harness(run: SpecialistRunFn, capUsd?: number, planner?: Planner, opts?
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ms-vault-")), "AIOS");
   if (capUsd !== undefined) store.budgetAdd(new Date().toISOString().slice(0, 10), Math.round(capUsd * 100));
   const onComplete = vi.fn(async () => {});
-  const prepareSandbox = vi.fn(async () => ({ taskDir: "/tmp/should-not-be-used", mode: "build" as const }));
+  const prepareSandbox = vi.fn(async () => ({ taskDir: "/tmp/ms-sandbox", mode: "build" as const }));
   const engine = new GoalEngine({
     store, vault, run, registry,
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
@@ -81,6 +81,20 @@ const graphPlanner = (): Planner => ({
       { node_key: "n2", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: ["n1"], max_rounds: 1 },
     ],
     needsWorkspace: "none", spawnedByMail: mail.id, chainDepth: mail.chain_depth,
+  }),
+});
+
+// Mimics the post-spec planner: passes a plan-declared workspace straight through.
+// The engine layer alone must decide whether it survives.
+const workspacePlanner = (projectDir?: string, lead = "athena"): Planner => ({
+  plan: async () => { throw new Error("unused"); },
+  replan: async () => {},
+  planFromMail: async (engine, params, mail): Promise<GoalRow> => engine.startPlannedGoal({
+    title: params.title, request: params.request, department: params.department, lead,
+    origin: { channel: params.channel, chatId: params.chatId }, summary: "graph plan",
+    nodes: [{ node_key: "n1", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }],
+    projectDir, needsWorkspace: projectDir ? "worktree" : "none",
+    spawnedByMail: mail.id, chainDepth: mail.chain_depth,
   }),
 });
 
@@ -600,5 +614,65 @@ describe("sweep refusal recall re-index", () => {
     expect(store.getMail("m1")!.status).toBe("refused");
     // single-message thread, now all-refused → doc deleted by the refusal-site re-index
     expect(store.memoryFingerprint("mail", "thread:m1")).toBeUndefined();
+  });
+});
+
+describe("mail workspace (user-gated, spec 2026-07-07)", () => {
+  it("user mail to an engineering lead carries a workspace: prepareSandbox runs", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun, undefined, workspacePlanner("/tmp/projects/x"));
+    store.insertMail(reqMail({ from_agent: "user", to_agent: "athena", chain_depth: 0 }));
+    engine.pump();
+    await flush();
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(prepareSandbox).toHaveBeenCalledOnce();
+    expect(goal.project_dir).toBe("/tmp/ms-sandbox");
+    expect(goal.status).toBe("done");
+  });
+
+  it("agent mail graph with a planner-passed projectDir is hard-stripped by the engine", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun, undefined, workspacePlanner("/tmp/projects/x"));
+    store.insertMail(reqMail({ to_agent: "athena" })); // from athena (agent) → lead
+    engine.pump();
+    await flush();
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(goal.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();
+    expect(goal.status).toBe("done"); // stripped goal still runs to completion
+  });
+
+  it("user mail to a specialist (single-node) stays workspace-less", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun);
+    store.insertMail(reqMail({ from_agent: "user", to_agent: "vulcan", chain_depth: 0 }));
+    engine.pump();
+    await flush();
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(goal.plan_summary).toBe(`${MAIL_PREFIX}m1`);
+    expect(goal.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();
+  });
+
+  it("user mail to a non-engineering lead is stripped (engineering only)", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun, undefined, workspacePlanner("/tmp/projects/x", "midas"));
+    store.insertMail(reqMail({ from_agent: "user", to_agent: "midas", chain_depth: 0 }));
+    engine.pump();
+    await flush();
+    const goal = store.getGoal(store.getMail("m1")!.goal_id!)!;
+    expect(goal.department).toBe("finance");
+    expect(goal.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();
+  });
+
+  it("fail-closed: spawned_by_mail pointing at a missing row strips the workspace", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun);
+    engine.startPlannedGoal({
+      title: "t", request: "r", department: "engineering", lead: "athena",
+      origin: { channel: "telegram", chatId: "1" }, summary: "graph plan",
+      nodes: [{ node_key: "n1", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }],
+      projectDir: "/tmp/projects/x", needsWorkspace: "worktree", spawnedByMail: "ghost", chainDepth: 0,
+    });
+    await flush();
+    const goal = store.listGoals()[0]!;
+    expect(goal.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();
   });
 });

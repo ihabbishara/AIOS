@@ -326,6 +326,16 @@ export class GoalEngine {
     return goal;
   }
 
+  /** Workspace eligibility (spec 2026-07-07-workspace-mail-goals): non-mail goals are always
+   *  eligible; mail-goals only when user-sent + lead-planned graph + engineering. Fail-closed
+   *  when the source mail row is missing. */
+  private mailWorkspaceEligible(goal: GoalRow): boolean {
+    if (!goal.spawned_by_mail) return true;
+    if (goal.plan_summary.startsWith(MAIL_PREFIX)) return false; // single-node: never
+    if (goal.department !== "engineering") return false;
+    return this.deps.store.getMail(goal.spawned_by_mail)?.from_agent === "user";
+  }
+
   /** Workspace + goal.md, then pump. Errors fail the goal (port of the prepareSandbox path). */
   private async startGoal(goal: GoalRow, pb?: Playbook): Promise<void> {
     const { store, vault } = this.deps;
@@ -336,11 +346,15 @@ export class GoalEngine {
       `# ${goal.title}\n\n- department: ${goal.department}\n- lead: ${goal.lead}\n- status: running\n\n## Request\n\n${goal.request}\n\n## Plan\n\n${goal.plan_summary}`,
       { goal: goal.id, department: goal.department });
     try {
-      // Mail-spawned goals NEVER get a workspace/sandbox — code work enters ONLY via code_task
-      // (spec §4). Enforced at the engine so it holds regardless of prepareSandbox's own gating.
-      const sandbox = goal.spawned_by_mail
-        ? undefined
-        : await this.deps.prepareSandbox?.(goal, { playbook: pb });
+      // Mail-spawned goals may carry a workspace ONLY when user-sent + lead-planned +
+      // engineering (spec 2026-07-07). Everything else is hard-stripped here — including a
+      // planner-passed project_dir — so the wall holds regardless of planner behavior.
+      const eligible = this.mailWorkspaceEligible(goal);
+      if (!eligible && goal.project_dir) {
+        store.setGoalProjectDir(goal.id, null);
+        goal.project_dir = null;
+      }
+      const sandbox = eligible ? await this.deps.prepareSandbox?.(goal, { playbook: pb }) : undefined;
       if (sandbox) {
         store.setGoalProjectDir(goal.id, sandbox.taskDir);
         goal.project_dir = sandbox.taskDir;

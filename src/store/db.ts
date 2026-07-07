@@ -556,7 +556,7 @@ export class Store {
       .run(status, error ?? null, new Date().toISOString(), id);
   }
 
-  setGoalProjectDir(id: string, dir: string): void {
+  setGoalProjectDir(id: string, dir: string | null): void {
     this.db.prepare("UPDATE goals SET project_dir = ?, updated_at = ? WHERE id = ?")
       .run(dir, new Date().toISOString(), id);
   }
