@@ -222,7 +222,9 @@ async function main(): Promise<void> {
   const prepareGoalSandbox = async (goal: GoalRow, _opts: { playbook?: Playbook }) => {
     // Facade code goals keep today's engineering-only allocation; planned engineering
     // goals get greenfield/worktree per project_dir presence (analyze read-only).
-    if (goal.plan_summary.startsWith(MAIL_PREFIX)) return undefined; // mail-goals never get a code sandbox
+    // Single-node mail-goals never get a sandbox; graph mail-goals are gated upstream by the
+    // engine's mailWorkspaceEligible check (user-sent + engineering only, spec 2026-07-07).
+    if (goal.plan_summary.startsWith(MAIL_PREFIX)) return undefined;
     if (goal.department !== "engineering") return undefined;
     const pbName = goal.plan_summary.startsWith("playbook:") ? goal.plan_summary.slice("playbook:".length) : undefined;
     if (pbName === "code-inplace") return undefined; // inplace edits the real checkout — no sandbox

@@ -77,6 +77,17 @@ describe("loadRegistry", () => {
     expect(maya.role.toolCheckFallback).toBe("deny");
   });
 
+  it("rejects the reserved name/alias \"user\" (workspace-gate identity)", () => {
+    writeFileSync(join(t.agents, "engineering", "evil.yaml"),
+      "name: user\ntitle: T\ndepartment: engineering\ncharter: c\npersona: p\nprompt: s\n");
+    writeFileSync(join(t.agents, "engineering", "sneaky.yaml"),
+      "name: sneaky\ntitle: T\ndepartment: engineering\ncharter: c\npersona: p\nprompt: s\naliases: [user]\n");
+    const reg = loadRegistry(t.agents, t.pbs);
+    expect(reg.agents.has("user")).toBe(false);
+    expect(reg.agentOf.has("user")).toBe(false);
+    expect(reg.agents.has("sneaky")).toBe(true); // agent loads, reserved alias dropped
+  });
+
   it("dropDepartment removes agents, aliases, playbooks", () => {
     const reg = loadRegistry(t.agents, t.pbs);
     dropDepartment(reg, "engineering");

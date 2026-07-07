@@ -127,6 +127,9 @@ describe("planFromMail", () => {
   it("forces no workspace even when the plan proposes a worktree", async () => {
     const WORKTREE_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/tmp/projects/x" };
     const { engine, store } = harness([WORKTREE_PLAN]);
+    // Insert the agent mail row so the engine's fail-closed missing-row strip cannot mask a
+    // planner-layer regression — this pins the planner force in isolation.
+    store.insertMail(mail() as Omit<MailRow, "created_at" | "read_at">);
     const g = await engine["deps"].planner!.planFromMail(engine, {
       department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1",
     }, mail());
@@ -164,7 +167,7 @@ describe("planFromMail", () => {
     expect(store.listGoals()).toHaveLength(0);
   });
 
-  it("user mail with needsWorkspace none stays workspace-less", async () => {
+  it("a user-mail plan declaring needsWorkspace none yields no planner-passed projectDir", async () => {
     const { engine, store } = harness([GOOD_PLAN]);
     const m = insertUserMail(store);
     const g = await engine["deps"].planner!.planFromMail(engine, {

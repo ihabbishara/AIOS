@@ -362,6 +362,12 @@ export class GoalEngine {
       }
       if (goal.project_dir) mkdirSync(goal.project_dir, { recursive: true });
     } catch (err) {
+      // A mail-goal whose sandbox setup failed still holds the raw planner source path —
+      // null it so the failure report doesn't advertise a workspace that never existed.
+      if (goal.spawned_by_mail && goal.project_dir) {
+        store.setGoalProjectDir(goal.id, null);
+        goal.project_dir = null;
+      }
       const msg = `workspace setup failed: ${(err as Error).message}`;
       this.setGoalStatus(goal.id, "failed", msg);
       store.skipUnfinishedNodes(goal.id);
@@ -735,7 +741,15 @@ export class GoalEngine {
     }
     this.deps.store.resetRunningNodes();
     const goals = this.deps.store.unfinishedGoals();
-    for (const g of goals) if (g.status === "replanning" || g.status === "planning") this.setGoalStatus(g.id, "running");
+    for (const g of goals) {
+      // Crash-window hardening (spec 2026-07-07): a mail-goal persisted with a planner-passed
+      // project_dir but killed before startGoal's strip must not resume with a raw repo cwd.
+      if (g.project_dir && !this.mailWorkspaceEligible(g)) {
+        this.deps.store.setGoalProjectDir(g.id, null);
+        g.project_dir = null;
+      }
+      if (g.status === "replanning" || g.status === "planning") this.setGoalStatus(g.id, "running");
+    }
     this.pump();
     return goals.length;
   }
@@ -753,7 +767,9 @@ export class GoalEngine {
     return this.deps.planner.plan(this, params);   // Task 7 implements; engine exposes insertGoalPlanned below
   }
 
-  /** Used by the Planner (Task 7) to persist a validated plan and start it. */
+  /** Used by the Planner (Task 7) to persist a validated plan and start it.
+   *  Note: `needsWorkspace` is advisory only — `projectDir` is the sole carrier of workspace
+   *  intent here; allocation mode is derived in prepareSandbox from project_dir presence. */
   startPlannedGoal(p: {
     title: string; request: string; department: string; lead: string;
     origin: { channel: string; chatId: string }; summary: string;

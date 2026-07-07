@@ -1,6 +1,7 @@
 // src/engine/plan.ts — graph validation (fail-closed) + lead planner (Task 7).
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { isPrivateOrigin } from "../agents/direct.js";
+import { isUnder } from "../code/paths.js";
 import { toNewTaskNodes, type GraphNodeSpec } from "./compile.js";
 import { resolve } from "node:path";
 import type { Store } from "../store/db.js";
@@ -219,7 +220,8 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
    *  (undefined for greenfield/none). Throws a planning error otherwise — fail-closed. */
   const resolveWorkspaceDir = (raw: RawPlan): string | undefined => {
     if (raw.needsWorkspace !== "worktree" && raw.needsWorkspace !== "analyze") return undefined;
-    if (!raw.projectDir || !resolve(raw.projectDir).startsWith(resolve(deps.projectsRoot))) {
+    // isUnder is separator-boundary-safe (a plain startsWith would admit /x/projectsevil).
+    if (!raw.projectDir || !isUnder(raw.projectDir, deps.projectsRoot)) {
       throw new Error(`planning failed: needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`);
     }
     return resolve(raw.projectDir);

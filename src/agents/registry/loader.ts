@@ -132,11 +132,14 @@ export function loadRegistry(
         try { m = agentSchema.parse(parse(readFileSync(join(dirPath, f), "utf8"))); }
         catch (err) { log(`agent ${dirName}/${f} skipped: ${(err as Error).message}`); continue; }
         if (m.department !== dirName) { log(`agent ${dirName}/${f} skipped: department mismatch`); continue; }
+        // "user" is the human's mail identity and a security predicate (workspace gate) — reserved.
+        if (m.name === "user") { log(`agent ${dirName}/${f} skipped: "user" is a reserved name`); continue; }
         if (agents.has(m.name) || agentOf.has(m.name)) { log(`agent ${dirName}/${f} skipped: duplicate name "${m.name}"`); continue; }
         const def: AgentDef = { manifest: m, role: compile(m, extras[m.name]), department: dept.department };
         agents.set(m.name, def);
         agentOf.set(m.name, m.name);
         for (const a of m.aliases) {
+          if (a === "user") { log(`agent ${m.name}: alias "user" dropped (reserved)`); continue; }
           if (agentOf.has(a)) { log(`agent ${m.name}: alias "${a}" dropped (already taken)`); continue; }
           agentOf.set(a, m.name);
         }

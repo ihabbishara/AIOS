@@ -690,6 +690,24 @@ describe("mail workspace (user-gated, spec 2026-07-07)", () => {
     expect(c.store.unreadMailFor("athena")[0].body).not.toContain("Workspace:");
   });
 
+  it("boot resume strips a persisted project_dir from an ineligible mail-goal (crash window)", async () => {
+    const { store, engine, prepareSandbox } = harness(okRun);
+    // Simulate a crash after insertGoal persisted a planner-passed dir but before startGoal
+    // could strip it: the row exists with a raw repo path and an agent-sent source mail.
+    store.insertMail(reqMail({ id: "mx", status: "spawned" }));
+    store.insertGoal({
+      id: "g-crash", slug: "g-crash", title: "t", request: "r", department: "engineering", lead: "athena",
+      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: "/tmp/projects/x",
+      goal_dir: null, plan_summary: "graph plan", replans_used: 0, chain_depth: 1,
+      spawned_by_mail: "mx", error: null,
+    });
+    store.insertNodes("g-crash", [{ node_key: "n1", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+    engine.resumeUnfinished();
+    await flush();
+    expect(store.getGoal("g-crash")!.project_dir).toBeNull();
+    expect(prepareSandbox).not.toHaveBeenCalled();
+  });
+
   it("fail-closed: spawned_by_mail pointing at a missing row strips the workspace", async () => {
     const { store, engine, prepareSandbox } = harness(okRun);
     engine.startPlannedGoal({
