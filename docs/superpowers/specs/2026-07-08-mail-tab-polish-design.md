@@ -23,9 +23,11 @@ in the compose cycle:
 ## Decisions
 
 - **Refused is a per-thread count**, surfaced as a small marker in `ThreadRow`, mirroring the
-  existing `unread`/`pendingAsk` count columns. Only user-origin requests are refused within a
-  user thread, so `SUM(status = 'refused')` over the thread is the right signal — no sender filter
-  needed.
+  existing `unread`/`pendingAsk` count columns. `SUM(status = 'refused')` over the whole thread —
+  no sender filter. The badge means "a request in this thread was refused", which deliberately
+  includes an agent sub-request that inherited the user's `thread_id` (a cold mail spawned a goal
+  whose downstream ask later failed): the user kicked that chain off, so its degradation is worth
+  surfacing on their inbox row.
 - **Remount `ThreadDetail` per thread** via `key={open}`. This single change fixes items 2 and 3
   at once: a fresh mount resets `sentRead`, drops the stale-message flash (fresh `usePoll` →
   `data` undefined until the new fetch), and remounts `ReplyBox`/`AnswerBox` with empty drafts. No

@@ -147,9 +147,15 @@ describe("store user-inbox queries", () => {
     // thread A: clean cold mail + report
     rawMail(store, { id: "a1", from_agent: "user", to_agent: "vulcan", status: "spawned", thread_id: "ta" });
     rawMail(store, { id: "a2", from_agent: "vulcan", to_agent: "user", kind: "report", status: "unread", thread_id: "ta", in_reply_to: "a1", body: "done" });
+    // thread S: user cold mail that spawned a goal whose agent sub-request later failed —
+    // the refused sub-request (from_agent != 'user') inherits the user thread_id and DOES count:
+    // the badge means "a request in this thread was refused", not "MY direct request died".
+    rawMail(store, { id: "s1", from_agent: "user", to_agent: "athena", status: "spawned", thread_id: "ts" });
+    rawMail(store, { id: "s2", from_agent: "athena", to_agent: "vulcan", status: "refused", thread_id: "ts", error: "sub-task failed" });
     const byId = Object.fromEntries(store.userThreads().map((t) => [t.thread_id, t]));
     expect(byId["tr"].refused).toBe(1);
     expect(byId["ta"].refused).toBe(0);
+    expect(byId["ts"].refused).toBe(1); // agent-origin refusal in a user thread is surfaced
     // view carries it through
     const view = Object.fromEntries(buildUserThreads(store).map((t) => [t.threadId, t]));
     expect(view["tr"].refused).toBe(1);
