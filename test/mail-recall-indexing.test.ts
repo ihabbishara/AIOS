@@ -4,9 +4,10 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store, type MailRow } from "../src/store/db.js";
+import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { recall } from "../src/memory/recall.js";
-import { indexMailThread } from "../src/memory/indexer.js";
+import { indexMailThread, reconcile } from "../src/memory/indexer.js";
 
 /** engineering (code): athena, vulcan — shared. finance (money): midas private, ledger shared. */
 function fixtureRegistry() {
@@ -155,5 +156,35 @@ describe("indexMailThread", () => {
     indexMailThread(store, registry, "t1");
     expect(recall(store, "cloud region staging", { domain: "code" }).length).toBe(1);
     expect(recall(store, "frankfurt", { domain: "code" })[0].snippet).toContain("frankfurt");
+  });
+});
+
+describe("reconcile mail pass", () => {
+  it("backfills existing threads and deletes newly-walled docs", () => {
+    const root = mkdtempSync(join(tmpdir(), "mri-vault-"));
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(root, "AIOS");
+    vault.init();
+    store.insertMail(mailRow({ id: "q1", body: "backfilled correspondence", thread_id: "t1" }));
+    reconcile(store, vault, registry);
+    expect(recall(store, "backfilled correspondence")[0].ref).toBe("thread:t1");
+    const def = registry.agents.get("vulcan")!;
+    def.manifest.visibility = "private";
+    try {
+      reconcile(store, vault, registry);
+      expect(recall(store, "backfilled correspondence").length).toBe(0);
+    } finally {
+      def.manifest.visibility = "shared";
+    }
+  });
+
+  it("skips the mail pass when no registry is given (legacy signature)", () => {
+    const root = mkdtempSync(join(tmpdir(), "mri-vault-"));
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(root, "AIOS");
+    vault.init();
+    store.insertMail(mailRow({ id: "q1", body: "invisible without registry", thread_id: "t1" }));
+    reconcile(store, vault);
+    expect(recall(store, "invisible without registry").length).toBe(0);
   });
 });

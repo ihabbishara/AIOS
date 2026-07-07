@@ -86,8 +86,9 @@ export function reindexVault(store: Store, vault: VaultWriter): void {
   }
 }
 
-/** Boot backfill: vault + all resolved decisions + allowlisted historical events. Idempotent. */
-export function reconcile(store: Store, vault: VaultWriter): void {
+/** Boot backfill: vault + all resolved decisions + allowlisted historical events + mail
+ *  threads (when a registry is provided). Idempotent; also deletes newly-walled mail docs. */
+export function reconcile(store: Store, vault: VaultWriter, registry?: LoadedRegistry): void {
   reindexVault(store, vault);
   // 5000 caps are a deliberate boot-backfill bound (steady state is covered by live indexing +
   // reindexVault), not a paginated full scan.
@@ -99,6 +100,9 @@ export function reconcile(store: Store, vault: VaultWriter): void {
       const event = JSON.parse(row.payload);
       indexEvent(store, { id: row.id, ts: row.ts, event });
     } catch { /* skip malformed */ }
+  }
+  if (registry) {
+    for (const tid of store.listMailThreadIds()) indexMailThread(store, registry, tid);
   }
 }
 

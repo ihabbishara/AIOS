@@ -411,7 +411,7 @@ async function main(): Promise<void> {
   // are still live-indexed. reconcile() below is just a snapshot backfill; the
   // listener is idempotent via fingerprints, so any overlap is a harmless no-op.
   try {
-    reconcile(store, vault);
+    reconcile(store, vault, registry);
   } catch (err) {
     log(`memory reconcile failed: ${(err as Error).message}`);
   }
