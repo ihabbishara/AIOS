@@ -30,6 +30,11 @@ export const USER = "user";
 const USER_ALIASES = new Set([USER, "you", "me", "owner", "principal"]);
 export const isUserTarget = (to: string): boolean => USER_ALIASES.has(to.trim().toLowerCase());
 
+/** True only for a completed-goal report addressed to the owner — drives the 📨 chat ping. */
+export function isUserReportEvent(e: AiosEvent): boolean {
+  return e.type === "mail.sent" && e.kind === "report" && e.to === USER;
+}
+
 const INJECT_CAP = 5;
 const BODY_TRUNCATE = 500;
 const clip = (s: string) => (s.length <= BODY_TRUNCATE ? s : `${s.slice(0, BODY_TRUNCATE)}…`);
@@ -130,6 +135,29 @@ export class Mailbox {
     this.deps.onEvent?.({ type: "goal.status", goalId: ctx.goalId!, status: "awaiting-mail" });
     this.deps.onQueued?.();
     return `Question sent to ${canonical}. Your task will pause and resume automatically when they answer.`;
+  }
+
+  /** Owner-originated cold mail from Mission Control (compose spec 2026-07-07). Durable:
+   *  the request queues for the sweeper like agent mail and the report lands back in the
+   *  user's inbox. Origin is hardcoded server-side to the private web/ui surface — the
+   *  client never supplies sender, origin, depth, or status. */
+  sendFromUser(args: { to: string; body: string; threadId?: string; inReplyTo?: string }):
+    { ok: true; id: string } | { ok: false; refusal: string } {
+    if (isUserTarget(args.to)) return { ok: false, refusal: "Refused: that target is you — mail an agent instead." };
+    const ctx: MailSendCtx = { from: USER, origin: { channel: "web", chatId: "ui" }, goalDepth: -1 };
+    const r = this.resolveRecipient(ctx, args.to, "mail");
+    if ("refusal" in r) return { ok: false, refusal: r.refusal };
+    const { canonical } = r;
+    const id = randomUUID();
+    this.deps.store.insertMail({
+      id, from_agent: USER, to_agent: canonical, kind: "request", body: args.body,
+      goal_id: null, origin_channel: "web", origin_chat_id: "ui",
+      chain_depth: 0, status: "queued", error: null,
+      thread_id: args.threadId ?? id, in_reply_to: args.inReplyTo ?? null,
+    });
+    this.deps.onEvent?.({ type: "mail.sent", id, from: USER, to: canonical, kind: "request" });
+    this.deps.onQueued?.();
+    return { ok: true, id };
   }
 
   /** System-prompt block: unread inbound first, then own refusal acks — WITHOUT marking read.
