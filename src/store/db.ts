@@ -282,6 +282,9 @@ export class Store {
     try { this.db.exec("ALTER TABLE mail ADD COLUMN from_node TEXT"); } catch { /* exists */ }
     // Backfill: pre-thread mail each becomes its own singleton thread.
     this.db.exec("UPDATE mail SET thread_id = id WHERE thread_id IS NULL");
+    // mailThread()/recall re-indexing look mail up by thread on every mail event — index it.
+    // Must run AFTER the thread_id migration above (the column may not exist in the base DDL path).
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail(thread_id)");
     // Migration (mail-clarification): the request a parked goal is blocked on.
     try { this.db.exec("ALTER TABLE goals ADD COLUMN awaiting_mail TEXT"); } catch { /* exists */ }
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
