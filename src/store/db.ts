@@ -59,6 +59,11 @@ export interface MailRow {
   from_node?: string | null;
 }
 
+export interface UserThreadRow {
+  thread_id: string; last_ts: string; last_from: string; last_body: string;
+  unread: number; pending_ask: number;
+}
+
 export interface TaskNodeRow {
   goal_id: string;
   node_key: string;
@@ -681,8 +686,9 @@ export class Store {
   /** Unread inbound count per recipient (status='unread' — same set injectionFor drains).
    *  Excludes queued/spawned requests (work, not messages) and already-read mail. */
   unreadCountsByAgent(): Record<string, number> {
+    // The human's inbox is a separate surface (unreadUserInbox) — exclude it from agent badges.
     const rows = this.db.prepare(
-      "SELECT to_agent, COUNT(*) AS c FROM mail WHERE status = 'unread' GROUP BY to_agent",
+      "SELECT to_agent, COUNT(*) AS c FROM mail WHERE status = 'unread' AND to_agent != 'user' GROUP BY to_agent",
     ).all() as unknown as Array<{ to_agent: string; c: number }>;
     const out: Record<string, number> = {};
     for (const r of rows) out[r.to_agent] = r.c;
@@ -750,6 +756,36 @@ export class Store {
   listMailThreadIds(): string[] {
     const rows = this.db.prepare("SELECT DISTINCT thread_id FROM mail").all() as unknown as Array<{ thread_id: string }>;
     return rows.map((r) => r.thread_id);
+  }
+
+  /** Thread summaries for conversations involving the human, newest activity first.
+   *  pending_ask is DERIVED like pendingUserAsks (a reply carrying in_reply_to answers it). */
+  userThreads(limit = 100): UserThreadRow[] {
+    return this.db.prepare(`
+      SELECT t.thread_id,
+             l.created_at AS last_ts, l.from_agent AS last_from, substr(l.body, 1, 160) AS last_body,
+             t.unread, t.pending_ask
+      FROM (
+        SELECT thread_id,
+               SUM(CASE WHEN status = 'unread' AND to_agent = 'user' THEN 1 ELSE 0 END) AS unread,
+               SUM(CASE WHEN kind = 'request' AND to_agent = 'user' AND status = 'awaiting-human'
+                         AND id NOT IN (SELECT in_reply_to FROM mail WHERE in_reply_to IS NOT NULL)
+                        THEN 1 ELSE 0 END) AS pending_ask
+        FROM mail
+        WHERE thread_id IN (SELECT DISTINCT thread_id FROM mail WHERE from_agent = 'user' OR to_agent = 'user')
+        GROUP BY thread_id
+      ) t
+      JOIN mail l ON l.rowid = (
+        SELECT rowid FROM mail WHERE thread_id = t.thread_id ORDER BY created_at DESC, rowid DESC LIMIT 1
+      )
+      ORDER BY l.created_at DESC, l.rowid DESC
+      LIMIT ?
+    `).all(limit) as unknown as UserThreadRow[];
+  }
+
+  unreadUserInbox(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS c FROM mail WHERE status = 'unread' AND to_agent = 'user'")
+      .get() as { c: number }).c;
   }
 
   /** Newest mail answering a given request (report/refusal-note carrying in_reply_to). */
