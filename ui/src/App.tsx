@@ -7,7 +7,7 @@ import { Goals } from "./views/Goals.js";
 import { Mail } from "./views/Mail.js";
 import { Org } from "./views/Org.js";
 import { RoutingTrail } from "./views/RoutingTrail.js";
-import { Chat } from "./views/Chat.js";
+import { ChatDrawer } from "./components/ChatDrawer.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
 import { EventFeed } from "./views/EventFeed.js";
@@ -18,7 +18,7 @@ import { Packs } from "./views/Packs.js";
 // zone → ordered sub-views. First entry is the zone default.
 const SUBNAV: Record<string, string[]> = {
   inbox: [],
-  work: ["goals", "mail", "chat"],
+  work: ["goals", "mail"],
   staff: ["org", "governance"],
   system: ["departments", "config", "costs", "routing"],
 };
@@ -27,7 +27,7 @@ const SUBNAV: Record<string, string[]> = {
 function leafOf(route: Route): string {
   const sub = route.parts[0];
   if (route.zone === "inbox") return "inbox";
-  if (route.zone === "work") return sub === "mail" ? "mail" : sub === "chat" ? "chat" : "goals";
+  if (route.zone === "work") return sub === "mail" ? "mail" : "goals";
   if (route.zone === "staff") {
     if (sub === "agents") return "org"; // profile drill-in renders inside Org
     return sub === "governance" ? "governance" : "org";
@@ -39,6 +39,7 @@ export function App() {
   const route = useRoute();
   const leaf = leafOf(route);
   const [chatTarget, setChatTarget] = useState("hermes");
+  const [chatOpen, setChatOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem("aios_rail") !== "0");
   const { events, connected } = useEvents();
   const { data: state, error, reload } = useFetch(() => api.state(), []);
@@ -46,7 +47,7 @@ export function App() {
   const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
   const { data: pending } = useLiveQuery(() => api.actions("proposed"), events, T.actions);
 
-  const openChat = (name: string) => { setChatTarget(name); navigate("work/chat"); };
+  const openChat = (name: string) => { setChatTarget(name); setChatOpen(true); };
   const toggleRail = () => setRailOpen((v) => { localStorage.setItem("aios_rail", v ? "0" : "1"); return !v; });
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;
@@ -76,6 +77,8 @@ export function App() {
           {activeAgents.size === 0 && <span className="text-dim text-[11px]">all agents idle</span>}
         </div>
         <BudgetBar budget={budget} />
+        <button onClick={() => setChatOpen((v) => !v)}
+          className={`label hover:text-fg ${chatOpen ? "text-phosphor" : ""}`}>comms</button>
         <button onClick={toggleRail} title="toggle telemetry" className={`label hover:text-fg ${railOpen ? "text-phosphor" : ""}`}>
           ◫
         </button>
@@ -133,7 +136,6 @@ export function App() {
           <div className={leaf === "inbox" ? "h-full" : "hidden"}><Inbox events={events} /></div>
           <div className={leaf === "goals" ? "h-full" : "hidden"}><Goals events={events} route={route} /></div>
           <div className={leaf === "mail" ? "h-full" : "hidden"}><Mail events={events} route={route} /></div>
-          <div className={leaf === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
           <div className={leaf === "org" ? "h-full" : "hidden"}><Org events={events} route={route} onOpenChat={openChat} unreadByAgent={unread?.byAgent ?? {}} /></div>
           <div className={leaf === "governance" ? "" : "hidden"}><Governance events={events} /></div>
           <div className={leaf === "departments" ? "h-full" : "hidden"}><Packs events={events} /></div>
@@ -150,6 +152,9 @@ export function App() {
           </aside>
         )}
       </div>
+
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)}
+        state={state} events={events} target={chatTarget} setTarget={setChatTarget} />
     </div>
   );
 }
