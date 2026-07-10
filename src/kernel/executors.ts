@@ -76,3 +76,42 @@ export function permissionRevokeExecutor(store: Store, bus: EventBus): Executor 
     },
   };
 }
+
+/** Group-ledger mutations flow through the gate for audit + demotability.
+ *  Seeded autonomous by default (config.trustSeeds) — same UX, full audit trail. */
+export function ledgerWriteExecutor(store: Store, vault: VaultWriter, company: string): Executor {
+  return {
+    type: "ledger.write",
+    schema: z.object({
+      op: z.enum(["add", "remove"]),
+      ledger: z.string(),
+      payer: z.string().optional(),
+      amount_cents: z.number().int().positive().optional(),
+      currency: z.string().optional(),
+      description: z.string().optional(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      receipt_path: z.string().optional(),
+      id: z.number().int().optional(),
+    }).refine((p) => p.op === "remove" ? p.id != null
+      : p.payer != null && p.amount_cents != null && p.currency != null && p.description != null && p.date != null,
+      { message: "add needs payer/amount_cents/currency/description/date; remove needs id" }),
+    async execute(payload) {
+      const p = payload as {
+        op: "add" | "remove"; ledger: string; payer?: string; amount_cents?: number;
+        currency?: string; description?: string; date?: string; receipt_path?: string; id?: number;
+      };
+      if (p.op === "add") {
+        const id = store.addExpense({
+          ledger: p.ledger, payer: p.payer!, amountCents: p.amount_cents!,
+          currency: p.currency!, description: p.description!, date: p.date!, receiptPath: p.receipt_path,
+        });
+        const pretty = `${(p.amount_cents! / 100).toFixed(2)} ${p.currency}`;
+        vault.appendDaily(`${company} expense #${id}: ${p.payer} paid ${pretty} — ${p.description}`);
+        return `Recorded #${id}: ${p.payer} paid ${pretty} for "${p.description}" on ${p.date}.`;
+      }
+      return store.deleteExpense(p.ledger, p.id!)
+        ? `Removed expense #${p.id}.`
+        : `No expense #${p.id} in this ledger.`;
+    },
+  };
+}

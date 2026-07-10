@@ -26,7 +26,7 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
 import type { ChannelAdapter } from "./channels/types.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
-import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor } from "./kernel/executors.js";
+import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor, ledgerWriteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
 import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
@@ -143,6 +143,7 @@ async function main(): Promise<void> {
   executors.register(trustPromoteExecutor(store, bus));
   executors.register(permissionGrantExecutor(store, bus));
   executors.register(permissionRevokeExecutor(store, bus));
+  executors.register(ledgerWriteExecutor(store, vault, config.financeCompany));
 
   const gate = new ActionGate({
     store, registry: executors, policy: config.trustPolicy, bus, expiryMs: config.actionExpiryMs, log,

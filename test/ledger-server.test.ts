@@ -11,17 +11,20 @@ import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { buildLedgerServer } from "../src/finance/server.js";
 import { buildAttachmentServer } from "../src/agents/attachment-server.js";
 import type { Attachment } from "../src/agents/attachment.js";
+import { ledgerWriteExecutor } from "../src/kernel/executors.js";
+import { newRecord } from "../src/kernel/trust.js";
 
 const MEMBERS = [
   { name: "Ihab", handle: "ihab" },
   { name: "Amr", handle: "amr" },
 ];
 
-function handlers(store: Store, origin: { channel: string; chatId: string }) {
+function handlers(store: Store, origin: { channel: string; chatId: string }, seedAutonomous = true) {
   const bus = new EventBus(store);
+  const registry = new ExecutorRegistry();
   const gate = new ActionGate({
     store,
-    registry: new ExecutorRegistry(),
+    registry,
     policy: DEFAULT_POLICY,
     bus,
     expiryMs: 60_000,
@@ -29,6 +32,11 @@ function handlers(store: Store, origin: { channel: string; chatId: string }) {
   const vaultRoot = mkdtempSync(join(tmpdir(), "vault-"));
   const vault = new VaultWriter(vaultRoot, "test");
   vault.init();
+  registry.register(ledgerWriteExecutor(store, vault, "TestCo"));
+  if (seedAutonomous) {
+    const rec = newRecord("ledger.write", new Date().toISOString());
+    store.upsertTrust({ ...rec, state: "autonomous", graduatedAt: rec.firstSeen });
+  }
   const server = buildLedgerServer(
     { store, vault, gate, origin },
     { company: "TestCo", members: MEMBERS },
@@ -187,5 +195,28 @@ describe("ledger toolServer", () => {
 
     const result = await callText(t.export_csv, {});
     expect(result).toContain("all-time");
+  });
+
+  it("ledger writes flow through the gate: autonomous seed → executed + audited", async () => {
+    const t = handlers(store, { channel: "telegram", chatId: "gated-A" });
+    const reply = await callText(t.add_expense, {
+      payer: "Ihab", amount: 12, currency: "EUR", description: "Cable", date: "2026-07-01",
+    });
+    expect(reply).toContain("Recorded #");
+    const audited = store.listActions().filter((a) => a.type === "ledger.write");
+    expect(audited).toHaveLength(1);
+    expect(audited[0].status).toBe("executed");
+  });
+
+  it("ledger writes queue when ledger.write is supervised (no seed)", async () => {
+    const t = handlers(store, { channel: "telegram", chatId: "gated-B" }, false);
+    const reply = await callText(t.add_expense, {
+      payer: "Ihab", amount: 12, currency: "EUR", description: "Cable", date: "2026-07-01",
+    });
+    expect(reply).toContain("Queued for approval");
+    expect(await callText(t.list_expenses, {})).toContain("Ledger is empty");
+    const queued = store.listActions().filter((a) => a.type === "ledger.write");
+    expect(queued).toHaveLength(1);
+    expect(queued[0].status).toBe("proposed");
   });
 });

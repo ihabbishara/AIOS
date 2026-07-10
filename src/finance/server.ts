@@ -30,7 +30,7 @@ export function buildLedgerServer(
   deps: { store: Store; vault: VaultWriter; gate: ActionGate; origin: { channel: string; chatId: string } },
   cfg: { company: string; members: FinanceMember[] },
 ) {
-  const { store, vault, origin } = deps;
+  const { store, vault, gate, origin } = deps;
   const { company } = cfg;
   const members = cfg.members.map((m) => m.name);
   const ledger = `${origin.channel}:${origin.chatId}`;
@@ -52,19 +52,19 @@ export function buildLedgerServer(
     async (a) => {
       const date = a.date ?? new Date().toISOString().slice(0, 10);
       const cents = toCents(a.amount);
-      const id = store.addExpense({
-        ledger,
-        payer: a.payer.trim(),
-        amountCents: cents,
-        currency: a.currency.toUpperCase(),
-        description: a.description,
-        date,
-        receiptPath: a.receipt_path,
-      });
-      vault.appendDaily(
-        `${company} expense #${id}: ${a.payer} paid ${formatCents(cents, a.currency.toUpperCase())} — ${a.description}`,
-      );
-      return text(`Recorded #${id}: ${a.payer} paid ${formatCents(cents, a.currency.toUpperCase())} for "${a.description}" on ${date}.`);
+      const currency = a.currency.toUpperCase();
+      const row = await gate.propose({
+        type: "ledger.write",
+        payload: {
+          op: "add", ledger, payer: a.payer.trim(), amount_cents: cents,
+          currency, description: a.description, date,
+          ...(a.receipt_path ? { receipt_path: a.receipt_path } : {}),
+        },
+        preview: `Ledger add: ${a.payer.trim()} paid ${formatCents(cents, currency)} — ${a.description} (${ledger})`,
+      }, origin);
+      return text(row.status === "executed"
+        ? row.result ?? "Recorded."
+        : `Queued for approval (${row.id}) — approve to record.`);
     },
   );
 
@@ -72,8 +72,16 @@ export function buildLedgerServer(
     "remove_expense",
     "Delete a wrongly recorded expense by id.",
     { id: z.number().int() },
-    async (a) =>
-      text(store.deleteExpense(ledger, a.id) ? `Removed expense #${a.id}.` : `No expense #${a.id} in this ledger.`),
+    async (a) => {
+      const row = await gate.propose({
+        type: "ledger.write",
+        payload: { op: "remove", ledger, id: a.id },
+        preview: `Ledger remove: expense #${a.id} (${ledger})`,
+      }, origin);
+      return text(row.status === "executed"
+        ? row.result ?? `Removed expense #${a.id}.`
+        : `Queued for approval (${row.id}) — approve to remove.`);
+    },
   );
 
   const listExpenses = tool(

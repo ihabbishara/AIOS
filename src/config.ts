@@ -218,7 +218,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
           .split(",").map((s) => s.trim()).filter(Boolean),
       ]),
     },
-    trustSeeds: parseTrustSeeds(process.env.AIOS_TRUST_SEED ?? "vault.write=autonomous"),
+    trustSeeds: parseTrustSeeds(process.env.AIOS_TRUST_SEED ?? "vault.write=autonomous,ledger.write=autonomous"),
     primaryChat: parsePrimaryChat(process.env.AIOS_PRIMARY_CHAT),
     anchorMorning: process.env.AIOS_ANCHOR_MORNING ?? "07:30",
     anchorEvening: process.env.AIOS_ANCHOR_EVENING ?? "21:00",
