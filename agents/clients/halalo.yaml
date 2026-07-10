@@ -49,5 +49,4 @@ tools:
   - mcp__halalo_analytics__cloudflare_analytics
 maxTurns: 60
 permissionMode: default
-guards: []
 aliases: []

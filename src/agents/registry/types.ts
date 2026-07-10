@@ -10,7 +10,6 @@ export const agentSchema = z.object({
   prompt: z.string().min(1),
   model: z.string().optional(),
   tools: z.array(z.string()).default([]),
-  guards: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
   maxTurns: z.number().int().positive().default(25),
   permissionMode: z.enum(["dontAsk", "bypassPermissions", "default"]).default("dontAsk"),

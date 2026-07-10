@@ -310,9 +310,8 @@ Same rules as planning: roster agents only, verdict/test-report critics, ≤12 t
         }
         if (op.op === "add") { for (const n of (op.nodes as RawNode[]) ?? []) { current.set(n.key, n); adds.push(n); } }
       }
-      const { v, specs } = validateOrExplain([...current.values()], goal.department, origin);
+      const { v } = validateOrExplain([...current.values()], goal.department, origin);
       if (!v.ok) throw new Error(`patch invalid: ${v.error}`);
-      void specs;
 
       for (const n of replaces) {
         deps.store.replaceNode(goal.id, n.key, toNewTaskNodes([{ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds }])[0]);

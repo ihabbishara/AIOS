@@ -1,4 +1,4 @@
-// src/engine/goals.ts — the unified GoalEngine: node runner (this half) + scheduler (Task 6).
+// src/engine/goals.ts — the unified GoalEngine: node runner (this half) + scheduler.
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import type { Store, GoalRow, TaskNodeRow, GoalStatus, NodeStatus, NewTaskNode, MailRow } from "../store/db.js";
@@ -137,8 +137,6 @@ function finalArtifact(goal: GoalRow, node: TaskNodeRow, deps: NodeRunDeps, role
 async function runOnce(goal: GoalRow, node: TaskNodeRow, deps: NodeRunDeps): Promise<void> {
   const { store, vault } = deps;
   const ctx = contextBlock(goal, ancestorArtifacts(store.listNodes(goal.id), node.node_key), vault);
-  const mkdirCwd = () => goal.project_dir; // cwd creation handled by makeRunSpecialist path via runner cwd; project dirs are pre-created at goal start (Task 6)
-  void mkdirCwd;
 
   switch (node.type) {
     case "run": {
@@ -767,7 +765,7 @@ export class GoalEngine {
     return this.deps.planner.plan(this, params);   // Task 7 implements; engine exposes insertGoalPlanned below
   }
 
-  /** Used by the Planner (Task 7) to persist a validated plan and start it.
+  /** Used by the lead planner to persist a validated plan and start it.
    *  Note: `needsWorkspace` is advisory only — `projectDir` is the sole carrier of workspace
    *  intent here; allocation mode is derived in prepareSandbox from project_dir presence. */
   startPlannedGoal(p: {
