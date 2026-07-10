@@ -1,12 +1,10 @@
 // ui/src/views/Org.tsx — org-first home: department columns, live agent cards, profile drill-in.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type OrgAgentCard, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useFetch, useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 const DEPT_ORDER = ["operations", "engineering", "research", "finance", "life", "clients"];
-
-// Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
-const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read", "mail.asked_user"]);
 
 const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   idle: "bg-panel-2 border border-line",
@@ -18,12 +16,7 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
   events: StoredEvent[]; onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
   agentTarget: string | null; onConsumeAgentTarget: () => void; unreadByAgent: Record<string, number>;
 }) {
-  // Re-fetch when agent or action events arrive — same lastEvt pattern as Packs.
-  const lastEvt = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("agent.") || e.event.type.startsWith("action.")).at(-1)?.id,
-    [events],
-  );
-  const { data: org } = usePoll(() => api.org(), [lastEvt]);
+  const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,7 +90,7 @@ function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal, unreadByAg
   onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
   unreadByAgent: Record<string, number>;
 }) {
-  const { data: p, error } = usePoll(() => api.agent(name), [name]);
+  const { data: p, error } = useFetch(() => api.agent(name), [name]);
   if (error) return <div className="text-alert text-[12px]">error: {error} <button className="text-dim underline" onClick={onBack}>back</button></div>;
   if (!p) return <div className="text-dim">loading…</div>;
 
@@ -206,11 +199,7 @@ const MAIL_KIND: Record<string, string> = {
 function MailSection({ name, events, onOpenGoal, unread }: {
   name: string; events: StoredEvent[]; onOpenGoal: (slug: string, nodeKey: string | null) => void; unread: number;
 }) {
-  const lastMailEvt = useMemo(
-    () => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id,
-    [events],
-  );
-  const { data: mail } = usePoll(() => api.mail(name), [name, lastMailEvt]);
+  const { data: mail } = useLiveQuery(() => api.mail(name), events, T.agentMail, [name]);
   if (!mail) return null;
 
   return (

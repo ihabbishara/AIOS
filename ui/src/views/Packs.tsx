@@ -1,14 +1,11 @@
 // ui/src/views/Packs.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type PackView, type PackPlaybookView, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 export function Packs({ events }: { events: StoredEvent[] }) {
-  const lastEvt = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
-    [events],
-  );
-  const { data: packs } = usePoll(() => api.packs(), [lastEvt]);
+  const { data: packs } = useLiveQuery(() => api.packs(), events, T.goals);
 
   return (
     <div className="flex flex-col gap-4 overflow-auto h-full min-h-0 pr-1">

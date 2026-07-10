@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, setToken, getToken, type BudgetInfo } from "./api.js";
-import { useEvents, usePoll } from "./hooks.js";
+import { useEvents, useFetch, useLiveQuery } from "./hooks.js";
+import { T } from "./lib/topics.js";
 import { Goals, type GoalTarget } from "./views/Goals.js";
 import { Mail } from "./views/Mail.js";
 import { Org } from "./views/Org.js";
@@ -17,14 +18,11 @@ import { Packs } from "./views/Packs.js";
 const TABS = ["org", "mail", "chat", "routing", "goals", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
 type Tab = (typeof TABS)[number];
 
-// Agent-mailbox events only — "mail." prefix would also match Gmail's mail.received.
-const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read", "mail.asked_user"]);
-
 export function App() {
   const [tab, setTab] = useState<Tab>("org");
   const [chatTarget, setChatTarget] = useState("hermes");
   const { events, connected } = useEvents();
-  const { data: state, error, reload } = usePoll(() => api.state(), []);
+  const { data: state, error, reload } = useFetch(() => api.state(), []);
   const openChat = (name: string) => { setChatTarget(name); setTab("chat"); };
   const [goalTarget, setGoalTarget] = useState<GoalTarget | null>(null);
   const openGoal = (slug: string, nodeKey: string | null) => { setGoalTarget({ slug, nodeKey }); setTab("goals"); };
@@ -33,14 +31,9 @@ export function App() {
   const openAgent = (name: string) => { setAgentTarget(name); setTab("org"); };
   const consumeAgentTarget = useCallback(() => setAgentTarget(null), []);
   // Budget refreshes when costs land (agent.end) or goals transition (pause-budget etc.).
-  const lastCostEvt = useMemo(
-    () => events.filter((e) => e.event.type === "agent.end" || e.event.type.startsWith("goal.")).at(-1)?.id,
-    [events],
-  );
-  const { data: budget } = usePoll(() => api.budget(), [lastCostEvt]);
+  const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
   // Unread-mail badges (nav total + per-agent) refresh when agent-mailbox events land (mail.sent/spawned/read).
-  const lastMailEvt = useMemo(() => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id, [events]);
-  const { data: unread } = usePoll(() => api.mailUnread(), [lastMailEvt]);
+  const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;
 

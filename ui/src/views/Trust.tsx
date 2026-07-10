@@ -1,6 +1,6 @@
-import { useMemo } from "react";
 import { api, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 const STATE_COLOR: Record<string, string> = {
   autonomous: "text-cyan",
@@ -9,14 +9,7 @@ const STATE_COLOR: Record<string, string> = {
 };
 
 export function Trust({ events }: { events: StoredEvent[] }) {
-  const lastTrustEvent = useMemo(
-    () =>
-      events
-        .filter((e) => e.event.type === "trust.changed" || e.event.type.startsWith("action."))
-        .at(-1)?.id,
-    [events],
-  );
-  const { data, reload } = usePoll(() => api.trust(), [lastTrustEvent]);
+  const { data, reload } = useLiveQuery(() => api.trust(), events, T.trust);
   if (!data) return <div className="text-dim">loading…</div>;
 
   const demote = async (type: string) => {

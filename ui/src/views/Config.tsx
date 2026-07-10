@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { api } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useFetch } from "../hooks.js";
 
 export function Config() {
-  const { data: entries, reload } = usePoll(() => api.config(), []);
-  const { data: playbooks, reload: reloadPbs } = usePoll(() => api.playbooks(), []);
+  const { data: entries, reload } = useFetch(() => api.config(), []);
+  const { data: playbooks, reload: reloadPbs } = useFetch(() => api.playbooks(), []);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [pbFile, setPbFile] = useState<string | null>(null);
   const [pbYaml, setPbYaml] = useState("");

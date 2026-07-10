@@ -1,7 +1,7 @@
 // ui/src/views/RoutingTrail.tsx — filterable feed of route.decision events.
 import { useMemo, useState } from "react";
 import { api, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useFetch } from "../hooks.js";
 
 const VIAS = ["all", "mention", "binding", "handoff", "default", "verdict", "reset"] as const;
 
@@ -13,7 +13,7 @@ const VIA_COLOR: Record<string, string> = {
 interface RouteEvt { to: string; via: string; reason: string; channel: string; chatId: string }
 
 export function RoutingTrail({ events }: { events: StoredEvent[] }) {
-  const { data: history } = usePoll(() => api.events(), []);
+  const { data: history } = useFetch(() => api.events(), []);
   const [q, setQ] = useState("");
   const [via, setVia] = useState<(typeof VIAS)[number]>("all");
 

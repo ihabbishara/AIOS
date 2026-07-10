@@ -1,13 +1,9 @@
-import { useMemo } from "react";
 import { api, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 export function Costs({ events }: { events: StoredEvent[] }) {
-  const lastCostEvent = useMemo(
-    () => events.filter((e) => e.event.type === "agent.end" && e.event.costUsd).at(-1)?.id,
-    [events],
-  );
-  const { data } = usePoll(() => api.costs(), [lastCostEvent]);
+  const { data } = useLiveQuery(() => api.costs(), events, T.costs);
   if (!data) return <div className="text-dim">loading…</div>;
 
   const agents = Object.entries(data.byAgent).sort((a, b) => b[1] - a[1]);

@@ -1,13 +1,10 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { api, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 export function Approvals({ events }: { events: StoredEvent[] }) {
-  const lastActionEvent = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("action.")).at(-1)?.id,
-    [events],
-  );
-  const { data, reload } = usePoll(() => api.actions("proposed"), [lastActionEvent]);
+  const { data, reload } = useLiveQuery(() => api.actions("proposed"), events, T.actions);
   const [busy, setBusy] = useState<string>();
 
   const decideAction = async (id: string, verdict: "approve" | "reject") => {

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { getToken, type StoredEvent } from "./api.js";
+import { lastMatching } from "./lib/topics.js";
 
 /** Live event stream via SSE, capped buffer, auto-reconnect. */
 export function useEvents(cap = 400): { events: StoredEvent[]; connected: boolean } {
@@ -33,8 +34,8 @@ export function useEvents(cap = 400): { events: StoredEvent[]; connected: boolea
   return { events, connected };
 }
 
-/** Fetch with manual refresh + optional auto-refresh on event types. */
-export function usePoll<T>(fn: () => Promise<T>, deps: unknown[] = []): {
+/** Fetch once + manual reload; re-fetches when deps change. (Renamed from the misnamed usePoll.) */
+export function useFetch<T>(fn: () => Promise<T>, deps: unknown[] = []): {
   data: T | undefined;
   error: string | undefined;
   reload: () => void;
@@ -47,4 +48,16 @@ export function usePoll<T>(fn: () => Promise<T>, deps: unknown[] = []): {
   }, deps);
   useEffect(() => { reload(); }, [reload]);
   return { data, error, reload };
+}
+
+/** useFetch keyed on the newest event matching `topics` — SSE events invalidate REST reads. */
+export function useLiveQuery<T>(
+  fn: () => Promise<T>,
+  events: StoredEvent[],
+  topics: readonly string[],
+  extraDeps: unknown[] = [],
+): ReturnType<typeof useFetch<T>> {
+  const lastEvt = useMemo(() => lastMatching(events, topics), [events, topics]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useFetch(fn, [lastEvt, ...extraDeps]);
 }

@@ -1,17 +1,12 @@
 // ui/src/views/Mail.tsx — the human's correspondence: inbox threads + compose (spec 2026-07-07).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type MailView, type StoredEvent, type UserThreadView } from "../api.js";
-import { usePoll } from "../hooks.js";
-
-const AGENT_MAIL_EVENTS = new Set(["mail.sent", "mail.spawned", "mail.read", "mail.asked_user"]);
+import { useFetch, useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 export function Mail({ events }: { events: StoredEvent[] }) {
-  const lastMailEvt = useMemo(
-    () => events.filter((e) => AGENT_MAIL_EVENTS.has(e.event.type)).at(-1)?.id,
-    [events],
-  );
-  const { data: mine, reload } = usePoll(() => api.mailMine(), [lastMailEvt]);
-  const { data: org } = usePoll(() => api.org(), []);
+  const { data: mine, reload } = useLiveQuery(() => api.mailMine(), events, T.agentMail);
+  const { data: org } = useFetch(() => api.org(), []);
   const [open, setOpen] = useState<string | null>(null);
   const agents = useMemo(
     () => (org ?? []).flatMap((d) => d.agents.map((a) => ({ name: a.name, dept: d.department }))),
@@ -32,7 +27,7 @@ export function Mail({ events }: { events: StoredEvent[] }) {
       </div>
       <div className="flex-1 min-w-0 overflow-auto">
         {open
-          ? <ThreadDetail key={open} threadId={open} lastMailEvt={lastMailEvt} onChanged={reload} />
+          ? <ThreadDetail key={open} threadId={open} events={events} onChanged={reload} />
           : <div className="text-dim text-[11px] pt-8 text-center">Select a thread — or compose cold mail to any agent.</div>}
       </div>
     </div>
@@ -57,9 +52,9 @@ function ThreadRow({ t, active, onOpen }: { t: UserThreadView; active: boolean; 
   );
 }
 
-function ThreadDetail({ threadId, lastMailEvt, onChanged }:
-  { threadId: string; lastMailEvt: number | undefined; onChanged: () => void }) {
-  const { data: msgs, reload } = usePoll(() => api.mailThreadView(threadId), [threadId, lastMailEvt]);
+function ThreadDetail({ threadId, events, onChanged }:
+  { threadId: string; events: StoredEvent[]; onChanged: () => void }) {
+  const { data: msgs, reload } = useLiveQuery(() => api.mailThreadView(threadId), events, T.agentMail, [threadId]);
   // Human opened the thread = read (fire-and-forget per unread to-user message).
   // Track ids already sent so effect re-runs (triggered by our own mail.read events racing
   // an in-flight POST whose fetched snapshot is still "unread") don't re-POST the same id.

@@ -1,7 +1,10 @@
 // ui/src/views/Goals.tsx — goals tab: status buckets → goal detail with DAG canvas + node side panel.
 import { useEffect, useMemo, useState } from "react";
 import { api, type GoalView, type GoalNodeView, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
+import { ts, usd } from "../lib/format.js";
+import { ConfirmButton } from "../components/ConfirmButton.js";
 import { layoutDag, BOX_W, BOX_H } from "./dag-layout.js";
 
 /** Deep-link payload from org agent cards: which goal to open, which node to select. */
@@ -35,17 +38,10 @@ const GOAL_STATUS_TEXT: Record<string, string> = {
   done: "text-phosphor", failed: "text-alert", abandoned: "text-dim",
 };
 
-const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-const ts = (iso: string | null) => (iso ? iso.slice(5, 16).replace("T", " ") : "…");
-
 export function Goals({ events, target, onConsumeTarget, onOpenAgent }: {
   events: StoredEvent[]; target: GoalTarget | null; onConsumeTarget: () => void; onOpenAgent: (name: string) => void;
 }) {
-  const lastEvt = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
-    [events],
-  );
-  const { data: goals } = usePoll(() => api.goals(), [lastEvt]);
+  const { data: goals } = useLiveQuery(() => api.goals(), events, T.goals);
   const [selected, setSelected] = useState<string | null>(null);
   const [initialNode, setInitialNode] = useState<string | null>(null);
 
@@ -117,14 +113,9 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
   idOrSlug: string; events: StoredEvent[]; initialNode: string | null;
   onOpenAgent: (name: string) => void; onBack: () => void;
 }) {
-  const lastEvt = useMemo(
-    () => events.filter((e) => e.event.type.startsWith("goal.") || e.event.type.startsWith("node.")).at(-1)?.id,
-    [events],
-  );
-  const { data: goal, error, reload } = usePoll(() => api.goal(idOrSlug), [idOrSlug, lastEvt]);
+  const { data: goal, error, reload } = useLiveQuery(() => api.goal(idOrSlug), events, T.goals, [idOrSlug]);
   const [selectedNode, setSelectedNode] = useState<string | null>(initialNode);
   const [msg, setMsg] = useState<string | null>(null);
-  const [armAbandon, setArmAbandon] = useState(false);
   const [answer, setAnswer] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -142,7 +133,6 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
   const totalCents = goal.nodes.reduce((s, n) => s + n.costCents, 0);
 
   const act = (verb: "pause" | "resume" | "abandon") => {
-    setArmAbandon(false);
     api.goalAction(goal.id, verb)
       .then((r) => { setMsg(r.message); reload(); })
       .catch((e) => setMsg((e as Error).message));
@@ -176,9 +166,7 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
         <div className="ml-auto flex gap-2">
           {canPause && <CtlButton label="pause" onClick={() => act("pause")} />}
           {canResume && <CtlButton label="resume" onClick={() => act("resume")} />}
-          {canAbandon && (armAbandon
-            ? <CtlButton label="confirm abandon?" alert onClick={() => act("abandon")} />
-            : <CtlButton label="abandon" alert onClick={() => setArmAbandon(true)} />)}
+          {canAbandon && <ConfirmButton label="abandon" alert onConfirm={() => act("abandon")} />}
         </div>
       </div>
       {msg && <div className="text-[11px] text-cyan">{msg}</div>}

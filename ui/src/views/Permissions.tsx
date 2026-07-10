@@ -1,6 +1,6 @@
-import { useMemo } from "react";
 import { api, type StoredEvent } from "../api.js";
-import { usePoll } from "../hooks.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
 
 const MODE_HELP: Record<string, string> = {
   dontAsk: "denies anything not in the allowlist",
@@ -9,11 +9,7 @@ const MODE_HELP: Record<string, string> = {
 };
 
 export function Permissions({ events }: { events: StoredEvent[] }) {
-  const lastEvent = useMemo(
-    () => events.filter((e) => e.event.type === "permission.changed" || e.event.type === "tool.denied").at(-1)?.id,
-    [events],
-  );
-  const { data, reload } = usePoll(() => api.permissions(), [lastEvent]);
+  const { data, reload } = useLiveQuery(() => api.permissions(), events, T.permissions);
   if (!data) return <div className="text-dim">loading…</div>;
 
   const propose = async (role: string, tool: string, action: "grant" | "revoke", knownTools?: string[]) => {
