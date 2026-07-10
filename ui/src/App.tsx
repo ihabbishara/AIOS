@@ -12,15 +12,14 @@ import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
 import { EventFeed } from "./views/EventFeed.js";
 import { Inbox } from "./views/Inbox.js";
-import { Trust } from "./views/Trust.js";
-import { Permissions } from "./views/Permissions.js";
+import { Governance } from "./views/Governance.js";
 import { Packs } from "./views/Packs.js";
 
 // zone → ordered sub-views. First entry is the zone default.
 const SUBNAV: Record<string, string[]> = {
   inbox: [],
   work: ["goals", "mail", "chat"],
-  staff: ["org", "trust", "permissions"],
+  staff: ["org", "governance"],
   system: ["departments", "config", "costs", "routing"],
 };
 
@@ -31,7 +30,7 @@ function leafOf(route: Route): string {
   if (route.zone === "work") return sub === "mail" ? "mail" : sub === "chat" ? "chat" : "goals";
   if (route.zone === "staff") {
     if (sub === "agents") return "org"; // profile drill-in renders inside Org
-    return sub === "trust" ? "trust" : sub === "permissions" ? "permissions" : "org";
+    return sub === "governance" ? "governance" : "org";
   }
   return sub === "config" ? "config" : sub === "costs" ? "costs" : sub === "routing" ? "routing" : "departments";
 }
@@ -136,8 +135,7 @@ export function App() {
           <div className={leaf === "mail" ? "h-full" : "hidden"}><Mail events={events} route={route} /></div>
           <div className={leaf === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
           <div className={leaf === "org" ? "h-full" : "hidden"}><Org events={events} route={route} onOpenChat={openChat} unreadByAgent={unread?.byAgent ?? {}} /></div>
-          <div className={leaf === "trust" ? "" : "hidden"}><Trust events={events} /></div>
-          <div className={leaf === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
+          <div className={leaf === "governance" ? "" : "hidden"}><Governance events={events} /></div>
           <div className={leaf === "departments" ? "h-full" : "hidden"}><Packs events={events} /></div>
           <div className={leaf === "config" ? "h-full" : "hidden"}><Config /></div>
           <div className={leaf === "costs" ? "" : "hidden"}><Costs events={events} /></div>
