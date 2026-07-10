@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { api, setToken, getToken, type BudgetInfo } from "./api.js";
 import { useEvents, useFetch, useLiveQuery } from "./hooks.js";
 import { T } from "./lib/topics.js";
-import { Goals, type GoalTarget } from "./views/Goals.js";
+import { useRoute, navigate, type Route } from "./lib/router.js";
+import { Goals } from "./views/Goals.js";
 import { Mail } from "./views/Mail.js";
 import { Org } from "./views/Org.js";
 import { RoutingTrail } from "./views/RoutingTrail.js";
@@ -15,25 +16,39 @@ import { Trust } from "./views/Trust.js";
 import { Permissions } from "./views/Permissions.js";
 import { Packs } from "./views/Packs.js";
 
-const TABS = ["org", "mail", "chat", "routing", "goals", "approvals", "trust", "permissions", "departments", "config", "costs"] as const;
-type Tab = (typeof TABS)[number];
+// zone → ordered sub-views. First entry is the zone default.
+const SUBNAV: Record<string, string[]> = {
+  inbox: [],
+  work: ["goals", "mail", "chat"],
+  staff: ["org", "trust", "permissions"],
+  system: ["departments", "config", "costs", "routing"],
+};
+
+/** Which leaf view a route shows. Every leaf stays mounted; this only picks visibility. */
+function leafOf(route: Route): string {
+  const sub = route.parts[0];
+  if (route.zone === "inbox") return "inbox";
+  if (route.zone === "work") return sub === "mail" ? "mail" : sub === "chat" ? "chat" : "goals";
+  if (route.zone === "staff") {
+    if (sub === "agents") return "org"; // profile drill-in renders inside Org
+    return sub === "trust" ? "trust" : sub === "permissions" ? "permissions" : "org";
+  }
+  return sub === "config" ? "config" : sub === "costs" ? "costs" : sub === "routing" ? "routing" : "departments";
+}
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("org");
+  const route = useRoute();
+  const leaf = leafOf(route);
   const [chatTarget, setChatTarget] = useState("hermes");
+  const [railOpen, setRailOpen] = useState(() => localStorage.getItem("aios_rail") !== "0");
   const { events, connected } = useEvents();
   const { data: state, error, reload } = useFetch(() => api.state(), []);
-  const openChat = (name: string) => { setChatTarget(name); setTab("chat"); };
-  const [goalTarget, setGoalTarget] = useState<GoalTarget | null>(null);
-  const openGoal = (slug: string, nodeKey: string | null) => { setGoalTarget({ slug, nodeKey }); setTab("goals"); };
-  const consumeGoalTarget = useCallback(() => setGoalTarget(null), []);
-  const [agentTarget, setAgentTarget] = useState<string | null>(null);
-  const openAgent = (name: string) => { setAgentTarget(name); setTab("org"); };
-  const consumeAgentTarget = useCallback(() => setAgentTarget(null), []);
-  // Budget refreshes when costs land (agent.end) or goals transition (pause-budget etc.).
   const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
-  // Unread-mail badges (nav total + per-agent) refresh when agent-mailbox events land (mail.sent/spawned/read).
   const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
+  const { data: pending } = useLiveQuery(() => api.actions("proposed"), events, T.actions);
+
+  const openChat = (name: string) => { setChatTarget(name); navigate("work/chat"); };
+  const toggleRail = () => setRailOpen((v) => { localStorage.setItem("aios_rail", v ? "0" : "1"); return !v; });
 
   if (error === "unauthorized") return <TokenGate onSet={reload} />;
 
@@ -42,6 +57,8 @@ export function App() {
     if (e.event.type === "agent.start") activeAgents.set(String(e.event.agent), String(e.event.context));
     if (e.event.type === "agent.end") activeAgents.delete(String(e.event.agent));
   }
+
+  const inboxCount = (pending?.length ?? 0) + (unread?.userInbox ?? 0) + (unread?.pendingUser ?? 0);
 
   return (
     <div className="h-full flex flex-col">
@@ -60,6 +77,9 @@ export function App() {
           {activeAgents.size === 0 && <span className="text-dim text-[11px]">all agents idle</span>}
         </div>
         <BudgetBar budget={budget} />
+        <button onClick={toggleRail} title="toggle telemetry" className={`label hover:text-fg ${railOpen ? "text-phosphor" : ""}`}>
+          ◫
+        </button>
         <div className="flex items-center gap-2">
           <span className={`inline-block w-2 h-2 rounded-full ${connected ? "bg-phosphor live-dot" : "bg-alert"}`} />
           <span className="label">{connected ? "LINK" : "NO LINK"}</span>
@@ -67,30 +87,41 @@ export function App() {
       </header>
 
       <div className="flex flex-1 min-h-0">
-        {/* Nav rail */}
+        {/* Zone rail */}
         <nav className="w-40 shrink-0 border-r border-line bg-panel flex flex-col py-4 gap-1">
-          {TABS.map((t, i) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`boot text-left px-5 py-2.5 font-display uppercase tracking-[0.18em] text-[11px] transition-colors border-l-2 ${
-                tab === t
-                  ? "border-phosphor text-phosphor glow-green bg-panel-2"
-                  : "border-transparent text-dim hover:text-fg hover:border-line"
-              }`}
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              {t}
-              {t === "org" && unread && unread.total > 0 && (
-                <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.total}</span>
-              )}
-              {t === "mail" && unread && unread.userInbox > 0 && (
-                <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.userInbox}</span>
-              )}
-              {t === "goals" && unread && unread.pendingUser > 0 && (
-                <span className="ml-2 text-[9px] text-void bg-cyan px-1.5 rounded-full tracking-normal align-middle">🙋 {unread.pendingUser}</span>
-              )}
-            </button>
+          {(["inbox", "work", "staff", "system"] as const).map((z, i) => (
+            <div key={z}>
+              <button
+                onClick={() => navigate(z)}
+                className={`boot w-full text-left px-5 py-2.5 font-display uppercase tracking-[0.18em] text-[11px] transition-colors border-l-2 ${
+                  route.zone === z
+                    ? "border-phosphor text-phosphor glow-green bg-panel-2"
+                    : "border-transparent text-dim hover:text-fg hover:border-line"
+                }`}
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                {z}
+                {z === "inbox" && inboxCount > 0 && (
+                  <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{inboxCount}</span>
+                )}
+                {z === "staff" && unread && unread.total > 0 && (
+                  <span className="ml-2 text-[9px] text-void bg-amber px-1.5 rounded-full tracking-normal align-middle">{unread.total}</span>
+                )}
+              </button>
+              {route.zone === z && SUBNAV[z].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => navigate(`${z}/${s}`)}
+                  className={`w-full text-left pl-8 pr-2 py-1.5 text-[10px] uppercase tracking-[0.15em] transition-colors ${
+                    leaf === leafOf({ zone: z, parts: [s], query: new URLSearchParams() })
+                      ? "text-bright"
+                      : "text-dim hover:text-fg"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           ))}
           <div className="mt-auto px-5">
             <div className="label mb-1">Uptime</div>
@@ -98,29 +129,28 @@ export function App() {
           </div>
         </nav>
 
-        {/* Main view */}
-        {/* All views stay mounted — tab switches hide, not destroy (preserves chat log, drafts, scroll). */}
+        {/* Main view — every leaf stays mounted; route picks visibility. */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
-          <div className={tab === "org" ? "h-full" : "hidden"}><Org events={events} onOpenChat={openChat} onOpenGoal={openGoal} agentTarget={agentTarget} onConsumeAgentTarget={consumeAgentTarget} unreadByAgent={unread?.byAgent ?? {}} /></div>
-          <div className={tab === "mail" ? "h-full" : "hidden"}><Mail events={events} /></div>
-          <div className={tab === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
-          <div className={tab === "goals" ? "h-full" : "hidden"}>
-            <Goals events={events} target={goalTarget} onConsumeTarget={consumeGoalTarget} onOpenAgent={openAgent} />
-          </div>
-          <div className={tab === "approvals" ? "" : "hidden"}><Approvals events={events} /></div>
-          <div className={tab === "trust" ? "" : "hidden"}><Trust events={events} /></div>
-          <div className={tab === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
-          <div className={tab === "departments" ? "" : "hidden"}><Packs events={events} /></div>
-          <div className={tab === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
-          <div className={tab === "config" ? "h-full" : "hidden"}><Config /></div>
-          <div className={tab === "costs" ? "" : "hidden"}><Costs events={events} /></div>
+          <div className={leaf === "inbox" ? "h-full" : "hidden"}><Approvals events={events} /></div>
+          <div className={leaf === "goals" ? "h-full" : "hidden"}><Goals events={events} route={route} /></div>
+          <div className={leaf === "mail" ? "h-full" : "hidden"}><Mail events={events} route={route} /></div>
+          <div className={leaf === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
+          <div className={leaf === "org" ? "h-full" : "hidden"}><Org events={events} route={route} onOpenChat={openChat} unreadByAgent={unread?.byAgent ?? {}} /></div>
+          <div className={leaf === "trust" ? "" : "hidden"}><Trust events={events} /></div>
+          <div className={leaf === "permissions" ? "" : "hidden"}><Permissions events={events} /></div>
+          <div className={leaf === "departments" ? "h-full" : "hidden"}><Packs events={events} /></div>
+          <div className={leaf === "config" ? "h-full" : "hidden"}><Config /></div>
+          <div className={leaf === "costs" ? "" : "hidden"}><Costs events={events} /></div>
+          <div className={leaf === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
         </main>
 
-        {/* Event feed rail */}
-        <aside className="w-72 shrink-0 border-l border-line bg-panel hidden xl:flex flex-col">
-          <div className="label px-4 pt-4 pb-2">Telemetry</div>
-          <EventFeed events={events} />
-        </aside>
+        {/* Telemetry rail — toggleable at every width now. */}
+        {railOpen && (
+          <aside className="w-72 shrink-0 border-l border-line bg-panel hidden lg:flex flex-col">
+            <div className="label px-4 pt-4 pb-2">Telemetry</div>
+            <EventFeed events={events} />
+          </aside>
+        )}
       </div>
     </div>
   );

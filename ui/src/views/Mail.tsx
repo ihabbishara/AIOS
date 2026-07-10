@@ -3,11 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type MailView, type StoredEvent, type UserThreadView } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
+import { navigate, type Route } from "../lib/router.js";
 
-export function Mail({ events }: { events: StoredEvent[] }) {
+export function Mail({ events, route }: { events: StoredEvent[]; route: Route }) {
   const { data: mine, reload } = useLiveQuery(() => api.mailMine(), events, T.agentMail);
   const { data: org } = useFetch(() => api.org(), []);
-  const [open, setOpen] = useState<string | null>(null);
+  const open = route.parts[0] === "mail" ? route.parts[1] ?? null : null;
   const agents = useMemo(
     () => (org ?? []).flatMap((d) => d.agents.map((a) => ({ name: a.name, dept: d.department }))),
     [org],
@@ -16,11 +17,11 @@ export function Mail({ events }: { events: StoredEvent[] }) {
   return (
     <div className="flex gap-4 h-full min-h-0">
       <div className="w-72 shrink-0 flex flex-col gap-3 min-h-0">
-        <Compose agents={agents} onSent={(id) => { reload(); if (id) setOpen(id); }} />
+        <Compose agents={agents} onSent={(id) => { reload(); if (id) navigate(`work/mail/${id}`); }} />
         <div className="label">Threads</div>
         <div className="flex-1 overflow-auto flex flex-col gap-1">
           {(mine?.threads ?? []).map((t) => (
-            <ThreadRow key={t.threadId} t={t} active={open === t.threadId} onOpen={() => setOpen(t.threadId)} />
+            <ThreadRow key={t.threadId} t={t} active={open === t.threadId} onOpen={() => navigate(`work/mail/${t.threadId}`)} />
           ))}
           {mine && mine.threads.length === 0 && <div className="text-dim text-[11px]">No correspondence yet.</div>}
         </div>

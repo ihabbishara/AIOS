@@ -1,14 +1,12 @@
 // ui/src/views/Goals.tsx — goals tab: status buckets → goal detail with DAG canvas + node side panel.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { api, type GoalView, type GoalNodeView, type StoredEvent } from "../api.js";
 import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { ts, usd } from "../lib/format.js";
+import { navigate, type Route } from "../lib/router.js";
 import { ConfirmButton } from "../components/ConfirmButton.js";
 import { layoutDag, BOX_W, BOX_H } from "./dag-layout.js";
-
-/** Deep-link payload from org agent cards: which goal to open, which node to select. */
-export interface GoalTarget { slug: string; nodeKey: string | null }
 
 const BUCKETS: Array<{ title: string; accent: string; match: string[] }> = [
   { title: "Active", accent: "text-amber glow-amber", match: ["planning", "running", "replanning"] },
@@ -38,25 +36,12 @@ const GOAL_STATUS_TEXT: Record<string, string> = {
   done: "text-phosphor", failed: "text-alert", abandoned: "text-dim",
 };
 
-export function Goals({ events, target, onConsumeTarget, onOpenAgent }: {
-  events: StoredEvent[]; target: GoalTarget | null; onConsumeTarget: () => void; onOpenAgent: (name: string) => void;
-}) {
+export function Goals({ events, route }: { events: StoredEvent[]; route: Route }) {
   const { data: goals } = useLiveQuery(() => api.goals(), events, T.goals);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [initialNode, setInitialNode] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!target) return;
-    setSelected(target.slug);
-    setInitialNode(target.nodeKey);
-    onConsumeTarget();
-  }, [target, onConsumeTarget]);
+  const selected = route.parts[0] === "goals" ? route.parts[1] ?? null : null;
 
   if (selected) {
-    return (
-      <GoalDetailView idOrSlug={selected} events={events} initialNode={initialNode} onOpenAgent={onOpenAgent}
-        onBack={() => { setSelected(null); setInitialNode(null); }} />
-    );
+    return <GoalDetailView idOrSlug={selected} events={events} route={route} />;
   }
 
   const inBucket = (match: string[]) => (goals ?? []).filter((g) => match.includes(g.status));
@@ -70,7 +55,7 @@ export function Goals({ events, target, onConsumeTarget, onOpenAgent }: {
             <span className="text-dim text-[11px]">{inBucket(match).length}</span>
           </div>
           <div className="flex flex-col gap-3 overflow-auto pr-1">
-            {inBucket(match).map((g) => <GoalCard key={g.id} goal={g} onClick={() => setSelected(g.id)} />)}
+            {inBucket(match).map((g) => <GoalCard key={g.id} goal={g} onClick={() => navigate(`work/goals/${g.slug}`)} />)}
             {inBucket(match).length === 0 && (
               <div className="border border-dashed border-line text-dim text-[11px] p-4 text-center">empty</div>
             )}
@@ -109,12 +94,12 @@ function GoalCard({ goal, onClick }: { goal: GoalView; onClick: () => void }) {
   );
 }
 
-function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: {
-  idOrSlug: string; events: StoredEvent[]; initialNode: string | null;
-  onOpenAgent: (name: string) => void; onBack: () => void;
+function GoalDetailView({ idOrSlug, events, route }: {
+  idOrSlug: string; events: StoredEvent[]; route: Route;
 }) {
   const { data: goal, error, reload } = useLiveQuery(() => api.goal(idOrSlug), events, T.goals, [idOrSlug]);
-  const [selectedNode, setSelectedNode] = useState<string | null>(initialNode);
+  const selectedNode = route.query.get("node");
+  const onBack = () => navigate("work");
   const [msg, setMsg] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
   const [sending, setSending] = useState(false);
@@ -173,7 +158,7 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
       {goal.error && <div className="text-[11px] text-alert">{goal.error}</div>}
       {goal.spawnedBy && (
         <div
-          onClick={() => onOpenAgent(goal.spawnedBy!.from)}
+          onClick={() => navigate(`staff/agents/${goal.spawnedBy!.from}`)}
           className="text-[11px] text-cyan underline decoration-dotted cursor-pointer hover:text-bright w-fit"
         >
           ← spawned by mail from {goal.spawnedBy.from}
@@ -205,9 +190,10 @@ function GoalDetailView({ idOrSlug, events, initialNode, onOpenAgent, onBack }: 
 
       <div className="flex gap-4 flex-1 min-h-0">
         <div className="flex-1 min-w-0 overflow-auto">
-          <DagCanvas nodes={goal.nodes} selected={selectedNode} onSelect={setSelectedNode} />
+          <DagCanvas nodes={goal.nodes} selected={selectedNode}
+            onSelect={(key) => navigate(`work/goals/${goal.slug}?node=${encodeURIComponent(key)}`)} />
         </div>
-        {node && <NodePanel node={node} artifact={artifact} onClose={() => setSelectedNode(null)} />}
+        {node && <NodePanel node={node} artifact={artifact} onClose={() => navigate(`work/goals/${goal.slug}`)} />}
       </div>
     </div>
   );

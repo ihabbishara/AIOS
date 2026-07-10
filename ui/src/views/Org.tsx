@@ -1,8 +1,8 @@
 // ui/src/views/Org.tsx — org-first home: department columns, live agent cards, profile drill-in.
-import { useEffect, useState } from "react";
 import { api, type OrgAgentCard, type StoredEvent } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
+import { navigate, type Route } from "../lib/router.js";
 
 const DEPT_ORDER = ["operations", "engineering", "research", "finance", "life", "clients"];
 
@@ -12,20 +12,14 @@ const STATUS_DOT: Record<OrgAgentCard["status"], string> = {
   waiting: "bg-alert live-dot",
 };
 
-export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgentTarget, unreadByAgent }: {
-  events: StoredEvent[]; onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
-  agentTarget: string | null; onConsumeAgentTarget: () => void; unreadByAgent: Record<string, number>;
+export function Org({ events, route, onOpenChat, unreadByAgent }: {
+  events: StoredEvent[]; route: Route; onOpenChat: (name: string) => void;
+  unreadByAgent: Record<string, number>;
 }) {
   const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = route.parts[0] === "agents" ? route.parts[1] ?? null : null;
 
-  useEffect(() => {
-    if (!agentTarget) return;
-    setSelected(agentTarget);
-    onConsumeAgentTarget();
-  }, [agentTarget, onConsumeAgentTarget]);
-
-  if (selected) return <AgentProfile name={selected} events={events} onBack={() => setSelected(null)} onOpenChat={onOpenChat} onOpenGoal={onOpenGoal} unreadByAgent={unreadByAgent} />;
+  if (selected) return <AgentProfile name={selected} events={events} onBack={() => navigate("staff")} onOpenChat={onOpenChat} unreadByAgent={unreadByAgent} />;
   if (!org) return <div className="text-dim">loading…</div>;
 
   const depts = [...org].sort(
@@ -43,7 +37,7 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
           </div>
           <div className="flex flex-col gap-2">
             {d.agents.map((a) => (
-              <button key={a.name} onClick={() => setSelected(a.name)}
+              <button key={a.name} onClick={() => navigate(`staff/agents/${a.name}`)}
                 className={`hud p-3 text-left hover:border-phosphor transition-colors ${a.status !== "idle" ? "hud-amber running-sweep" : ""}`}>
                 <div className="flex items-center gap-2">
                   <span className={`inline-block w-2 h-2 rounded-full ${STATUS_DOT[a.status]}`} />
@@ -63,7 +57,7 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
                     onClick={(e) => {
                       e.stopPropagation();
                       const [slug, nodeKey] = a.currentTask!.slice("goal:".length).split("/");
-                      onOpenGoal(slug, nodeKey ?? null);
+                      navigate(`work/goals/${slug}${nodeKey ? `?node=${encodeURIComponent(nodeKey)}` : ""}`);
                     }}
                     className="block text-[10px] text-amber mt-1 truncate underline decoration-dotted cursor-pointer hover:text-bright"
                   >
@@ -85,10 +79,9 @@ export function Org({ events, onOpenChat, onOpenGoal, agentTarget, onConsumeAgen
   );
 }
 
-function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal, unreadByAgent }: {
+function AgentProfile({ name, events, onBack, onOpenChat, unreadByAgent }: {
   name: string; events: StoredEvent[]; onBack: () => void;
-  onOpenChat: (name: string) => void; onOpenGoal: (slug: string, nodeKey: string | null) => void;
-  unreadByAgent: Record<string, number>;
+  onOpenChat: (name: string) => void; unreadByAgent: Record<string, number>;
 }) {
   const { data: p, error } = useFetch(() => api.agent(name), [name]);
   if (error) return <div className="text-alert text-[12px]">error: {error} <button className="text-dim underline" onClick={onBack}>back</button></div>;
@@ -136,7 +129,7 @@ function AgentProfile({ name, events, onBack, onOpenChat, onOpenGoal, unreadByAg
         </div>
       </div>
 
-      <MailSection name={p.name} events={events} onOpenGoal={onOpenGoal} unread={unreadByAgent[name] ?? 0} />
+      <MailSection name={p.name} events={events} unread={unreadByAgent[name] ?? 0} />
 
       {p.trust.length > 0 && (
         <div className="hud p-4">
@@ -196,8 +189,8 @@ const MAIL_KIND: Record<string, string> = {
   request: "text-amber", note: "text-dim", report: "text-cyan", standup: "text-violet", refused: "text-alert",
 };
 
-function MailSection({ name, events, onOpenGoal, unread }: {
-  name: string; events: StoredEvent[]; onOpenGoal: (slug: string, nodeKey: string | null) => void; unread: number;
+function MailSection({ name, events, unread }: {
+  name: string; events: StoredEvent[]; unread: number;
 }) {
   const { data: mail } = useLiveQuery(() => api.mail(name), events, T.agentMail, [name]);
   if (!mail) return null;
@@ -221,7 +214,7 @@ function MailSection({ name, events, onOpenGoal, unread }: {
             <span className={`truncate ${isUnread ? "text-bright" : "text-dim"}`}>{m.body}</span>
             {m.goalId && (
               <span
-                onClick={() => onOpenGoal(m.goalId!, null)}
+                onClick={() => navigate(`work/goals/${m.goalId}`)}
                 className="ml-auto shrink-0 text-amber underline decoration-dotted cursor-pointer hover:text-bright"
               >▸ goal</span>
             )}
