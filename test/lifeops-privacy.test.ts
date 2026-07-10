@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
 import { recall } from "../src/memory/recall.js";
-import { roles } from "../src/agents/roles/index.js";
+import { roleOf } from "./fixtures/registry.js";
 import { isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
 import { testRegistry } from "./fixtures/registry.js";
 
@@ -29,8 +29,8 @@ describe("lifeops privacy: tasks never enter recall", () => {
 // ---------------------------------------------------------------------------
 describe("lifeops privacy: jasmine refused from non-private origin", () => {
   it("jasmine is registered as privateOnly", () => {
-    expect(roles.jasmine).toBeDefined();
-    expect(roles.jasmine.privateOnly).toBe(true);
+    expect(roleOf("jasmine")).toBeDefined();
+    expect(roleOf("jasmine").privateOnly).toBe(true);
   });
 
   it("isPrivateOrigin returns false for a non-primary origin", () => {

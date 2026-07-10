@@ -4,7 +4,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
-import { roles } from "../src/agents/roles/index.js";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { ActionGate } from "../src/kernel/gate.js";
@@ -51,24 +50,6 @@ describe("live agents/ tree", () => {
     })) expect(reg.agentOf.get(alias), alias).toBe(name);
   });
 
-  it("compiled roles preserve the legacy security surface", () => {
-    const pin: Array<[string, string]> = [
-      ["vulcan", "developer"], ["athena", "architect"], ["argus", "tester"],
-      ["themis", "code-reviewer"], ["atlas", "devops"], ["odin", "researcher"],
-      ["janus", "market-researcher"], ["venus", "ui-ux-designer"], ["minos", "reviewer"],
-      ["clio", "analyst"], ["midas", "cfo"], ["jasmine", "jasmine"], ["halalo", "halalo"],
-    ];
-    for (const [agent, legacy] of pin) {
-      const compiled = reg.agents.get(agent)!.role;
-      const old = roles[legacy];
-      expect(compiled.permissionMode, agent).toBe(old.permissionMode);
-      expect(compiled.maxTurns, agent).toBe(old.maxTurns);
-      expect([...compiled.allowedTools].sort(), agent).toEqual([...old.allowedTools].sort());
-      expect(!!compiled.privateOnly, agent).toBe(!!old.privateOnly);
-      expect(!!compiled.outputSchema, agent).toBe(!!old.outputSchema);
-    }
-  });
-
   it("halalo extras wire the deterministic guard", () => {
     const h = reg.agents.get("halalo")!.role;
     expect(h.toolCheckFallback).toBe("deny");
@@ -88,8 +69,7 @@ describe("live agents/ tree", () => {
 });
 
 // SECURITY: the effective-surface pins in this block are the security guard; they
-// must stay green. The "compiled roles preserve the legacy security surface" parity
-// test above only pins YAML↔legacy-map drift, not the gate itself.
+// must stay green.
 describe("tool ownership pins (regression guard against pack.yaml deletion)", () => {
   const MONEY_TOOLS = [
     "mcp__money__spending_summary", "mcp__money__list_transactions", "mcp__money__list_subscriptions",

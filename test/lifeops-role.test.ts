@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { roles } from "../src/agents/roles/index.js";
+import { roleOf } from "./fixtures/registry.js";
 import { testRegistry } from "./fixtures/registry.js";
 
 describe("jasmine role", () => {
   it("exists, is privateOnly, and carries no write tools", () => {
-    const j = roles.jasmine;
+    const j = roleOf("jasmine");
     expect(j).toBeDefined();
     expect(j.privateOnly).toBe(true);
     expect(j.permissionMode).toBe("dontAsk");

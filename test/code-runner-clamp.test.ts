@@ -1,7 +1,7 @@
 // test/code-runner-clamp.test.ts
 import { describe, it, expect } from "vitest";
 import { clampTools, packRunOptions } from "../src/agents/runner.js";
-import { roles } from "../src/agents/roles/index.js";
+import { roleOf } from "./fixtures/registry.js";
 
 describe("clampTools", () => {
   it("aios-pack tools require ownership of the bare name — no free passthrough", () => {
@@ -61,7 +61,7 @@ describe("money pack regression — cfo must own money tools explicitly (no free
     expect(clampTools(emptyRoleTools, moneyPackTools)).toEqual([]);
   });
   it("cfo with explicit money + memo-tool ownership passes them through clamp", () => {
-    const cfoTools = roles.cfo.allowedTools; // 10 mcp__money__* tools + bare recall/vault_read
+    const cfoTools = roleOf("cfo").allowedTools; // 10 mcp__money__* tools + bare recall/vault_read
     const moneyPackTools = ["mcp__money__spending_summary", "mcp__aios-pack__recall", "mcp__aios-pack__vault_read"];
     const result = clampTools(cfoTools, moneyPackTools);
     expect(result).toContain("mcp__money__spending_summary");
