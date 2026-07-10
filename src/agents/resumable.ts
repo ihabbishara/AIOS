@@ -34,15 +34,19 @@ export async function resumableTurn(params: ResumableTurnParams): Promise<string
   }
 }
 
+const epochKey = (sessionKey: string) => `reset-epoch:${sessionKey}`;
+
 /**
- * Clears a stored session id so the next turn begins a fresh SDK session.
- * Intended for future callers: admin API, CLI commands, scheduled cleanup jobs.
+ * Clears a stored session id AND bumps the reset epoch, so a turn already in
+ * flight cannot write its (now stale) session id back when it completes.
  */
 export function clearSession(store: Store, sessionKey: string): void {
   store.kvSet(sessionKey, "");
+  store.kvSet(epochKey(sessionKey), String(Number(store.kvGet(epochKey(sessionKey)) || 0) + 1));
 }
 
 async function runOnce(params: ResumableTurnParams, resume: string | undefined): Promise<string> {
+  const epochAtStart = params.store.kvGet(epochKey(params.sessionKey));
   const q = query({
     prompt: params.prompt,
     options: { ...params.options, ...(resume ? { resume } : {}) },
@@ -53,8 +57,14 @@ async function runOnce(params: ResumableTurnParams, resume: string | undefined):
     if (msg.type === "result") {
       if (msg.subtype === "success") {
         // Only persist ids from successful turns — errored turns may never be
-        // written to disk and would poison future resumes.
-        params.store.kvSet(params.sessionKey, msg.session_id);
+        // written to disk and would poison future resumes. And only when no
+        // /reset landed mid-flight (reset-epoch unchanged) — otherwise the
+        // completing turn would silently undo the reset.
+        if (params.store.kvGet(epochKey(params.sessionKey)) === epochAtStart) {
+          params.store.kvSet(params.sessionKey, msg.session_id);
+        } else {
+          params.log?.(`reset during in-flight turn for ${params.sessionKey} — session id not persisted`);
+        }
         params.onSuccess?.(); // commit mail delivery at the same success gate
         reply = msg.result;
       } else {

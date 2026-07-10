@@ -1,7 +1,7 @@
 import { moderatorPrompt } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
-import { resumableTurn } from "../agents/resumable.js";
+import { resumableTurn, clearSession } from "../agents/resumable.js";
 import { processAttachments } from "../attachments.js";
 import type { Store } from "../store/db.js";
 import type { GoalEngine } from "../engine/goals.js";
@@ -92,12 +92,9 @@ export class Moderator {
   }
 
   resetSession(channel: string, chatId: string): void {
-    // Intentionally bypasses the per-chat lock: clearing the session key is a
-    // single atomic KV write. However, if a turn is in-flight when this is called,
-    // the completing turn will write the old session_id back, silently undoing the
-    // reset. If that happens the user may need to issue /reset a second time once
-    // the in-flight turn finishes.
-    this.deps.store.kvSet(`moderator-session:${channel}:${chatId}`, "");
+    // Bypasses the per-chat lock deliberately: clearSession is atomic kv writes,
+    // and the reset-epoch bump makes it win against any in-flight turn.
+    clearSession(this.deps.store, `moderator-session:${channel}:${chatId}`);
   }
 
   private async turn(

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { LoadedRegistry } from "./registry/loader.js";
-import { resumableTurn } from "./resumable.js";
+import { resumableTurn, clearSession } from "./resumable.js";
 import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer } from "./attachment-server.js";
@@ -153,12 +153,9 @@ export class DirectChats {
   resetSession(role: string, channel: string, chatId: string): void {
     // Canonicalize so the key matches the one used in handle().
     const canonical = this.deps.registry.agentOf.get(role) ?? role;
-    // Intentionally bypasses the per-key lock: clearing the session key is a
-    // single atomic KV write. However, if a turn is in-flight when this is called,
-    // the completing turn will write the old session_id back, silently undoing the
-    // reset. If that happens the user may need to issue /reset a second time once
-    // the in-flight turn finishes.
-    this.deps.store.kvSet(`direct-session:${canonical}:${channel}:${chatId}`, "");
+    // Bypasses the per-key lock deliberately: clearSession is atomic kv writes,
+    // and the reset-epoch bump makes it win against any in-flight turn.
+    clearSession(this.deps.store, `direct-session:${canonical}:${channel}:${chatId}`);
   }
 }
 
