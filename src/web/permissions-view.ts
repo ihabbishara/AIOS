@@ -26,29 +26,8 @@ export function isWellFormedToolName(name: string): boolean {
   return name.length > 0 && !/\s/.test(name);
 }
 
-export interface PermissionTool {
-  name: string;
-  source: "default" | "granted" | "revoked";
-}
-export interface PermissionDenial {
-  tool: string;
-  count: number;
-  lastTs: string;
-}
-export interface PermissionRoleView {
-  role: string;
-  description: string;
-  permissionMode: string;
-  toolCheckFallback: string;
-  skills: string[];
-  /** Effective allowlist — each tool tagged default/granted. */
-  tools: PermissionTool[];
-  /** Defaults the human revoked (shown struck-through). */
-  revoked: PermissionTool[];
-  denials: PermissionDenial[];
-  /** Suggestions for the grant input: built-in tools ∪ this role's own (incl. MCP) tools. */
-  knownTools: string[];
-}
+import type { PermissionInfo } from "./dto.js";
+export type { PermissionInfo } from "./dto.js";
 
 interface CatalogEntry {
   role: string;
@@ -85,7 +64,7 @@ export function permissionRoleCatalog(registry: LoadedRegistry): CatalogEntry[] 
   ];
 }
 
-export function buildPermissionsView(store: Store, bus: EventBus, registry: LoadedRegistry): PermissionRoleView[] {
+export function buildPermissionsView(store: Store, bus: EventBus, registry: LoadedRegistry): PermissionInfo[] {
   // Aggregate denials once.
   const denialMap = new Map<string, { count: number; lastTs: string }>();
   for (const e of bus.history(0, 5000)) {
@@ -102,15 +81,15 @@ export function buildPermissionsView(store: Store, bus: EventBus, registry: Load
     const effective = effectiveAllowedTools(entry.role, entry.base, store);
     const baseSet = new Set(entry.base);
 
-    const tools: PermissionTool[] = effective.map((name) => ({
+    const tools: PermissionInfo["tools"] = effective.map((name) => ({
       name,
       source: !baseSet.has(name) && granted.has(name) ? "granted" : "default",
     }));
-    const revoked: PermissionTool[] = [...revokedNames]
+    const revoked: PermissionInfo["revoked"] = [...revokedNames]
       .filter((name) => baseSet.has(name))
       .map((name) => ({ name, source: "revoked" as const }));
 
-    const denials: PermissionDenial[] = [];
+    const denials: PermissionInfo["denials"] = [];
     for (const [key, agg] of denialMap) {
       const nul = key.indexOf("\x00");
       const role = key.slice(0, nul);

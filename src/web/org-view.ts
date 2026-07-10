@@ -2,33 +2,13 @@
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
-import type { TrustRecord } from "../kernel/trust.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
 import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
 
 export type AgentLiveStatus = "idle" | "working" | "waiting";
 
-export interface OrgAgentCard {
-  name: string;
-  title: string;
-  charter: string;
-  visibility: "shared" | "private";
-  guarded: boolean;
-  status: AgentLiveStatus;
-  /** Live run context ("chat:telegram:42" | "job:slug/stage") or null when idle. */
-  currentTask: string | null;
-  costTodayUsd: number;
-}
-
-export interface OrgDepartmentView {
-  department: string;
-  mission: string;
-  lead: string | null;
-  memoDomain: string;
-  sandbox: boolean;
-  actions: string[];
-  agents: OrgAgentCard[];
-}
+import type { OrgAgentCard, OrgDepartmentView, AgentProfileInfo } from "./dto.js";
+export type { OrgAgentCard, OrgDepartmentView, AgentProfileInfo } from "./dto.js";
 
 const HISTORY_WINDOW = 5000; // same window as /api/costs
 
@@ -96,37 +76,13 @@ export function buildOrgView(
   return out;
 }
 
-export interface AgentProfileView {
-  name: string;
-  title: string;
-  department: string;
-  mission: string;
-  charter: string;
-  persona: string;
-  aliases: string[];
-  visibility: "shared" | "private";
-  permissionMode: string;
-  model: string | null;
-  skills: string[];
-  guarded: boolean;
-  maxTurns: number;
-  tools: Array<{ name: string; source: "default" | "granted" }>;
-  revoked: Array<{ name: string; source: "revoked" }>;
-  /** Trust ledger rows for action types this agent's department can propose. */
-  trust: TrustRecord[];
-  /** Newest first, capped at 20. */
-  recentRuns: Array<{ ts: string; context: string; ok: boolean; costUsd: number | null }>;
-  /** hand_off dispatches to this agent (route.decision via=handoff), newest first, capped at 20. */
-  handoffs: Array<{ ts: string; reason: string; channel: string; chatId: string }>;
-  costByDay: Record<string, number>;
-}
 
 export function buildAgentProfile(
   nameOrAlias: string,
   registry: LoadedRegistry,
   store: Store,
   bus: EventBus,
-): AgentProfileView | null {
+): AgentProfileInfo | null {
   const name = registry.agentOf.get(nameOrAlias);
   const def = name ? registry.agents.get(name) : undefined;
   if (!def) return null;
@@ -149,8 +105,8 @@ export function buildAgentProfile(
   const deptActions = new Set(dept?.actions ?? []);
   const trust = store.listTrust().filter((t) => deptActions.has(t.actionType));
 
-  const recentRuns: AgentProfileView["recentRuns"] = [];
-  const handoffs: AgentProfileView["handoffs"] = [];
+  const recentRuns: AgentProfileInfo["recentRuns"] = [];
+  const handoffs: AgentProfileInfo["handoffs"] = [];
   const costByDay: Record<string, number> = {};
   for (const e of bus.history(0, HISTORY_WINDOW)) {
     if (e.event.type === "agent.end" && canonical(registry, e.event.agent) === def.manifest.name) {

@@ -12,40 +12,8 @@ const DEPT_LEGACY_ENV: Record<string, string> = {
   engineering: "CODE", finance: "MONEY", life: "LIFEOPS", research: "RESEARCH",
 };
 
-export interface PackRoleView {
-  name: string;
-  description: string;
-  privateOnly: boolean;
-  advisoryInDirect: boolean;
-  permissionMode: string;
-  allowedTools: string[];
-}
-export interface PackPlaybookView {
-  name: string;
-  description: string;
-  needsProjectDir: boolean;
-  stages: Array<{ id: string; type: string; role: string }>;
-}
-export interface PackJobView {
-  id: string; title: string; playbook: string; status: string; created_at: string; projectDir: string | null;
-}
-export interface PackWorkspaceView { taskDir: string; exists: boolean; jobId: string; title: string; status: string; }
-export interface PackView {
-  pillar: string;
-  persona: string;
-  memoDomain: string;
-  vaultSection: string;
-  sandbox: boolean;
-  enabled: boolean;
-  toolServer?: string;
-  tools: string[];
-  actions: string[];
-  roles: PackRoleView[];
-  playbooks: PackPlaybookView[];
-  recentJobs: PackJobView[];
-  workspaces: PackWorkspaceView[];
-  memoCount: number;
-}
+import type { PackRoleView, PackPlaybookView, PackJobView, PackWorkspaceView, PackView } from "./dto.js";
+export type { PackRoleView, PackPlaybookView, PackJobView, PackWorkspaceView, PackView } from "./dto.js";
 
 function stageRole(s: { type: string; role?: string; producer?: string; runner?: string }): string {
   return s.role ?? s.producer ?? s.runner ?? "?";

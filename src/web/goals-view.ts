@@ -4,19 +4,9 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { SpendGuard } from "../engine/budget.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { localParts } from "../heartbeat/clock.js";
+import type { GoalNodeView, GoalView, MailView, UserThreadView } from "./dto.js";
 
-export interface GoalNodeView {
-  key: string; type: string; agent: string; critic: string | null;
-  brief: string;
-  deps: string[]; status: string; costCents: number; rounds: number;
-  artifact: string | null; error: string | null; startedAt: string | null; finishedAt: string | null;
-}
-export interface GoalView {
-  id: string; slug: string; title: string; department: string; lead: string;
-  status: string; planSummary: string; replansUsed: number; error: string | null;
-  createdAt: string; updatedAt: string; projectDir: string | null; goalDir: string | null;
-  nodes: GoalNodeView[];
-}
+export type { GoalNodeView, GoalView, MailView, UserThreadView } from "./dto.js";
 
 function nodeView(n: TaskNodeRow): GoalNodeView {
   return {
@@ -62,11 +52,6 @@ export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: stri
   return { ...goalView(g, store), artifacts, spawnedBy, awaitingUserAsk };
 }
 
-export interface MailView {
-  id: string; from: string; to: string; kind: string; status: string; body: string;
-  goalId: string | null; chainDepth: number; createdAt: string; readAt: string | null; error: string | null;
-}
-
 export function buildMailView(store: Store, registry: LoadedRegistry, agent?: string, limit = 50): MailView[] {
   const canonical = agent ? registry.agentOf.get(agent) ?? agent : undefined;
   return store.listMail(canonical, limit).map((m) => ({
@@ -88,10 +73,6 @@ export function buildMailUnread(store: Store): { total: number; byAgent: Record<
   const byAgent = store.unreadCountsByAgent();
   const total = Object.values(byAgent).reduce((s, n) => s + n, 0);
   return { total, byAgent, pendingUser: store.pendingUserAsks().length, userInbox: store.unreadUserInbox() };
-}
-
-export interface UserThreadView {
-  threadId: string; lastTs: string; lastFrom: string; lastBody: string; unread: number; pendingAsk: number; refused: number;
 }
 
 /** The human's correspondence — thread summaries for the Mail tab (spec §6). */
