@@ -8,6 +8,7 @@ import { Mail } from "./views/Mail.js";
 import { Org } from "./views/Org.js";
 import { EventLog } from "./views/EventLog.js";
 import { ChatDrawer } from "./components/ChatDrawer.js";
+import { CommandPalette } from "./components/CommandPalette.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
 import { EventFeed } from "./views/EventFeed.js";
@@ -155,6 +156,7 @@ export function App() {
 
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)}
         state={state} events={events} target={chatTarget} setTarget={setChatTarget} />
+      <CommandPalette state={state} onOpenChat={openChat} />
     </div>
   );
 }
