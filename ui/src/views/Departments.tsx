@@ -1,10 +1,11 @@
-// ui/src/views/Packs.tsx
+// ui/src/views/Departments.tsx — department config cards (server still says "pillar" on the wire).
 import { useCallback, useEffect, useState } from "react";
 import { api, type PackView, type PackPlaybookView, type StoredEvent } from "../api.js";
 import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
+import { ConfirmButton } from "../components/ConfirmButton.js";
 
-export function Packs({ events }: { events: StoredEvent[] }) {
+export function Departments({ events }: { events: StoredEvent[] }) {
   const { data: packs } = useLiveQuery(() => api.packs(), events, T.goals);
 
   return (
@@ -24,8 +25,6 @@ function PackCard({ pack, i }: { pack: PackView; i: number }) {
   const [editOpen, setEditOpen] = useState(false);
 
   const handleToggle = useCallback(async () => {
-    const action = pack.enabled ? "disable" : "enable";
-    if (!window.confirm(`Toggle ${pack.pillar} (${action})? This restarts the daemon (~10s).`)) return;
     try {
       await api.setPackEnabled(pack.pillar, !pack.enabled);
       setRestarting(true);
@@ -45,13 +44,13 @@ function PackCard({ pack, i }: { pack: PackView; i: number }) {
         {restarting ? (
           <span className="text-[10px] ml-auto text-amber">restarting…</span>
         ) : (
-          <button
-            className={`text-[10px] ml-auto cursor-pointer hover:underline ${pack.enabled ? "text-phosphor" : "text-dim"}`}
-            onClick={handleToggle}
-            title={pack.enabled ? "Click to disable" : "Click to enable"}
-          >
-            {pack.enabled ? "● enabled" : "○ disabled"}
-          </button>
+          <ConfirmButton
+            label={pack.enabled ? "● enabled" : "○ disabled"}
+            confirmLabel={`${pack.enabled ? "disable" : "enable"} + restart (~10s)?`}
+            alert={pack.enabled}
+            onConfirm={handleToggle}
+            className="ml-auto"
+          />
         )}
       </div>
       <div className="text-[11px] text-dim mb-2 line-clamp-2">{pack.persona}</div>

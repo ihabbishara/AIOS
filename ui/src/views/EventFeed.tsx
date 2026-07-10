@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { StoredEvent } from "../api.js";
 
-const COLOR: Record<string, string> = {
+export const COLOR: Record<string, string> = {
   "goal.created": "text-cyan",
   "goal.status": "text-cyan",
   "node.status": "text-amber",
@@ -11,7 +11,7 @@ const COLOR: Record<string, string> = {
   "chat.out": "text-fg",
 };
 
-function describe(e: StoredEvent): string {
+export function describe(e: StoredEvent): string {
   const v = e.event;
   switch (v.type) {
     case "goal.created": return `goal ▸ ${v.title}`;

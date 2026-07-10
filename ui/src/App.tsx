@@ -6,21 +6,21 @@ import { useRoute, navigate, type Route } from "./lib/router.js";
 import { Goals } from "./views/Goals.js";
 import { Mail } from "./views/Mail.js";
 import { Org } from "./views/Org.js";
-import { RoutingTrail } from "./views/RoutingTrail.js";
+import { EventLog } from "./views/EventLog.js";
 import { ChatDrawer } from "./components/ChatDrawer.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
 import { EventFeed } from "./views/EventFeed.js";
 import { Inbox } from "./views/Inbox.js";
 import { Governance } from "./views/Governance.js";
-import { Packs } from "./views/Packs.js";
+import { Departments } from "./views/Departments.js";
 
 // zone → ordered sub-views. First entry is the zone default.
 const SUBNAV: Record<string, string[]> = {
   inbox: [],
   work: ["goals", "mail"],
   staff: ["org", "governance"],
-  system: ["departments", "config", "costs", "routing"],
+  system: ["departments", "config", "costs", "events"],
 };
 
 /** Which leaf view a route shows. Every leaf stays mounted; this only picks visibility. */
@@ -32,7 +32,7 @@ function leafOf(route: Route): string {
     if (sub === "agents") return "org"; // profile drill-in renders inside Org
     return sub === "governance" ? "governance" : "org";
   }
-  return sub === "config" ? "config" : sub === "costs" ? "costs" : sub === "routing" ? "routing" : "departments";
+  return sub === "config" ? "config" : sub === "costs" ? "costs" : sub === "events" ? "events" : "departments";
 }
 
 export function App() {
@@ -138,10 +138,10 @@ export function App() {
           <div className={leaf === "mail" ? "h-full" : "hidden"}><Mail events={events} route={route} /></div>
           <div className={leaf === "org" ? "h-full" : "hidden"}><Org events={events} route={route} onOpenChat={openChat} unreadByAgent={unread?.byAgent ?? {}} /></div>
           <div className={leaf === "governance" ? "" : "hidden"}><Governance events={events} /></div>
-          <div className={leaf === "departments" ? "h-full" : "hidden"}><Packs events={events} /></div>
+          <div className={leaf === "departments" ? "h-full" : "hidden"}><Departments events={events} /></div>
           <div className={leaf === "config" ? "h-full" : "hidden"}><Config /></div>
           <div className={leaf === "costs" ? "" : "hidden"}><Costs events={events} /></div>
-          <div className={leaf === "routing" ? "" : "hidden"}><RoutingTrail events={events} /></div>
+          <div className={leaf === "events" ? "" : "hidden"}><EventLog events={events} /></div>
         </main>
 
         {/* Telemetry rail — toggleable at every width now. */}
