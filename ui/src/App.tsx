@@ -11,7 +11,7 @@ import { Chat } from "./views/Chat.js";
 import { Config } from "./views/Config.js";
 import { Costs } from "./views/Costs.js";
 import { EventFeed } from "./views/EventFeed.js";
-import { Approvals } from "./views/Approvals.js";
+import { Inbox } from "./views/Inbox.js";
 import { Trust } from "./views/Trust.js";
 import { Permissions } from "./views/Permissions.js";
 import { Packs } from "./views/Packs.js";
@@ -131,7 +131,7 @@ export function App() {
 
         {/* Main view — every leaf stays mounted; route picks visibility. */}
         <main className="flex-1 min-w-0 overflow-auto p-5">
-          <div className={leaf === "inbox" ? "h-full" : "hidden"}><Approvals events={events} /></div>
+          <div className={leaf === "inbox" ? "h-full" : "hidden"}><Inbox events={events} /></div>
           <div className={leaf === "goals" ? "h-full" : "hidden"}><Goals events={events} route={route} /></div>
           <div className={leaf === "mail" ? "h-full" : "hidden"}><Mail events={events} route={route} /></div>
           <div className={leaf === "chat" ? "h-full" : "hidden"}><Chat state={state} events={events} target={chatTarget} setTarget={setChatTarget} /></div>
