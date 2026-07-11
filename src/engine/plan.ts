@@ -1,7 +1,7 @@
 // src/engine/plan.ts — graph validation (fail-closed) + lead planner (Task 7).
 import type { LoadedRegistry, AgentDef } from "../agents/registry/loader.js";
 import { isPrivateOrigin } from "../agents/direct.js";
-import { isUnder } from "../code/paths.js";
+import { isUnder, isSecretPath } from "../code/paths.js";
 import { toNewTaskNodes, type GraphNodeSpec } from "./compile.js";
 import { resolve } from "node:path";
 import type { Store } from "../store/db.js";
@@ -181,7 +181,8 @@ function planningBrief(dept: string, title: string, request: string, roster: str
 - Only agents from the roster above.
 - Prefer your own department's agents; borrow agents listed under other departments only when the task genuinely needs them.
 - Each brief must stand alone: the agent sees the goal request + prior artifacts of its deps, nothing else.
-- needsWorkspace: "worktree" (edit an existing repo safely) | "analyze" (read-only repo) | "greenfield" (new scratch dir) | "none". projectDir required for worktree/analyze.`,
+- needsWorkspace: "worktree" (edit an existing repo safely) | "analyze" (read-only repo) | "greenfield" (new scratch dir) | "none". projectDir required for worktree/analyze.
+- Documentation, summaries, or analysis that only READ code need needsWorkspace "none" — agents Read/Grep repos directly. Only request worktree/analyze when the task must run commands or git inside the repo.`,
     retryError ? `# Your previous plan was INVALID — fix this and return a corrected plan\n${retryError}` : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -214,6 +215,21 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     return { specs, v };
   };
 
+  /** Plan-time workspace validation — mirrors the exec-time guards (workspace.ts) so a bad
+   *  projectDir fails DURING planning (retryable, corrected by the lead) instead of at
+   *  workspace setup, which used to leave a dead failed-goal card. */
+  const workspaceError = (raw: RawPlan): string | undefined => {
+    if (raw.needsWorkspace !== "worktree" && raw.needsWorkspace !== "analyze") return undefined;
+    // isUnder is separator-boundary-safe (a plain startsWith would admit /x/projectsevil).
+    if (!raw.projectDir || !isUnder(raw.projectDir, deps.projectsRoot)) {
+      return `needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`;
+    }
+    if (isSecretPath(raw.projectDir)) {
+      return `projectDir ${raw.projectDir} is on the secret denylist and can never be a workspace source — if the goal only reads code or writes a document, use needsWorkspace "none" (agents Read/Grep repos directly); otherwise pick a different directory`;
+    }
+    return undefined;
+  };
+
   const buildValidatedPlan = async (params: { department: string; title: string; request: string; channel: string; chatId: string }) => {
     const dept = deps.registry.departments.get(params.department);
     if (!dept?.lead) throw new Error(`unknown department or no lead: "${params.department}" — use hand_off or run_playbook instead`);
@@ -226,23 +242,24 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
       const candidate = res.structured as RawPlan | undefined;
       if (!candidate?.nodes) { error = "no structured plan returned"; continue; }
       const { v } = validateOrExplain(candidate.nodes, params.department, origin);
-      if (v.ok) { raw = candidate; break; }
-      error = v.error;
+      if (!v.ok) { error = v.error; continue; }
+      const wsErr = workspaceError(candidate);
+      if (wsErr) { error = wsErr; continue; }
+      raw = candidate;
+      break;
     }
     if (!raw) throw new Error(`planning failed: ${error}`);
     const { specs } = validateOrExplain(raw.nodes, params.department, origin);
     return { dept, lead: dept.lead, raw, specs, origin };
   };
 
-  /** worktree/analyze require a projectDir under projectsRoot; returns the resolved dir
-   *  (undefined for greenfield/none). Throws a planning error otherwise — fail-closed. */
+  /** Returns the resolved workspace dir (undefined for greenfield/none). The loop above
+   *  already validated — this re-check is a fail-closed backstop. */
   const resolveWorkspaceDir = (raw: RawPlan): string | undefined => {
     if (raw.needsWorkspace !== "worktree" && raw.needsWorkspace !== "analyze") return undefined;
-    // isUnder is separator-boundary-safe (a plain startsWith would admit /x/projectsevil).
-    if (!raw.projectDir || !isUnder(raw.projectDir, deps.projectsRoot)) {
-      throw new Error(`planning failed: needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`);
-    }
-    return resolve(raw.projectDir);
+    const err = workspaceError(raw);
+    if (err) throw new Error(`planning failed: ${err}`);
+    return resolve(raw.projectDir!);
   };
 
   return {

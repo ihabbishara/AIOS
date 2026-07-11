@@ -197,12 +197,35 @@ describe("planFromMail", () => {
 
   it("user mail with a projectDir outside projectsRoot fails planning", async () => {
     const BAD_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/etc" };
-    const { engine, store } = harness([BAD_PLAN]);
+    // Workspace errors are retryable now — feed the bad plan twice to exhaust both attempts.
+    const { engine, store } = harness([BAD_PLAN, BAD_PLAN]);
     const m = insertUserMail(store);
     await expect(engine["deps"].planner!.planFromMail(engine, {
       department: "engineering", title: "Do X", request: "do x", channel: "web", chatId: "ui",
     }, m)).rejects.toThrow(/projectDir under/);
     expect(store.listGoals()).toHaveLength(0);
+  });
+
+  it("a denylisted projectDir fails planning at plan time (no dead goal card)", async () => {
+    // /tmp/projects/AIOS is under projectsRoot but matches the secret denylist (projects/AIOS).
+    const DENY_PLAN = { ...GOOD_PLAN, needsWorkspace: "analyze", projectDir: "/tmp/projects/AIOS" };
+    const { engine, store } = harness([DENY_PLAN, DENY_PLAN]);
+    const m = insertUserMail(store);
+    await expect(engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Doc the engine", request: "write a doc", channel: "web", chatId: "ui",
+    }, m)).rejects.toThrow(/denylist/);
+    expect(store.listGoals()).toHaveLength(0); // refused BEFORE a goal row exists
+  });
+
+  it("a denylisted projectDir on attempt 1 is retried — corrected plan succeeds", async () => {
+    const DENY_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/tmp/projects/AIOS" };
+    const { engine, store } = harness([DENY_PLAN, GOOD_PLAN]);
+    const m = insertUserMail(store);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Doc the engine", request: "write a doc", channel: "web", chatId: "ui",
+    }, m);
+    expect(g.project_dir).toBeNull(); // corrected plan (needsWorkspace none) won
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
   });
 
   it("a user-mail plan declaring needsWorkspace none yields no planner-passed projectDir", async () => {
