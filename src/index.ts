@@ -1,5 +1,5 @@
-import { join } from "node:path";
-import { loadConfig, assertAuth } from "./config.js";
+import { join, resolve } from "node:path";
+import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
 import { makeResolveDeptFor } from "./packs/resolve.js";
@@ -59,6 +59,7 @@ const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${
 async function main(): Promise<void> {
   const config = loadConfig();
   assertAuth();
+  ensureUiToken(resolve(".env"), log);
 
   const store = new Store(config.dbPath);
   const bus = new EventBus(store);

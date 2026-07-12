@@ -1,5 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import "dotenv/config";
 import type { TrustPolicy, TrustState } from "./kernel/trust.js";
 
@@ -265,6 +267,23 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
 
 export function loadConfig(root = process.cwd()): Config {
   return buildConfig(process.env, root);
+}
+
+/** Ops floor: the /api surface must not ship open by default. If no token is
+ *  configured, generate one, persist it to .env (trailing-newline-guarded —
+ *  a bare append once corrupted AIOS_PRIMARY_CHAT), export it to the process,
+ *  and print it once so the user can paste it into the UI. Explicit opt-out:
+ *  AIOS_UI_TOKEN=off. */
+export function ensureUiToken(envPath: string, log: (m: string) => void): void {
+  const current = process.env.AIOS_UI_TOKEN;
+  if (current && current.length > 0) return; // set (or "off") — respect it
+  const token = randomBytes(32).toString("hex");
+  let body = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+  if (body.length > 0 && !body.endsWith("\n")) body += "\n";
+  body += `AIOS_UI_TOKEN=${token}\n`;
+  writeFileSync(envPath, body);
+  process.env.AIOS_UI_TOKEN = token;
+  log(`generated AIOS_UI_TOKEN (saved to .env) — paste into Mission Control: ${token}`);
 }
 
 export function assertAuth(): void {
