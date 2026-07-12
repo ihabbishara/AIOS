@@ -2,6 +2,7 @@
 import { join, resolve } from "node:path";
 import { halaloToolChecks, HALALO_EXPORTS_DIR } from "../guards/halalo-readonly.js";
 import { ledgerReadCheck } from "../guards/read-confined.js";
+import { atlasMutatingChecks } from "../guards/atlas-mutating.js";
 import type { AgentExtras } from "./loader.js";
 import type { FinanceMember } from "../../config.js";
 
@@ -27,6 +28,10 @@ export function buildExtras(cfg: ExtrasConfig): Record<string, AgentExtras> {
       toolCheckFallback: "deny",
       attachDirs: [HALALO_EXPORTS_DIR],
       promptSuffix: `\n\n## Exports directory\nYour exports directory (absolute): ${HALALO_EXPORTS_DIR}. Write deliverable files there (e.g. ${HALALO_EXPORTS_DIR}/orders.csv), then attach_file with that same absolute path. A bare filename would be refused — always use the full exports path.`,
+    },
+    atlas: {
+      toolChecks: atlasMutatingChecks(),
+      // toolCheckFallback omitted → default "allow": atlas stays useful; the denylist is the fence.
     },
     juno: (() => {
       const attachDirs = [join(cfg.vaultPath, cfg.vaultSubdir, "attachments"), "/tmp/aios-"];
