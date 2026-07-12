@@ -232,6 +232,13 @@ export class Store {
         date TEXT PRIMARY KEY,
         spent_cents INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS cost_daily (
+        agent TEXT NOT NULL,
+        date TEXT NOT NULL,
+        usd_cents INTEGER NOT NULL DEFAULT 0,
+        runs INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (agent, date)
+      );
       CREATE TABLE IF NOT EXISTS mail (
         id TEXT PRIMARY KEY,
         from_agent TEXT NOT NULL,
@@ -649,6 +656,41 @@ export class Store {
       `INSERT INTO budget_ledger (date, spent_cents) VALUES (?, ?)
        ON CONFLICT(date) DO UPDATE SET spent_cents = spent_cents + excluded.spent_cents`,
     ).run(date, cents);
+  }
+
+  costAdd(agent: string, date: string, cents: number): void {
+    this.db.prepare(
+      `INSERT INTO cost_daily (agent, date, usd_cents, runs) VALUES (?, ?, ?, 1)
+       ON CONFLICT(agent, date) DO UPDATE SET
+         usd_cents = usd_cents + excluded.usd_cents, runs = runs + 1`,
+    ).run(agent, date, cents);
+  }
+
+  costsByAgent(sinceDate?: string): Array<{ agent: string; usd_cents: number; runs: number }> {
+    return this.db.prepare(
+      `SELECT agent, SUM(usd_cents) AS usd_cents, SUM(runs) AS runs FROM cost_daily
+       WHERE date >= ? GROUP BY agent ORDER BY usd_cents DESC, agent`,
+    ).all(sinceDate ?? "0000-00-00") as never;
+  }
+
+  costsByDay(days: number): Array<{ date: string; usd_cents: number }> {
+    return (this.db.prepare(
+      `SELECT date, SUM(usd_cents) AS usd_cents FROM cost_daily
+       GROUP BY date ORDER BY date DESC LIMIT ?`,
+    ).all(days) as Array<{ date: string; usd_cents: number }>).reverse();
+  }
+
+  /** Raw per-agent-per-day rows — callers canonicalize alias names themselves
+   *  (the router emits alias names on mention paths, so cost_daily can hold both). */
+  costRows(sinceDate: string): Array<{ agent: string; date: string; usd_cents: number }> {
+    return this.db.prepare(
+      `SELECT agent, date, usd_cents FROM cost_daily WHERE date >= ? ORDER BY date, agent`,
+    ).all(sinceDate) as never;
+  }
+
+  pruneEvents(beforeIso: string): number {
+    const r = this.db.prepare(`DELETE FROM events WHERE ts < ?`).run(beforeIso);
+    return Number(r.changes);
   }
 
   budgetSpentCents(date: string): number {

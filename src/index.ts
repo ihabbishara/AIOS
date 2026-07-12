@@ -210,6 +210,16 @@ async function main(): Promise<void> {
   const spendGuard = new SpendGuard({ store, capUsd: config.dailyBudgetUsd });
   attachBudgetLedger(bus, store);
 
+  // One-time cost_daily backfill from event history (idempotent via kv flag).
+  if (!store.kvGet("cost:backfilled")) {
+    for (const e of bus.history(0, 50_000)) {
+      if (e.event.type === "agent.end" && e.event.costUsd) {
+        store.costAdd(e.event.agent, e.ts.slice(0, 10), Math.round(e.event.costUsd * 100));
+      }
+    }
+    store.kvSet("cost:backfilled", "1");
+  }
+
   const onGoalComplete = async (outcome: GoalOutcome): Promise<void> => {
     const { goal } = outcome;
     const channel = channels.get(goal.origin_channel);
@@ -411,6 +421,20 @@ async function main(): Promise<void> {
     const n = gate.sweepExpired();
     if (n) log(`expired ${n} stale approval(s)`);
   }, 60_000);
+
+  // Event retention — goal_journal (future) and budget_ledger are never touched.
+  const pruneOld = () => {
+    const cutoff = new Date(Date.now() - config.eventRetentionDays * 86_400_000).toISOString();
+    try {
+      const n = store.pruneEvents(cutoff);
+      if (n) log(`retention: pruned ${n} old event(s)`);
+    } catch (err) {
+      log(`retention sweep failed: ${(err as Error).message}`);
+    }
+  };
+  pruneOld();
+  const retentionTimer = setInterval(pruneOld, 24 * 3_600_000);
+  retentionTimer.unref?.();
 
   // ---- second brain: backfill the index on boot, then keep it fresh ----
   // NOTE: the write-time indexing subscription is registered earlier (right after

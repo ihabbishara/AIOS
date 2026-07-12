@@ -34,6 +34,8 @@ export class SpendGuard {
 export function attachBudgetLedger(bus: EventBus, store: Store, todayFn = today): () => void {
   return bus.on((e) => {
     if (e.event.type !== "agent.end" || !e.event.costUsd) return;
-    store.budgetAdd(todayFn(), Math.round(e.event.costUsd * 100));
+    const cents = Math.round(e.event.costUsd * 100);
+    store.budgetAdd(todayFn(), cents);
+    store.costAdd(e.event.agent, todayFn(), cents);
   });
 }

@@ -92,6 +92,7 @@ export interface Config {
   gmailSkipCategories: string[];
   /** Vault reindex sweep interval (seconds). */
   memoReindexSeconds: number;
+  eventRetentionDays: number;
   /** Model for the memory curator one-shot (defaults to specialistModel). */
   curatorModel?: string;
   /** Bunq environment: "sandbox" | "production". */
@@ -248,6 +249,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     gmailSkipCategories: (process.env.AIOS_GMAIL_SKIP_CATEGORIES ?? "promotions,social")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     memoReindexSeconds: Number(process.env.AIOS_MEMO_REINDEX_SECONDS ?? 300),
+    eventRetentionDays: Number(process.env.AIOS_EVENT_RETENTION_DAYS ?? 90),
     curatorModel: process.env.AIOS_CURATOR_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     bunqEnv: process.env.AIOS_BUNQ_ENV ?? "sandbox",
     bunqPollSeconds: Number(process.env.AIOS_BUNQ_POLL_SECONDS ?? 3600),

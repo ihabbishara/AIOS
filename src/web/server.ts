@@ -181,14 +181,11 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         }
 
         if (path === "/api/costs" && req.method === "GET") {
+          // cost_daily rollup — no more bounded history scans (ops-floor spec §2.3).
           const byAgent: Record<string, number> = {};
+          for (const r of store.costsByAgent()) byAgent[r.agent] = r.usd_cents / 100;
           const byDay: Record<string, number> = {};
-          for (const e of bus.history(0, 5000)) {
-            if (e.event.type !== "agent.end" || !e.event.costUsd) continue;
-            byAgent[e.event.agent] = (byAgent[e.event.agent] ?? 0) + e.event.costUsd;
-            const day = e.ts.slice(0, 10);
-            byDay[day] = (byDay[day] ?? 0) + e.event.costUsd;
-          }
+          for (const r of store.costsByDay(14)) byDay[r.date] = r.usd_cents / 100;
           return json(res, 200, { byAgent, byDay });
         }
 

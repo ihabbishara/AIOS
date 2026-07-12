@@ -85,20 +85,22 @@ describe("buildOrgView", () => {
     expect(eng.agents[0].status).toBe("working");
   });
 
-  it("agent.end returns to idle and sums today's cost", () => {
+  it("agent.end returns to idle; today's cost reads the rollup, alias rows canonicalized", () => {
     const { store, bus, registry } = harness();
+    const today = new Date().toISOString().slice(0, 10);
     bus.emit({ type: "agent.start", agent: "vulcan", context: "chat:telegram:42" });
     bus.emit({ type: "agent.end", agent: "vulcan", context: "chat:telegram:42", ok: true, costUsd: 0.25 });
-    bus.emit({ type: "agent.start", agent: "developer", context: "chat:web:ui" });
-    bus.emit({ type: "agent.end", agent: "developer", context: "chat:web:ui", ok: true, costUsd: 0.5 });
+    // rollup rows as the ledger listener writes them — raw router names, aliases included
+    store.costAdd("vulcan", today, 25);
+    store.costAdd("developer", today, 50);
     const eng = buildOrgView(registry, store, bus).find((d) => d.department === "engineering")!;
     expect(eng.agents[0].status).toBe("idle");
     expect(eng.agents[0].costTodayUsd).toBeCloseTo(0.75);
   });
 
-  it("cost from another day is excluded", () => {
+  it("cost from before the requested day is excluded", () => {
     const { store, bus, registry } = harness();
-    bus.emit({ type: "agent.end", agent: "vulcan", context: "chat:telegram:42", ok: true, costUsd: 0.25 });
+    store.costAdd("vulcan", "1998-12-30", 25);
     const eng = buildOrgView(registry, store, bus, "1999-01-01").find((d) => d.department === "engineering")!;
     expect(eng.agents[0].costTodayUsd).toBe(0);
   });
@@ -144,8 +146,9 @@ describe("buildAgentProfile", () => {
     expect(p.trust.map((t) => t.actionType)).toEqual(["vault.write"]);
   });
 
-  it("recent runs, handoffs, and cost history come from the event stream", () => {
+  it("recent runs and handoffs come from the event stream; cost history from the rollup", () => {
     const { store, bus, registry } = harness();
+    store.costAdd("vulcan", new Date().toISOString().slice(0, 10), 30);
     bus.emit({ type: "agent.end", agent: "vulcan", context: "chat:telegram:42", ok: true, costUsd: 0.3 });
     bus.emit({ type: "agent.end", agent: "developer", context: "job:fix-auth/implement", ok: false });
     bus.emit({

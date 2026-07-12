@@ -23,19 +23,21 @@ export function buildOrgView(
   bus: EventBus,
   today: string = new Date().toISOString().slice(0, 10),
 ): OrgDepartmentView[] {
-  // One history scan: open runs (start without end) + per-agent cost today.
+  // History scan only for live-run status (start without end). Costs come from
+  // the cost_daily rollup — canonicalized here because the write path stores
+  // whatever name the router emitted (aliases included).
   const liveRuns = new Map<string, string>();
-  const costToday = new Map<string, number>();
   for (const e of bus.history(0, HISTORY_WINDOW)) {
     if (e.event.type === "agent.start") {
       liveRuns.set(canonical(registry, e.event.agent), e.event.context);
     } else if (e.event.type === "agent.end") {
-      const name = canonical(registry, e.event.agent);
-      liveRuns.delete(name);
-      if (e.event.costUsd && e.ts.slice(0, 10) === today) {
-        costToday.set(name, (costToday.get(name) ?? 0) + e.event.costUsd);
-      }
+      liveRuns.delete(canonical(registry, e.event.agent));
     }
+  }
+  const costToday = new Map<string, number>();
+  for (const r of store.costsByAgent(today)) {
+    const name = canonical(registry, r.agent);
+    costToday.set(name, (costToday.get(name) ?? 0) + r.usd_cents / 100);
   }
 
   // waiting = live chat run whose origin has a proposed (awaiting-approval) action.
@@ -107,20 +109,23 @@ export function buildAgentProfile(
 
   const recentRuns: AgentProfileInfo["recentRuns"] = [];
   const handoffs: AgentProfileInfo["handoffs"] = [];
-  const costByDay: Record<string, number> = {};
   for (const e of bus.history(0, HISTORY_WINDOW)) {
     if (e.event.type === "agent.end" && canonical(registry, e.event.agent) === def.manifest.name) {
       recentRuns.push({ ts: e.ts, context: e.event.context, ok: e.event.ok, costUsd: e.event.costUsd ?? null });
-      if (e.event.costUsd) {
-        const day = e.ts.slice(0, 10);
-        costByDay[day] = (costByDay[day] ?? 0) + e.event.costUsd;
-      }
     } else if (
       e.event.type === "route.decision" && e.event.via === "handoff" &&
       canonical(registry, e.event.to) === def.manifest.name
     ) {
       handoffs.push({ ts: e.ts, reason: e.event.reason, channel: e.event.channel, chatId: e.event.chatId });
     }
+  }
+
+  // costByDay from the rollup (last 30 days), canonicalized — see buildOrgView.
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const costByDay: Record<string, number> = {};
+  for (const r of store.costRows(since)) {
+    if (canonical(registry, r.agent) !== def.manifest.name) continue;
+    costByDay[r.date] = (costByDay[r.date] ?? 0) + r.usd_cents / 100;
   }
 
   return {
