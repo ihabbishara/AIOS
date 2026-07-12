@@ -31,6 +31,19 @@ describe("sandboxProfile (pure)", () => {
   });
 });
 
+describe("sandbox network egress", () => {
+  it("analyze mode denies network by default", () => {
+    expect(sandboxProfile("/ws/task", "analyze")).not.toContain("(allow network*)");
+  });
+  it("build mode allows network by default (npm installs)", () => {
+    expect(sandboxProfile("/ws/task", "build")).toContain("(allow network*)");
+  });
+  it("explicit net option wins", () => {
+    expect(sandboxProfile("/ws/task", "build", { net: "deny" })).not.toContain("(allow network*)");
+    expect(sandboxProfile("/ws/task", "analyze", { net: "allow" })).toContain("(allow network*)");
+  });
+});
+
 describe("jailEnv scrubs secrets", () => {
   it("drops the daemon's secrets, keeps PATH, points HOME+TMPDIR into the jail", () => {
     const base = { PATH: "/usr/bin", CLAUDE_CODE_OAUTH_TOKEN: "sk-secret", AWS_SECRET_ACCESS_KEY: "x", AIOS_BUNQ_ENV: "production" } as any;

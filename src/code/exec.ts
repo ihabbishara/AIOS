@@ -23,7 +23,11 @@ export function jailEnv(taskDir: string, base: NodeJS.ProcessEnv = process.env):
 /** macOS sandbox profile (SBPL). Deny-default; broad read minus the secret denylist;
  *  write only under the task dir (build), none (analyze). Later rules override earlier
  *  for the same operation, so the secret denies must come AFTER the broad read allow. */
-export function sandboxProfile(taskDir: string, mode: "build" | "analyze"): string {
+export function sandboxProfile(
+  taskDir: string,
+  mode: "build" | "analyze",
+  opts?: { net?: "allow" | "deny" },
+): string {
   // Resolve symlinks so macOS /var/folders -> /private/var/folders works in SBPL subpath matching.
   let realDir = taskDir;
   try { realDir = realpathSync(taskDir); } catch { /* non-existent dirs are used in unit tests */ }
@@ -43,7 +47,9 @@ export function sandboxProfile(taskDir: string, mode: "build" | "analyze"): stri
     "(allow sysctl-read)",
     "(allow mach-lookup)",
     "(allow signal (target self))",
-    "(allow network*)", // egress restriction is a Docker-tier follow-up
+    // Egress: analyze (read-only audit) needs no network → deny-default covers it.
+    // Build keeps network for package installs unless AIOS_SANDBOX_NET=deny.
+    (opts?.net ?? (mode === "build" ? "allow" : "deny")) === "allow" ? "(allow network*)" : "",
     "(allow file-read*)",
     // secrets win (last-match): never readable inside the sandbox. Deny lines
     // live in the unified secrets module (src/kernel/secrets.ts) — superset of
@@ -64,7 +70,10 @@ export function buildCodeServer(ctx: { taskDir: string; mode: "build" | "analyze
     { cmd: z.string() },
     async (args) =>
       new Promise((resolve) => {
-        const profile = sandboxProfile(ctx.taskDir, ctx.mode);
+        const profile = sandboxProfile(
+          ctx.taskDir, ctx.mode,
+          process.env.AIOS_SANDBOX_NET === "deny" ? { net: "deny" } : undefined,
+        );
         // Temp dir lives INSIDE the jail so toolchains have scratch space without a
         // world-writable /tmp allow. It's under taskDir, so the subpath write rule covers it.
         const jailTmp = join(ctx.taskDir, ".aios-tmp");
