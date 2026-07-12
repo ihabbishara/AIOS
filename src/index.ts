@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { existsSync, statSync, unlinkSync } from "node:fs";
 import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
@@ -60,6 +61,16 @@ async function main(): Promise<void> {
   const config = loadConfig();
   assertAuth();
   ensureUiToken(resolve(".env"), log);
+
+  // Known trap: data/aios.db is a stale zero-byte file from an old path; queries
+  // against it silently return nothing. Delete only if empty and not the live DB.
+  try {
+    const staleDb = resolve("data/aios.db");
+    if (staleDb !== resolve(config.dbPath) && existsSync(staleDb) && statSync(staleDb).size === 0) {
+      unlinkSync(staleDb);
+      log("cleanup: removed stale empty data/aios.db");
+    }
+  } catch { /* best-effort */ }
 
   const store = new Store(config.dbPath);
   const bus = new EventBus(store);
@@ -671,10 +682,24 @@ async function main(): Promise<void> {
     }, () => {}, () => {}));
   }
 
+  // /api/health senses provider — google degradations are per-account, bunq is one line.
+  const sensesStatus = () => [
+    ...google.accounts().map((a) => ({
+      name: `google:${a.name}`,
+      ok: !google.isDegraded(a.name),
+      ...(google.isDegraded(a.name)
+        ? { reason: google.degraded().find((d) => d.name === a.name)?.reason ?? "degraded" }
+        : {}),
+    })),
+    ...bunq.degraded().map((d) => ({ name: d.name, ok: false, reason: d.reason })),
+    ...(bunq.enabled() && bunq.degraded().length === 0 ? [{ name: "bunq", ok: true }] : []),
+  ];
+
   startWebServer(
-    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, mailbox, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, mailbox, senses: sensesStatus, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
     config.uiPort,
   );
+  log(`ready — mission control listening on 127.0.0.1:${config.uiPort}`);
 
   const resumed = goals.resumeUnfinished();
   if (resumed) log(`resumed ${resumed} unfinished job(s)`);

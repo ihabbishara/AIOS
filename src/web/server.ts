@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
 import { playbookSchema } from "../engine/playbook.js";
@@ -76,6 +76,8 @@ export interface WebDeps {
   registry: LoadedRegistry;
   /** Mailbox — compose (sendFromUser) and human read-marking (markDelivered → mail.read). */
   mailbox: Mailbox;
+  /** Optional senses status provider for /api/health (index.ts wires the real one). */
+  senses?: () => Array<{ name: string; ok: boolean; reason?: string }>;
   reloadPacks: () => void;
   envPath: string;
   uiDist: string;
@@ -124,6 +126,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
   const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
+  let sseClients = 0;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -176,8 +179,21 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           for (const e of bus.history(0, 100)) res.write(`data: ${JSON.stringify(e)}\n\n`);
           const off = bus.on((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
           const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
-          req.on("close", () => { off(); clearInterval(ping); });
+          sseClients++;
+          req.on("close", () => { off(); clearInterval(ping); sseClients--; });
           return;
+        }
+
+        if (path === "/api/health" && req.method === "GET") {
+          let dbBytes = 0;
+          try { dbBytes = statSync(config.dbPath).size; } catch { /* :memory: or missing */ }
+          return json(res, 200, {
+            uptimeMs: Date.now() - startedAt,
+            voice: deps.voice.available(),
+            senses: deps.senses?.() ?? [],
+            sseClients,
+            dbBytes,
+          });
         }
 
         if (path === "/api/costs" && req.method === "GET") {
