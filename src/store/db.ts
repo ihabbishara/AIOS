@@ -184,6 +184,11 @@ export class Store {
   constructor(dbPath: string) {
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
+    // Ops floor: WAL for concurrent readers, busy_timeout instead of instant
+    // SQLITE_BUSY, FK enforcement on. WAL is a harmless no-op on :memory:.
+    this.db.exec("PRAGMA journal_mode=WAL");
+    this.db.exec("PRAGMA busy_timeout=5000");
+    this.db.exec("PRAGMA foreign_keys=ON");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS goals (
         id TEXT PRIMARY KEY,
