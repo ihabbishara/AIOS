@@ -1,6 +1,7 @@
 // src/code/paths.ts
 import { realpathSync, existsSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { SECRET_PATH_PATTERNS } from "../kernel/secrets.js";
 
 /** Realpath the nearest existing ancestor, then re-append the not-yet-existing tail.
  *  Collapses `..` and symlinks in the part that exists — the part an attacker controls. */
@@ -24,20 +25,11 @@ export function isUnder(child: string, parent: string): boolean {
   return c === base || c.startsWith(base.endsWith(sep) ? base : base + sep);
 }
 
-const SECRET_PATTERNS: RegExp[] = [
-  /(^|\/)\.ssh(\/|$)/,
-  /(^|\/)\.aws(\/|$)/,
-  /(^|\/)\.gnupg(\/|$)/,
-  /(^|\/)\.config(\/|$)/,
-  /(^|\/)projects\/AIOS(\/|$)/,
-  /\.env(\.[^/]+)?$/,
-  /(token|credential|secret)/i,
-];
-
-/** Hard denylist that always wins over any read-root. */
+/** Hard denylist that always wins over any read-root. Patterns live in the
+ *  unified secrets module (src/kernel/secrets.ts) — one source, three consumers. */
 export function isSecretPath(p: string): boolean {
   const r = resolveReal(p);
-  return SECRET_PATTERNS.some((re) => re.test(r));
+  return SECRET_PATH_PATTERNS.some((re) => re.test(r));
 }
 
 /** Guard an in-place coding target. Refuses (fail-closed) the AIOS source tree, secret paths,

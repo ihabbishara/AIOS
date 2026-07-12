@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { realpathSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { ENV_ALLOWLIST, sbplSecretDenyLines } from "../kernel/secrets.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -12,9 +13,8 @@ function text(s: string) {
 /** Minimal, secret-free environment for a jailed command. Allowlist, not the daemon's full env. */
 export function jailEnv(taskDir: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const jailTmp = join(taskDir, ".aios-tmp");
-  const KEEP = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "SHELL", "TZ"];
   const env: NodeJS.ProcessEnv = {};
-  for (const k of KEEP) if (base[k] !== undefined) env[k] = base[k];
+  for (const k of ENV_ALLOWLIST) if (base[k] !== undefined) env[k] = base[k];
   env.HOME = taskDir;               // tools resolve ~ into the jail, not the real home (no real ~/.npmrc etc.)
   env.TMPDIR = jailTmp; env.TMP = jailTmp; env.TEMP = jailTmp;
   return env;
@@ -45,14 +45,11 @@ export function sandboxProfile(taskDir: string, mode: "build" | "analyze"): stri
     "(allow signal (target self))",
     "(allow network*)", // egress restriction is a Docker-tier follow-up
     "(allow file-read*)",
-    // secrets win (last-match): never readable inside the sandbox.
-    // This deny set is a superset of guard.isSecretPath's families (.ssh/.aws/.gnupg/.config/
-    // projects-AIOS/.env/token|credential|secret) PLUS common credential stores the shell could
-    // otherwise `cat` by absolute path (.npmrc/.netrc/.docker/.kube/Keychains). Scoped to those
-    // path families, so toolchain reads under /usr, /opt/homebrew, the jail, etc. stay allowed.
-    '(deny file-read* (regex #"/\\.ssh/") (regex #"/\\.aws/") (regex #"/\\.gnupg/") (regex #"/\\.config/"))',
-    '(deny file-read* (regex #"/projects/AIOS/") (regex #"\\.env($|\\.)") (regex #"(token|credential|secret)"))',
-    '(deny file-read* (regex #"/\\.npmrc$") (regex #"/\\.netrc$") (regex #"/\\.docker/") (regex #"/\\.kube/") (regex #"/Library/Keychains/"))',
+    // secrets win (last-match): never readable inside the sandbox. Deny lines
+    // live in the unified secrets module (src/kernel/secrets.ts) — superset of
+    // isSecretPath's families plus credential stores a shell could `cat` by
+    // absolute path. Scoped to path families, so toolchain reads stay allowed.
+    ...sbplSecretDenyLines(),
     writeAllow,
   ].filter(Boolean).join("\n");
 }
