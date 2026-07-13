@@ -87,9 +87,16 @@ export function Home({ events, attention, onOpenChat }: {
         <div className="w-[360px] shrink-0 border-r border-line py-2 hidden md:flex flex-col">
           <Queue groups={groups} selected={selected} onSelect={setSelected} onAct={act} rowErrors={rowErrors} busy={busy} />
         </div>
-        {/* Phone: the queue IS the home screen (Task 11 adds the full-screen detail push). */}
-        <div className="flex-1 min-h-0 md:hidden py-2">
-          <Queue groups={groups} selected={selected} onSelect={setSelected} onAct={act} rowErrors={rowErrors} busy={busy} />
+        {/* Phone: queue-first; a selection pushes a full-screen detail with back (spec §7). */}
+        <div className="flex-1 min-h-0 md:hidden flex flex-col py-2">
+          {selected ? (
+            <div className="flex-1 min-h-0 overflow-y-auto px-3">
+              <button onClick={() => setSelected(null)} className="label hover:text-fg mb-3">← queue</button>
+              <Canvas item={selected} events={events} onAct={act} onOpenChat={onOpenChat} onDone={() => setSelected(null)} />
+            </div>
+          ) : (
+            <Queue groups={groups} selected={selected} onSelect={setSelected} onAct={act} rowErrors={rowErrors} busy={busy} />
+          )}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 hidden md:block">
           <Canvas item={selected} events={events} onAct={act} onOpenChat={onOpenChat} onDone={() => setSelected(null)} />
