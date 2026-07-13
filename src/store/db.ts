@@ -377,6 +377,12 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
     `);
+    // Migration (journaled engine): idempotent gate proposals. A retried goal attempt
+    // carries idempotencyKey = goalId:node:attempt# — the unique index makes a duplicate
+    // proposal return the original row instead of double-executing an effect. SQLite
+    // unique indexes treat NULLs as distinct, so keyless actions are unaffected.
+    try { this.db.exec("ALTER TABLE actions ADD COLUMN idempotency_key TEXT"); } catch { /* exists */ }
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_actions_idem ON actions(idempotency_key)");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS reminders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1089,17 +1095,23 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO actions (id, type, payload, preview, status, origin_channel, origin_chat_id,
-                              trust_state, verdict_by, reject_reason, result, created_at, resolved_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              trust_state, verdict_by, reject_reason, result, created_at, resolved_at, expires_at,
+                              idempotency_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         a.id, a.type, a.payload, a.preview, a.status, a.origin_channel, a.origin_chat_id,
         a.trust_state, a.verdict_by, a.reject_reason, a.result, a.created_at, a.resolved_at, a.expires_at,
+        a.idempotency_key ?? null,
       );
   }
 
   getAction(id: string): ActionRow | undefined {
     return this.db.prepare("SELECT * FROM actions WHERE id = ?").get(id) as ActionRow | undefined;
+  }
+
+  actionByIdempotencyKey(key: string): ActionRow | undefined {
+    return this.db.prepare("SELECT * FROM actions WHERE idempotency_key = ?").get(key) as ActionRow | undefined;
   }
 
   listActions(status?: string, limit = 100): ActionRow[] {

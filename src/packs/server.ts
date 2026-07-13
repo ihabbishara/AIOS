@@ -24,19 +24,25 @@ export interface PackServerDeps {
   memoDomain: string;
   /** Gate attribution. */
   origin: { channel: string; chatId: string };
+  /** Goal-attempt dedupe key (goalId:node:attempt#) — set when this pack is resolved for
+   *  a goal node; retried attempts cannot double-propose the same effect. */
+  idempotencyKey?: string;
 }
 
 /** Ceiling-checked gate proposal shared by vault_write + propose_action.
  *  Returns a human string; refuses (without touching the gate) any type outside the ceiling. */
 export async function proposeThroughCeiling(
-  deps: Pick<PackServerDeps, "gate" | "actions" | "origin">,
+  deps: Pick<PackServerDeps, "gate" | "actions" | "origin" | "idempotencyKey">,
   a: { type: string; payload: Record<string, unknown>; preview: string },
 ): Promise<string> {
   if (!withinCeiling(a.type, deps.actions)) {
     return `Refused: action type "${a.type}" is outside this pack's allowed actions [${deps.actions.join(", ")}].`;
   }
   try {
-    const row = await deps.gate.propose({ type: a.type, payload: a.payload, preview: a.preview }, deps.origin);
+    const row = await deps.gate.propose(
+      { type: a.type, payload: a.payload, preview: a.preview, idempotencyKey: deps.idempotencyKey },
+      deps.origin,
+    );
     if (row.status === "executed") return `Executed: ${row.result}`;
     if (row.status === "failed") return `Execution failed: ${row.result}`;
     return `Queued for user approval: action ${row.id} [${row.type}] ${row.preview}`;

@@ -35,6 +35,10 @@ export class ActionGate {
     const { store, registry, policy, bus, expiryMs } = this.deps;
     const executor = registry.get(input.type);
     if (!executor) throw new Error(`no executor registered for action type "${input.type}"`);
+    if (input.idempotencyKey) {
+      const dup = store.actionByIdempotencyKey(input.idempotencyKey);
+      if (dup) return dup; // retried attempt re-proposing the same effect — dedupe (spec §7)
+    }
     executor.schema.parse(input.payload);
 
     // Privileged types: the gate authors the preview so a caller can never
@@ -69,6 +73,7 @@ export class ActionGate {
       created_at: now,
       resolved_at: null,
       expires_at: new Date(Date.now() + expiryMs).toISOString(),
+      idempotency_key: input.idempotencyKey ?? null,
     };
     store.insertAction(row);
 

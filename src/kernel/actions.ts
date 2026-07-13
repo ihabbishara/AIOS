@@ -10,6 +10,9 @@ export interface ActionInput {
   payload: Record<string, unknown>;
   /** Human-readable one-liner shown in approval requests and the audit log. */
   preview: string;
+  /** Goal-attempt dedupe key (goalId:node:attempt#). A duplicate proposal returns the
+   *  original row instead of double-executing an effect (journaled engine, spec §7). */
+  idempotencyKey?: string;
 }
 
 /** Persisted action — doubles as the approval queue (status=proposed) and the audit log (terminal statuses). */
@@ -30,6 +33,7 @@ export interface ActionRow {
   created_at: string;
   resolved_at: string | null;
   expires_at: string;
+  idempotency_key?: string | null;
 }
 
 /** Context handed to an executor at run time. `by` is the approver (verdict_by); null for autonomous runs. */

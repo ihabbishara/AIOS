@@ -40,6 +40,8 @@ export interface ResolveDeps {
   /** Visibility of the agent this pack is being resolved for (byAgent path). Undefined on the
    *  playbook path. Used with pack.privateMemo to gate the memo block. */
   agentVisibility?: "shared" | "private";
+  /** Goal-attempt dedupe key (goalId:node:attempt#) — gate proposals from this pack carry it. */
+  idempotencyKey?: string;
 }
 
 export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
@@ -62,6 +64,7 @@ export function resolvePack(pack: Pack, deps: ResolveDeps): ResolvedPack {
     actions: pack.actions,
     memoDomain: pack.memoDomain,
     origin: deps.origin,
+    idempotencyKey: deps.idempotencyKey,
   });
 
   const mcpServers: Record<string, unknown> = { [SERVER_NAME]: server };
@@ -105,6 +108,7 @@ export function makeResolveDeptFor(
     origin: { channel: string; chatId: string },
     byAgent = false,
     workspace?: { taskDir: string; mode: "build" | "analyze" },
+    idempotencyKey?: string,
   ): ResolvedPack | undefined => {
     const agent = byAgent ? reg.agents.get(reg.agentOf.get(key) ?? key) : undefined;
     const deptName = byAgent ? agent?.department : reg.ownerOfPlaybook.get(key);
@@ -130,6 +134,7 @@ export function makeResolveDeptFor(
         store: deps.store, vault: deps.vault, gate: deps.gate, origin,
         toolServers: deps.toolServers, workspace,
         agentVisibility: agent?.manifest.visibility,
+        idempotencyKey,
       },
     );
   };
