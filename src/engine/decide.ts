@@ -73,15 +73,18 @@ export function decide(states: GoalState[], caps: Caps, now: number): Command[] 
     }
 
     // 4. Start candidates: retries (errored, attempts left) then fresh ready nodes.
+    //    Attempt NUMBERS continue from the goal-lifetime high-water mark (attemptSeq) —
+    //    a replan-replaced node must not re-claim an attempt# the journal already holds.
     const retries: StartCandidate[] = [];
     const fresh: StartCandidate[] = [];
     for (const key of s.order) {
       const n = s.nodes.get(key)!;
       if (n.status !== "pending" || n.runningAttempt) continue;
+      const nextAttempt = (s.attemptSeq.get(key) ?? 0) + 1;
       if (n.lastOutcome && n.lastOutcome !== "ok" && n.attempts < caps.maxAttempts) {
-        retries.push({ goalId: s.goalId, node: key, attempt: n.attempts + 1 });
+        retries.push({ goalId: s.goalId, node: key, attempt: nextAttempt });
       } else if (n.attempts === 0 && !n.lastOutcome && nodeStatus(s, key) === "ready") {
-        fresh.push({ goalId: s.goalId, node: key, attempt: 1 });
+        fresh.push({ goalId: s.goalId, node: key, attempt: nextAttempt });
       }
     }
 

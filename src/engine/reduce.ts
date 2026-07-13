@@ -16,7 +16,9 @@ export interface NodeState {
   spec: NodeSpec;
   /** Persistent status. "running"/"ready" are DERIVED — see nodeStatus(). */
   status: "pending" | "done" | "failed" | "skipped";
-  attempts: number;                                       // finished attempts (max attempt#)
+  /** Finished attempts of THIS node incarnation (reset when a replan replaces the node) —
+   *  the retry budget. Attempt NUMBERS are goal-lifetime monotonic: see GoalState.attemptSeq. */
+  attempts: number;
   runningAttempt: { attempt: number; deadlineTs: number; startedTs: number } | null;
   lastOutcome: AttemptOutcome | null;
   lastError: string | null;
@@ -45,6 +47,10 @@ export interface GoalState {
   parkedOn: string | null;
   replansUsed: number;
   replannedFor: Set<string>;      // failed-node keys already answered by a replan patch
+  /** Highest attempt# ever STARTED per node key — never reset, even when a replan
+   *  replaces the node. The attempt.started UNIQUE claim is journal-wide, so a replaced
+   *  node's fresh attempts must keep counting upward or they could never claim. */
+  attemptSeq: Map<string, number>;
   lastResumeTs: number;           // wall-time base: goal.created / goal.resumed / ask.resumed
   spendCents: number;
   error: string | null;
@@ -62,7 +68,8 @@ const freshState = (goalId: string): GoalState => ({
   goalId, phase: "running", created: null, planned: false,
   workspacePending: true, workspace: null, workspaceError: null,
   nodes: new Map(), order: [], parkedOn: null,
-  replansUsed: 0, replannedFor: new Set(), lastResumeTs: 0, spendCents: 0, error: null,
+  replansUsed: 0, replannedFor: new Set(), attemptSeq: new Map(),
+  lastResumeTs: 0, spendCents: 0, error: null,
 });
 
 /** Derived node status: dangling attempt → running; pending with all deps done → ready. */
@@ -126,6 +133,7 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
         break;
       case "attempt.started": {
         const ap = p as unknown as AttemptStartedPayload;
+        state.attemptSeq.set(ap.node, Math.max(state.attemptSeq.get(ap.node) ?? 0, ap.attempt));
         const n = state.nodes.get(ap.node);
         if (n) n.runningAttempt = { attempt: ap.attempt, deadlineTs: ap.deadlineTs, startedTs: ev.ts };
         break;
@@ -147,7 +155,7 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
         const n = state.nodes.get(fp.node);
         if (!n) break;
         n.runningAttempt = null;
-        n.attempts = Math.max(n.attempts, fp.attempt);
+        n.attempts += 1;
         n.lastOutcome = fp.outcome;
         n.lastError = fp.error ?? null;
         n.costCents += fp.costCents;
