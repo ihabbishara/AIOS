@@ -6,7 +6,7 @@ import { atlasMutatingChecks } from "../guards/atlas-mutating.js";
 import type { AgentExtras } from "./loader.js";
 import type { FinanceMember } from "../../config.js";
 
-const HALALO_DIR =
+export const HALALO_DIR =
   process.env.AIOS_HALALO_DIR ?? "/Users/ihabbishara/projects/halalo-php-source/halalo";
 
 export interface ExtrasConfig {

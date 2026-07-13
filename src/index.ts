@@ -4,6 +4,7 @@ import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
 import { makeResolveDeptFor } from "./packs/resolve.js";
+import { makeResolveAgent } from "./agents/resolve.js";
 import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
 import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
@@ -216,6 +217,10 @@ async function main(): Promise<void> {
       ledger: (d) => buildLedgerServer(d, { company: config.financeCompany, members: config.financeMembers }),
     } },
   );
+  // The ONE resolution path (org-model spec §7) — seams cut over to this; resolveDeptFor
+  // coexists until the cutover tasks land, then dies with the Pack struct.
+  const resolveAgent = makeResolveAgent({ registry, store, vault, gate, config, categorize });
+  void resolveAgent; // consumed by the seam-cutover tasks
 
   const channels = new Map<string, ChannelAdapter>();
 
