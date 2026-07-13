@@ -46,8 +46,12 @@ describe("code-analyze end-to-end (stubbed model)", () => {
     // vi.waitFor(status==="done") times out with a confusing message instead of a precise
     // "expected X to be Y". Capturing keeps the wiring-regression failure legible.
     let capturedOpts: any;
-    const run = vi.fn(async (_role: string, _brief: string, opts: any) => {
+    const run = vi.fn(async (role: string, _brief: string, opts: any) => {
       capturedOpts = opts;
+      if (role === "minos") {
+        // Loop critics must approve — cap-without-approval now parks needs-review (spec §4).
+        return { text: "ok", structured: { verdict: "approve", summary: "ok", reasons: [] }, costUsd: 0, numTurns: 1 };
+      }
       return { text: "assessment ok", costUsd: 0, numTurns: 1 };
     });
 
