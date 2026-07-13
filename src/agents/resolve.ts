@@ -8,6 +8,7 @@ import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import { Policy } from "../kernel/policy.js";
+import { deptLabel } from "../kernel/labels.js";
 import type { Config } from "../config.js";
 import type { AgentDef, AgentKind, LoadedRegistry, LoadedDepartment } from "./registry/loader.js";
 import { AIOS_PACK_BARE, fqPackTool, type CapabilityDef } from "./registry/capabilities.js";
@@ -160,6 +161,14 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
     const memo = includeMemo ? memoContextForDomain(deps.store, deps.vault, dept.memoDomain) : "";
     const contextBlock = [`## Pillar: ${dept.department}`, dept.mission.trim(), memo]
       .filter(Boolean).join("\n\n");
+    // Audit the dept memo → system-prompt flow (spec §7.6). The existing privateMemo gate above
+    // stays; this only observes (audit) / would deny an over-broad label (enforce).
+    if (memo) {
+      deps.policy?.check(
+        { labels: [deptLabel(dept.department)], origin: "trusted", sink: `prompt.system:${canonical}`, agent: { labels } },
+        "resolve:memo", memo,
+      );
+    }
 
     // Static MCP servers from capabilities. Shim era: bare aios-pack tools without an explicit
     // aios-pack capability still get the scoped server (the legacy path always attached it).

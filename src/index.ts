@@ -30,6 +30,7 @@ import { ExecutorRegistry } from "./kernel/actions.js";
 import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor, ledgerWriteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
 import { Policy } from "./kernel/policy.js";
+import { deptLabel } from "./kernel/labels.js";
 import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
 import { Triage, modelClassifier } from "./heartbeat/triage.js";
@@ -590,12 +591,18 @@ async function main(): Promise<void> {
       if (name === "standup") {
         if (config.standupDisabled || config.mailDisabled) return;
         // fire-and-forget: lead one-shots must not block the clock tick / reminders.
-        void runStandups({ store, registry, run: runSpecialist, spendGuard, onEvent: (e) => bus.emit(e), log })
+        void runStandups({ store, registry, run: runSpecialist, spendGuard, onEvent: (e) => bus.emit(e), policy: infoPolicy, log })
           .catch((err) => log(`standups failed: ${(err as Error).message}`));
         return;
       }
       await runBrief(
-        { store, bus, vault, narrate, send: sendVia, primary: config.primaryChat, degraded: () => [...google.degraded(), ...bunq.degraded()], privateAgents, log },
+        {
+          store, bus, vault, narrate, send: sendVia, primary: config.primaryChat,
+          degraded: () => [...google.degraded(), ...bunq.degraded()], privateAgents,
+          policy: infoPolicy,
+          labelOf: (a) => deptLabel(registry.agents.get(registry.agentOf.get(a) ?? a)?.department ?? ""),
+          log,
+        },
         name,
       );
       if (name === "evening") {

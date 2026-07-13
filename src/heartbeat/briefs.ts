@@ -2,6 +2,7 @@
 import type { Store } from "../store/db.js";
 import type { AiosEvent, EventBus } from "../events.js";
 import type { VaultWriter } from "../vault/writer.js";
+import type { Label, Policy } from "../kernel/policy.js";
 import { localParts } from "./clock.js";
 import { openLoopsForBrief, type OpenLoops } from "../lifeops/ops.js";
 
@@ -294,6 +295,10 @@ export interface BriefRunnerDeps {
   /** Agents in privateMemo departments — their mail is excluded from the brief AND left unread
    *  (never vaulted/indexed; not silently consumed by the mark-read sweep). */
   privateAgents?: Set<string>;
+  /** Info-flow checkpoint — audits the private-mail → brief flow the wall blocks (spec §7.3). */
+  policy?: Policy;
+  /** Confidentiality label for a private agent's dept (index.ts derives from the registry). */
+  labelOf?: (agent: string) => Label;
   log?: (line: string) => void;
   nowFn?: () => Date;
 }
@@ -302,6 +307,14 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   const now = (deps.nowFn ?? (() => new Date()))();
   const since = deps.store.kvGet("brief:last-ts") ?? null;
   const privateAgents = deps.privateAgents ?? new Set<string>();
+  // Audit each private-agent mail the brief wall excludes (spec §7.3). The wall in assembleBrief
+  // stays; this only observes (audit) the personal.* → brief flow it blocks.
+  if (deps.policy) {
+    for (const m of deps.store.unreadMailFor("hermes")) {
+      if (!privateAgents.has(m.from_agent)) continue;
+      deps.policy.check({ labels: [deps.labelOf?.(m.from_agent) ?? "org.internal"], sink: "brief" }, "brief:private-mail", m.body);
+    }
+  }
   const data = assembleBrief(deps.store, anchor, now.toISOString(), since, privateAgents);
   data.sensesNeedingReauth = deps.degraded?.() ?? [];
   deps.store.kvSet("brief:last-ts", now.toISOString()); // window always advances — no overlaps, no gaps

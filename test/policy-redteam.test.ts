@@ -6,8 +6,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
+import { EventBus } from "../src/events.js";
 import { distill } from "../src/memory/distiller.js";
+import { makeHandOff } from "../src/moderator/handoff.js";
+import { testRegistry } from "./fixtures/registry.js";
 import { Policy } from "../src/kernel/policy.js";
+
+// The mail-goal → code-sandbox leak (historical leak c) is authoritatively pinned by the six
+// mailWorkspaceEligible cases in test/mail-sweep.test.ts (that guard is private to GoalEngine).
+// Those tests MUST stay green; they are the permanent regression for that leak.
 
 describe("red-team: inbox.md untrusted-injection vector (spec §6)", () => {
   it("an untrusted-origin signal never reaches a system-prompt (inbox) memo; a violation is logged", async () => {
@@ -44,5 +51,37 @@ describe("red-team: inbox.md untrusted-injection vector (spec §6)", () => {
       policy: new Policy({ mode: "audit", report: () => {} }),
     });
     expect(inboxSignals).toContain("prefer morning meetings");
+  });
+});
+
+describe("red-team: hand_off private-agent bypass (historical leak a)", () => {
+  const PRIMARY = { channel: "tg", chatId: "private-1" };
+  const GROUP = { channel: "tg", chatId: "group-9" };
+
+  function setup() {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    const calls: Array<{ agent: string; task: string }> = [];
+    const handOff = makeHandOff({
+      registry: testRegistry(),
+      runSpecialist: async (agent: string, task: string) => { calls.push({ agent, task }); return { text: `ran ${agent}`, costUsd: 0, numTurns: 1 }; },
+      bus,
+      primaryChat: PRIMARY,
+      projectsRoot: "/tmp",
+    });
+    return { handOff, calls };
+  }
+
+  it("a private agent (cfo/midas) is refused from a group origin and NEVER runs", async () => {
+    const { handOff, calls } = setup();
+    const res = await handOff("cfo", "what did I spend", GROUP);
+    expect(res.text).toMatch(/private/i);
+    expect(calls).toHaveLength(0); // the wall holds — no bypass
+  });
+
+  it("the same private agent runs from the primary (private) origin", async () => {
+    const { handOff, calls } = setup();
+    await handOff("cfo", "spend", PRIMARY);
+    expect(calls).toEqual([{ agent: "cfo", task: "spend" }]);
   });
 });

@@ -6,6 +6,8 @@ import type { LoadedRegistry } from "../agents/registry/loader.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
 import type { SpendGuard } from "../engine/budget.js";
 import type { AiosEvent } from "../events.js";
+import type { Policy } from "../kernel/policy.js";
+import { deptLabel } from "../kernel/labels.js";
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -15,12 +17,16 @@ function membersOf(registry: LoadedRegistry, dept: string): Set<string> {
 
 /** Departments with last-24h activity. privateMemo departments (finance) NEVER run standups —
  *  brief notes are vaulted + recall-indexed; private-dept content there would breach the money wall. */
-export function activeDepartments(store: Store, registry: LoadedRegistry, sinceIso: string): string[] {
+export function activeDepartments(store: Store, registry: LoadedRegistry, sinceIso: string, policy?: Policy): string[] {
   const recentGoals = store.goalsUpdatedSince(sinceIso);
   const recentMail = store.listMail(undefined, 500).filter((m) => m.created_at >= sinceIso);
   const out: string[] = [];
   for (const [dept, def] of registry.departments) {
-    if (def.privateMemo) continue;
+    if (def.privateMemo) {
+      // Audit the standup-sink flow the privateMemo wall blocks (spec §7.4). Wall stays.
+      policy?.check({ labels: [deptLabel(dept)], sink: "standup" }, "standup:dept", dept);
+      continue;
+    }
     const members = membersOf(registry, dept);
     const active =
       recentGoals.some((g) => g.department === dept) ||
@@ -57,6 +63,7 @@ export interface StandupDeps {
   run: SpecialistRunFn;
   spendGuard: SpendGuard;
   onEvent?: (e: AiosEvent) => void;
+  policy?: Policy;
   log?: (l: string) => void;
   nowFn?: () => Date;
 }
@@ -70,7 +77,7 @@ export async function runStandups(deps: StandupDeps): Promise<number> {
   const now = (deps.nowFn ?? (() => new Date()))();
   const since = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
   let written = 0;
-  for (const dept of activeDepartments(deps.store, deps.registry, since)) {
+  for (const dept of activeDepartments(deps.store, deps.registry, since, deps.policy)) {
     if (!deps.spendGuard.allow()) {
       deps.log?.(`standups: budget cap reached, skipping remaining departments`);
       break;
