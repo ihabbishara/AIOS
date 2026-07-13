@@ -1,9 +1,11 @@
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
+import type { Origin, Policy } from "../kernel/policy.js";
+import { domainLabel } from "../kernel/labels.js";
 import { DOMAINS, type Domain } from "./recall.js";
 import { domainForType } from "./indexer.js";
-import { memoRelPath, CURATOR_SYSTEM, buildCuratePrompt } from "./memos.js";
+import { memoRelPath, CURATOR_SYSTEM, buildCuratePrompt, ALWAYS_LOADED } from "./memos.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const ORIGIN = { channel: "system", chatId: "distill" };
@@ -16,6 +18,12 @@ export interface DistillDeps {
   vault: VaultWriter;
   gate: ActionGate;
   curate: CurateFn;
+  /** Info-flow checkpoint — memos bound for the SYSTEM prompt (ALWAYS_LOADED domains) may only
+   *  derive from trusted-origin signals; untrusted signals are excluded + logged (spec §6). */
+  policy?: Policy;
+  /** Origin of a distiller input — decisions and teachings are trusted by construction; this
+   *  seam lets a test inject an untrusted signal to prove it is dropped. Default: trusted. */
+  signalOrigin?: (source: "decision" | "teaching", ref: string) => Origin;
   nowIso?: string;
   log?: (line: string) => void;
 }
@@ -52,10 +60,31 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   if (!decisions.length && !teachings.length) return;
 
   const existing = vault.readNote(memoRelPath(domain)) ?? "";
-  const signals = [
-    ...decisions.map((d) => `- decision[${d.verdict}] ${d.preview}${d.reason ? ` — reason: ${d.reason}` : ""}`),
-    ...teachings.map((t) => `- ${t.kind}: ${t.text}`),
-  ].join("\n");
+  const originOf = deps.signalOrigin ?? (() => "trusted" as Origin);
+  const typed: Array<{ text: string; origin: Origin }> = [
+    ...decisions.map((d) => ({
+      text: `- decision[${d.verdict}] ${d.preview}${d.reason ? ` — reason: ${d.reason}` : ""}`,
+      origin: originOf("decision", d.id),
+    })),
+    ...teachings.map((t) => ({ text: `- ${t.kind}: ${t.text}`, origin: originOf("teaching", String(t.id)) })),
+  ];
+
+  // Memos in ALWAYS_LOADED domains flow into the moderator SYSTEM prompt — an untrusted-origin
+  // signal there is the inbox.md injection vector. Exclude + log it (spec §6). This is a
+  // structural guarantee: decisions/teachings are trusted by construction, so it's a no-op on
+  // real data, but any future untrusted source can never become system-prompt prose.
+  let kept = typed;
+  if (ALWAYS_LOADED.includes(domain)) {
+    kept = typed.filter((s) => {
+      if (s.origin === "trusted") return true;
+      deps.policy?.check(
+        { labels: [domainLabel(domain)], origin: "untrusted", sink: "prompt.system:hermes" },
+        `distiller:${domain}`, s.text,
+      );
+      return false;
+    });
+  }
+  const signals = kept.map((s) => s.text).join("\n");
 
   const updated = (await curate({ domain, existing, signals })).trim();
   if (!updated) {

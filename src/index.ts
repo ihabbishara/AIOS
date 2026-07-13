@@ -601,7 +601,7 @@ async function main(): Promise<void> {
       if (name === "evening") {
         reindexVault(store, vault); // sync, cheap — catch direct vault edits before distilling
         // fire-and-forget: distill's up-to-7 LLM calls must not block the clock tick / reminders.
-        void distill({ store, vault, gate, curate: curateLLM(config.curatorModel, log), log })
+        void distill({ store, vault, gate, curate: curateLLM(config.curatorModel, log), policy: infoPolicy, log })
           .catch((err) => log(`distill failed: ${(err as Error).message}`));
       }
     },

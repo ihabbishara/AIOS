@@ -9,7 +9,9 @@ const CAP = 3000;
 // can reach the system prompt via inbox.md. Defense-in-depth: the Action Gate still protects all
 // effects, and the curator must not copy invite text verbatim. The teaching path is separately
 // guarded (Task 6 remember/forget anti-injection note).
-const ALWAYS_LOADED: Domain[] = ["general", "inbox"];
+/** Domains whose memos are injected into the moderator SYSTEM prompt — the prompt.system sink
+ *  the distiller must keep untrusted-origin content out of (spec §6, inbox.md vector). */
+export const ALWAYS_LOADED: Domain[] = ["general", "inbox"];
 
 export function memoRelPath(domain: Domain): string {
   return `memos/${domain}.md`;
