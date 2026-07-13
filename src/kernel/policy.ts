@@ -1,0 +1,105 @@
+// src/kernel/policy.ts — central information-flow checkpoint (spec §4–5). Pure table + a
+// mode-aware wrapper. Sibling of the gate: governs information flow, not effects (spec §10).
+export type Label =
+  | "personal.finance" | "personal.email" | "personal.tasks" | "personal.calendar"
+  | "client.halalo" | "org.internal" | "shared";
+export type Origin = "trusted" | "untrusted";
+export type Sink = string; // prefixed: recall-index | vault | brief | standup | chat:<o> | mail:<r> | prompt.system:<a> | prompt.context:<a> | file-export
+export type PolicyMode = "audit" | "enforce";
+
+export interface CheckInput {
+  labels: Label[];
+  origin?: Origin;              // default "trusted"
+  sink: Sink;
+  agent?: { labels: string[] }; // ResolvedAgent.labels — the reader's clearance
+}
+export type Verdict = "allow" | "deny" | { declassify: string };
+
+export interface Violation { label: Label; sink: Sink; site: string; hash: string }
+
+const PRIMARY_CHATS = new Set(["chat:primary", "chat:web-ui"]);
+const isChat = (s: Sink) => s.startsWith("chat:");
+const isPrimaryChat = (s: Sink) => PRIMARY_CHATS.has(s);
+const promptAgent = (s: Sink): string | null => {
+  const m = /^prompt\.(system|context):(.+)$/.exec(s);
+  return m ? m[2] : null;
+};
+/** The reader agent holds this confidentiality label as clearance. */
+const agentCleared = (label: Label, agent?: CheckInput["agent"]) => !!agent?.labels.includes(label);
+
+/** Coordinator (hermes) prompts may carry calendar context (spec §5 "private + coordinator prompts"). */
+function isCoordinatorSink(sink: Sink): boolean {
+  return sink === "prompt.system:hermes" || sink === "prompt.context:hermes";
+}
+
+// Per-label allowed-sink predicate (spec §5). Returns true=allow, false=deny; declassification is
+// handled separately below so the table stays boolean.
+const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => boolean> = {
+  shared: () => true,
+  "personal.finance": (sink, agent) =>
+    isPrimaryChat(sink) || (!!promptAgent(sink) && agentCleared("personal.finance", agent)),
+  "personal.email": (sink) => sink === "prompt.context:speculate-email",
+  "personal.tasks": (sink) => isPrimaryChat(sink) || sink === "brief",
+  "personal.calendar": (sink, agent) =>
+    sink === "brief" || sink === "recall-index" ||
+    (!!promptAgent(sink) && (agentCleared("personal.calendar", agent) || isCoordinatorSink(sink))),
+  "client.halalo": (sink, agent) =>
+    sink === "file-export" || (!!promptAgent(sink) && agentCleared("client.halalo", agent)),
+  "org.internal": (sink) => sink !== "file-export" && !(isChat(sink) && !isPrimaryChat(sink)),
+};
+
+// Enumerated declassify rules (spec §5). id → does this input qualify for the lowered sink.
+const DECLASSIFY_RULES: Record<string, (input: CheckInput) => boolean> = {
+  // D1: personal.email → brief ONLY as a count-only summary ("N reply drafts await approval").
+  "D1-email-count": (i) => i.labels.includes("personal.email") && i.sink === "brief",
+};
+
+export function rawCheck(input: CheckInput): Verdict {
+  const origin = input.origin ?? "trusted";
+  // Untrusted integrity: never system-prompt prose; context (fenced data) is allowed.
+  if (origin === "untrusted" && input.sink.startsWith("prompt.system:")) return "deny";
+  // Strictest label wins — union of inputs, no laundering.
+  let declassify: string | undefined;
+  for (const label of input.labels) {
+    if (POLICY_TABLE[label](input.sink, input.agent)) continue;
+    const rule = Object.entries(DECLASSIFY_RULES).find(([, ok]) => ok(input));
+    if (rule) { declassify = rule[0]; continue; }
+    return "deny";
+  }
+  return declassify ? { declassify } : "allow";
+}
+
+export { POLICY_TABLE, DECLASSIFY_RULES };
+
+export function labelHash(s: string): string {
+  // Short, non-reversible: a violation must never carry content, only a stable fingerprint.
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
+/** A sink is "sensitive" (stricter than chat) when an unlabeled flow to it must be denied in
+ *  enforce mode (spec §4). Chat sinks are the only non-sensitive default. */
+const isSensitiveSink = (s: Sink) => !s.startsWith("chat:");
+
+export class Policy {
+  constructor(private deps: { mode: PolicyMode; report: (v: Violation) => void }) {}
+
+  get mode(): PolicyMode { return this.deps.mode; }
+
+  /** Returns the enforced verdict for the current mode ("allow"/"deny"), reporting any raw deny.
+   *  `contentForHash` is hashed for the violation record and NEVER stored/emitted as text. */
+  check(input: CheckInput, site: string, contentForHash = ""): "allow" | "deny" {
+    // Enforce: an unlabeled flow at a sink stricter than chat is a deny (spec §4).
+    const unlabeledSensitive =
+      input.labels.length === 0 && this.deps.mode === "enforce" && isSensitiveSink(input.sink);
+    const verdict = unlabeledSensitive ? "deny" : rawCheck(input);
+    const denied = verdict === "deny";
+    if (denied) {
+      const label = input.labels[0] ?? "shared";
+      this.deps.report({ label, sink: input.sink, site, hash: labelHash(contentForHash) });
+    }
+    if (this.deps.mode === "audit") return "allow"; // block nothing new
+    return denied ? "deny" : "allow"; // declassify → allow
+  }
+}
