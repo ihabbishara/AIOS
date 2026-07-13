@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import "dotenv/config";
@@ -210,7 +210,8 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     financeMembers: parseMembers(process.env.AIOS_FINANCE_MEMBERS),
     uiPort: Number(process.env.AIOS_UI_PORT ?? 4280),
     envPath: join(root, ".env"),
-    uiDist: join(root, "ui", "dist"),
+    // AIOS_UI_DIST switches the served bundle (e.g. ui2/dist during the Ember cutover).
+    uiDist: process.env.AIOS_UI_DIST ? resolve(root, process.env.AIOS_UI_DIST) : join(root, "ui", "dist"),
     actionExpiryMs: Number(process.env.AIOS_ACTION_EXPIRY_MS ?? 24 * 60 * 60 * 1000),
     trustPolicy: {
       graduationStreak: Number(process.env.AIOS_GRADUATION_STREAK ?? 10),

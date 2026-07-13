@@ -1,0 +1,19 @@
+/* ui2/src/tokens.css — Ember design tokens (spec §3). Single dark theme; swappable by construction. */
+@theme {
+  --color-*: initial;
+  --color-black: #000;
+  --color-bg: #0f0e0c;
+  --color-surface: #141210;
+  --color-raised: #181510;
+  --color-line: #24211c;
+  --color-dim: #847e72;
+  --color-fg: #cfccc4;
+  --color-strong: #efe9dc;
+  /* Amber — ONLY needs-you items and primary actions. Never decorative. */
+  --color-accent: #e0a458;
+  --color-ok: #7da87b;    /* desaturated green — running/ok */
+  --color-err: #c96f5f;   /* desaturated red — failed */
+  --color-agent: #9c8cc9; /* violet — agent activity */
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}

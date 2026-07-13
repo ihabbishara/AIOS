@@ -1,0 +1,38 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+html, body, #root { height: 100%; }
+body {
+  @apply bg-bg text-fg font-sans text-[13px] antialiased;
+  font-variant-numeric: tabular-nums;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 4px; }
+
+/* 10px uppercase section labels (spec §3 typography ramp). */
+.label { @apply text-[10px] uppercase tracking-[0.14em] text-dim; }
+
+/* Motion (spec §3) — state change / liveness only. */
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.breathe { animation: breathe 2s ease-in-out infinite; }
+
+@keyframes arrive { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes edge-flash { from { box-shadow: inset 2px 0 0 var(--color-accent); } to { box-shadow: inset 2px 0 0 transparent; } }
+.arrive { animation: arrive 200ms ease-out, edge-flash 1.2s ease-out; }
+
+@keyframes shimmer { from { background-position: -200px 0; } to { background-position: 200px 0; } }
+.shimmer {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-ok) 45%, transparent), transparent);
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes tick { 50% { transform: scale(1.25); } }
+.tick { animation: tick 150ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .breathe, .arrive, .shimmer, .tick { animation: none !important; }
+  * { transition-duration: 0s !important; }
+}
