@@ -193,6 +193,30 @@ describe("runAttempt — verify nodes", () => {
     await runAttempt(goal(), VERIFY, 2, deps);
     expect(roles).toEqual(["vulcan", "argus"]); // fixer first (round 1 pending fix), then runner round 2
   });
+
+  it("no structured report → attempt.finished{error}, no node.completed (spec §3 hard gate)", async () => {
+    const { store, deps, goal } = harness(async () =>
+      ({ text: "prose, no report", costUsd: 0.01, numTurns: 1 }), [VERIFY]);
+    const res = await runAttempt(goal(), VERIFY, 1, deps);
+    expect(res.outcome).toBe("error");
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "error", error: "no structured report" });
+    expect(journalTypes(store)).not.toContain("node.completed");
+  });
+
+  it("retry after a no-report attempt runs the runner again (does not instant-fail)", async () => {
+    let calls = 0;
+    const { store, deps, goal } = harness(async () => {
+      calls++;
+      return calls === 1
+        ? { text: "no report", costUsd: 0, numTurns: 1 }
+        : { text: "ok", structured: { passed: true, summary: "s", failures: [] }, costUsd: 0, numTurns: 1 };
+    }, [VERIFY]);
+    await runAttempt(goal(), VERIFY, 1, deps);   // no-report → error
+    const res = await runAttempt(goal(), VERIFY, 2, deps); // retry must actually run
+    expect(calls).toBe(2);
+    expect(res.outcome).toBe("ok");
+    expect(payloadOf(store, "node.completed")[0]).toMatchObject({ node: "test" });
+  });
 });
 
 describe("ancestorArtifacts + parked-node guard", () => {

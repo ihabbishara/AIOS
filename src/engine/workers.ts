@@ -238,7 +238,8 @@ export async function runAttempt(
         let report: TestReport | undefined = st?.lastReport ?? undefined;
         let round = st?.runnerRounds ?? 0;
         let fixedThrough = st?.fixerRounds ?? 0;
-        while (round < spec.maxRounds && (round === 0 || (report && !report.passed))) {
+        // (!report && round > 0) = a fresh retry after a no-report attempt: run the runner again.
+        while (round < spec.maxRounds && (!report || !report.passed)) {
           if (round > 0 && report && !report.passed && fixedThrough < round) {
             const fixBrief = [
               ctx,
@@ -263,13 +264,20 @@ export async function runAttempt(
           });
           if (!report) break;
         }
-        const summary = report
-          ? `**Passed:** ${report.passed}\n\n${report.summary}${report.failures.length ? `\n\nFailures:\n${report.failures.map((f) => `- ${f}`).join("\n")}` : ""}`
-          : "No structured test report produced.";
+        if (!report) {
+          // No parseable TestReport = the verification never ran — a failed attempt,
+          // never a silent pass (spec §3). Normal attempt policy retries once.
+          save(`${spec.key}.md`, "No structured test report produced.", spec.agent);
+          appendEvents(store, goal.id, [{ type: "attempt.finished", payload: {
+            node: spec.key, attempt, outcome: "error", costCents, turns, error: "no structured report",
+          } }]);
+          return { claimed: true, outcome: "error", sessionLimit: false };
+        }
+        const summary = `**Passed:** ${report.passed}\n\n${report.summary}${report.failures.length ? `\n\nFailures:\n${report.failures.map((f) => `- ${f}`).join("\n")}` : ""}`;
         const file = `${spec.key}.md`;
         save(file, summary, spec.agent);
         finish("ok", undefined, { artifactRef: file, roundsUsed: round });
-        if (report && !report.passed) {
+        if (!report.passed) {
           deps.log?.(`node ${spec.key}: verification still failing after ${spec.maxRounds} rounds`);
         }
         break;
