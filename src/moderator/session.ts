@@ -105,7 +105,11 @@ export class Moderator {
     // hermes is a normal coordinator agent — resolveAgent supplies YAML prompt + dept context
     // + capability tools + tiered model; the generated blocks (roster/playbooks/paths/memo)
     // are appended here because they cannot live in YAML.
-    const resolved = this.deps.resolveAgent(registry.coordinator, this.origin, { cwd: projectsRoot });
+    // cwd MUST stay the daemon cwd: SDK sessions are stored per project dir, and the
+    // moderator's resumable sessions predate the org-model cutover. Changing cwd here made
+    // resume fail ("No conversation found with session ID") and the SDK child's teardown
+    // EPIPE'd the daemon (observed live at the org-model deploy).
+    const resolved = this.deps.resolveAgent(registry.coordinator, this.origin, { cwd: process.cwd() });
     if (!resolved) throw new Error(`coordinator agent "${registry.coordinator}" missing from registry`);
     const systemPrompt = `${resolved.options.systemPrompt}\n\n${moderatorBlocks({
       playbooks: goals.listPlaybooks(), projectsRoot,
