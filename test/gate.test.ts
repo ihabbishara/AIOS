@@ -81,6 +81,7 @@ describe("ActionGate.propose", () => {
     );
     expect(row.preview.startsWith("Promote ")).toBe(true);
     expect(row.preview).toContain("fake.op");
+    expect(row.preview).toContain("consecutive shadow matches"); // evidence-carrying preview (spec §6)
     expect(row.preview).not.toContain("Echo hello");
     expect(store.getAction(row.id)?.preview).toBe(row.preview);
   });
@@ -206,38 +207,69 @@ describe("ActionGate.resolve", () => {
   });
 });
 
-describe("graduation loop", () => {
-  it("streak threshold proposes a trust.promote action; approving it makes the type autonomous", async () => {
-    const { gate, store, calls } = setup({ streak: 3, ageDays: 0 });
-    for (let i = 0; i < 3; i++) {
+describe("graduation loop (shadow-mode, spec §6)", () => {
+  /** Drive n propose+approve cycles of fake.op. */
+  async function approveN(gate: ActionGate, n: number) {
+    for (let i = 0; i < n; i++) {
       const row = await gate.propose({ type: "fake.op", payload: { v: `r${i}` }, preview: `run ${i}` }, ORIGIN);
       await gate.resolve(row.id, "approve", { by: "ihab" });
     }
+  }
+
+  it("streak flips to graduating WITHOUT proposing a promotion", async () => {
+    const { gate, store } = setup({ streak: 3, ageDays: 0, shadowMatches: 2 });
+    await approveN(gate, 3);
     expect(store.getTrust("fake.op")?.state).toBe("graduating");
+    expect(store.listActions("proposed")).toHaveLength(0); // no promote yet — evidence first
+  });
+
+  it("graduating actions carry shadow_decision=execute; N consecutive matches propose promotion with evidence", async () => {
+    const { gate, store } = setup({ streak: 3, ageDays: 0, shadowMatches: 2 });
+    await approveN(gate, 3); // now graduating
+    await approveN(gate, 2); // two shadowed approvals = two matches
+    const shadowed = store.listActions().filter((a) => a.shadow_decision === "execute");
+    expect(shadowed.length).toBe(2);
+    expect(store.getTrust("fake.op")?.shadowMatches).toBe(2);
     const pending = store.listActions("proposed");
     expect(pending).toHaveLength(1);
     expect(pending[0].type).toBe("trust.promote");
+    expect(pending[0].preview).toContain("2/2 consecutive shadow matches");
 
     await gate.resolve(pending[0].id, "approve", { by: "ihab" });
     expect(store.getTrust("fake.op")?.state).toBe("autonomous");
-
-    // Next proposal of fake.op executes without approval.
-    const auto = await gate.propose({ type: "fake.op", payload: { v: "free" }, preview: "free run" }, ORIGIN);
+    const auto = await gate.propose({ type: "fake.op", payload: { v: "free" }, preview: "free" }, ORIGIN);
     expect(auto.status).toBe("executed");
-    expect(calls).toHaveLength(4); // 3 approved + 1 autonomous
+    expect(auto.shadow_decision ?? null).toBeNull(); // autonomous runs are not shadowed
+  });
+
+  it("a mismatch (reject while graduating) resets the counter AND demotes to supervised", async () => {
+    const { gate, store } = setup({ streak: 3, ageDays: 0, shadowMatches: 3 });
+    await approveN(gate, 3); // graduating
+    await approveN(gate, 2); // 2 matches
+    const row = await gate.propose({ type: "fake.op", payload: { v: "bad" }, preview: "bad" }, ORIGIN);
+    await gate.resolve(row.id, "reject", { by: "ihab" });
+    const trust = store.getTrust("fake.op")!;
+    expect(trust.state).toBe("supervised");
+    expect(trust.shadowMatches).toBe(0);
+    expect(store.listActions("proposed")).toHaveLength(0);
+  });
+
+  it("no duplicate promotion proposal while one is already pending", async () => {
+    const { gate, store } = setup({ streak: 3, ageDays: 0, shadowMatches: 1 });
+    await approveN(gate, 3); // graduating
+    await approveN(gate, 2); // 1st match proposes; 2nd must not duplicate
+    expect(store.listActions("proposed").filter((a) => a.type === "trust.promote")).toHaveLength(1);
   });
 
   it("rejecting the promotion sends the target type back to supervised", async () => {
-    const { gate, store } = setup({ streak: 3, ageDays: 0 });
-    for (let i = 0; i < 3; i++) {
-      const row = await gate.propose({ type: "fake.op", payload: { v: `r${i}` }, preview: `run ${i}` }, ORIGIN);
-      await gate.resolve(row.id, "approve", { by: "ihab" });
-    }
-    const promo = store.listActions("proposed")[0];
+    const { gate, store } = setup({ streak: 3, ageDays: 0, shadowMatches: 1 });
+    await approveN(gate, 4); // graduating after 3, 4th is the shadow match → promote proposed
+    const promo = store.listActions("proposed").find((a) => a.type === "trust.promote")!;
     await gate.resolve(promo.id, "reject", { by: "ihab" });
     const trust = store.getTrust("fake.op")!;
     expect(trust.state).toBe("supervised");
     expect(trust.streak).toBe(0);
+    expect(trust.shadowMatches).toBe(0);
     // promotion rejection must not pollute the trust.promote type's own ledger
     expect(store.getTrust("trust.promote")?.rejections ?? 0).toBe(0);
   });

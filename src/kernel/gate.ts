@@ -4,7 +4,7 @@ import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import type { ActionInput, ActionRow, ExecutorRegistry } from "./actions.js";
 import {
-  decide, demote, newRecord, recordApproval, recordRejection, type TrustPolicy,
+  decide, demote, newRecord, recordApproval, recordRejection, recordShadowMatch, type TrustPolicy,
 } from "./trust.js";
 
 export interface GateDeps {
@@ -67,6 +67,9 @@ export class ActionGate {
       origin_channel: origin.channel,
       origin_chat_id: origin.chatId,
       trust_state: trust.state,
+      // Shadow mode (spec §6): while graduating, record what autonomy would have done.
+      // The human verdict is then scored as match/mismatch against it.
+      shadow_decision: trust.state === "graduating" ? "execute" : null,
       verdict_by: null,
       reject_reason: null,
       result: null,
@@ -93,7 +96,7 @@ export class ActionGate {
       case "trust.promote": {
         const target = String(p.action_type ?? "");
         const t = this.deps.store.getTrust(target);
-        return `Promote ${target} to autonomous (${t?.streak ?? 0} consecutive approvals, currently ${t?.state ?? "unknown"})`;
+        return `Promote ${target} to autonomous (${t?.shadowMatches ?? 0}/${this.deps.policy.shadowMatches} consecutive shadow matches, ${t?.approvals ?? 0} lifetime approvals, currently ${t?.state ?? "unknown"})`;
       }
       case "email.send":
         return `Send to ${String(p.to)}: "${String(p.subject)}" (${String(p.account)})`;
@@ -185,23 +188,38 @@ export class ActionGate {
     if (row.type === "trust.promote") return;
     const { store, policy, bus } = this.deps;
     const trust = store.getTrust(row.type) ?? newRecord(row.type, now);
-    const { record, graduationReady } = recordApproval(trust, policy, now);
-    store.upsertTrust(record);
-    if (graduationReady) {
+    const approved = recordApproval(trust, policy, now);
+    let record = approved.record;
+    if (approved.graduationReady) {
+      // Streak+age earned only the GRADUATING state; promotion evidence is now
+      // consecutive shadow matches, not the streak itself (spec §6).
       bus.emit({ type: "trust.changed", actionType: row.type, state: "graduating" });
+    }
+    let promotionReady = false;
+    if (record.state === "graduating" && row.shadow_decision === "execute") {
+      const scored = recordShadowMatch(record, policy);
+      record = scored.record;
+      promotionReady = scored.promotionReady;
+    }
+    store.upsertTrust(record);
+    if (promotionReady && !this.pendingPromotion(row.type)) {
       try {
         await this.propose(
-          {
-            type: "trust.promote",
-            payload: { action_type: row.type },
-            preview: `Promote ${row.type} to autonomous (${record.streak} consecutive approvals)`,
-          },
+          // Preview text is gate-authored (authoredPreview) — carries the match record.
+          { type: "trust.promote", payload: { action_type: row.type }, preview: "" },
           { channel: row.origin_channel, chatId: row.origin_chat_id },
         );
       } catch (err) {
         this.deps.log?.(`promotion proposal failed: ${(err as Error).message}`);
       }
     }
+  }
+
+  /** True when a trust.promote for this target is already queued — never double-propose. */
+  private pendingPromotion(target: string): boolean {
+    return this.deps.store.listActions("proposed", 200).some((a) =>
+      a.type === "trust.promote" &&
+      (JSON.parse(a.payload) as { action_type?: string }).action_type === target);
   }
 
   private trainOnReject(row: ActionRow, now: string): void {
