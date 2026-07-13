@@ -6,18 +6,11 @@ import { isPrivateOrigin } from "../agents/direct.js";
 
 export interface HandOffDeps {
   registry: LoadedRegistry;
-  /** Dept-pack resolver (byAgent path). */
-  resolveDeptFor: (
-    key: string,
-    origin: { channel: string; chatId: string },
-    byAgent?: boolean,
-  ) => ResolvedPack | undefined;
   runSpecialist: SpecialistRunFn;
   bus: EventBus;
   /** The private primary chat — privateOnly agents are refused from any other origin. */
   primaryChat?: { channel: string; chatId: string };
   projectsRoot: string;
-  model?: string;
 }
 
 /**
@@ -53,9 +46,9 @@ export function makeHandOff(deps: HandOffDeps) {
       type: "route.decision", to: canonical, via: "handoff",
       reason: "chief of staff hand_off", channel: origin.channel, chatId: origin.chatId,
     });
-    const pack = deps.resolveDeptFor(agent, origin, true);
+    // resolveAgent (inside runSpecialist) resolves the agent's capabilities/dept/model.
     const res = await deps.runSpecialist(agent, task, {
-      cwd: deps.projectsRoot, model: deps.model, pack,
+      cwd: deps.projectsRoot, origin,
       mailCtx: { origin, goalDepth: 0 },
     });
     return { text: res.text };

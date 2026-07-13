@@ -65,7 +65,6 @@ function makeManager(
     mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
-    resolveDeptFor: () => undefined,
     projectsRoot: opts.projectsRoot,
     workspaceRoot: opts.workspaceRoot,
   });

@@ -191,19 +191,17 @@ export interface PlannerDeps {
   registry: LoadedRegistry;
   store: Store;
   run: SpecialistRunFn;
-  resolveDeptFor: (key: string, origin: { channel: string; chatId: string }, byAgent?: boolean) => ResolvedPack | undefined;
   primaryChat?: { channel: string; chatId: string };
   projectsRoot: string;
-  model?: string;
   postPreview: (origin: { channel: string; chatId: string }, text: string) => Promise<void>;
   log?: (l: string) => void;
 }
 
 export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
+  // resolveAgent (inside deps.run) resolves the lead's dept context/tools/model by kind.
   const runLead = async (lead: string, brief: string, origin: { channel: string; chatId: string }, schema: Record<string, unknown>) =>
     deps.run(lead, brief, {
-      cwd: deps.projectsRoot, model: deps.model,
-      pack: deps.resolveDeptFor(lead, origin, true),
+      cwd: deps.projectsRoot, origin,
       outputSchema: schema,
     });
 

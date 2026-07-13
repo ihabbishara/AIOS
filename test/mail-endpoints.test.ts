@@ -189,7 +189,6 @@ async function spinServer(store: Store) {
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
     spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
-    resolveDeptFor: () => undefined,
     prepareSandbox: async () => ({ taskDir: "/tmp/should-not-be-used", mode: "build" as const }),
     primaryChat: { channel: "telegram", chatId: "1" },
     mailMaxDepth: 2,

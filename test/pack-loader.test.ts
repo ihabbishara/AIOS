@@ -67,7 +67,7 @@ describe("listPlaybooks department grouping", () => {
     const jm = new GoalEngine({
       store: {} as never, vault: {} as never, run: (async () => ({})) as never, registry: reg,
       playbooks: reg.playbooks, wallTimeMs: 1, maxConcurrentNodes: 0, mailMaxDepth: 2,
-      spendGuard: {} as never, onComplete: async () => {}, resolveDeptFor: () => undefined,
+      spendGuard: {} as never, onComplete: async () => {},
     });
     const list = jm.listPlaybooks();
     expect(list.find((p) => p.name === "sub-audit")?.pillar).toBe("finance");

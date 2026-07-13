@@ -98,10 +98,10 @@ export interface WorkerDeps {
   store: Store;
   vault: VaultWriter;
   run: SpecialistRunFn;
-  model?: string;
   log?: (l: string) => void;
   onEvent?: (e: AiosEvent) => void;
-  resolvePack: (goal: GoalRow, spec: NodeSpec, attempt: number) => ResolvedPack | undefined;
+  /** Sandbox workspace for this goal (engine computes per goal) — resolveAgent builds the code server from it. */
+  workspace?: { taskDir: string; mode: "build" | "analyze" };
   registry: AbortRegistry;
   nodeTimeoutMs: number;
 }
@@ -138,9 +138,10 @@ export async function runAttempt(
     try {
       const res = await deps.run(role, brief, {
         cwd: goal.project_dir ?? process.cwd(),
-        model: deps.model,
         signal: controller.signal,
-        pack: deps.resolvePack(goal, spec, attempt),
+        origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
+        workspace: deps.workspace,
+        idempotencyKey: `${goal.id}:${spec.key}:${attempt}`,
         mailCtx: {
           origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
           goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: spec.key,

@@ -101,10 +101,15 @@ export interface RunOptions {
   cwd: string;
   /** Extra directories the agent may touch (e.g. the target project). */
   additionalDirectories?: string[];
+  /** Caller model override — loses to a per-agent manifest `model:`, wins over kind tiering. */
   model?: string;
   signal?: AbortSignal;
-  /** When set, the owning pack's context (persona+memo), tool allowlist, and scoped MCP server. */
-  pack?: ResolvedPack;
+  /** Originating chat — resolveAgent scopes gate proposals/ledger writes to it. */
+  origin?: { channel: string; chatId: string };
+  /** Sandbox workspace for code-sandbox capabilities (goal nodes). */
+  workspace?: { taskDir: string; mode: "build" | "analyze" };
+  /** Goal-attempt dedupe key (goalId:node:attempt#) — gate proposals carry it. */
+  idempotencyKey?: string;
   /** Structured-output schema for roles without their own (role schema always wins). */
   outputSchema?: Record<string, unknown>;
   /** When set (with a mailbox in deps), the run gets send_mail + its unread-mail block.
@@ -119,15 +124,13 @@ export type SpecialistRunFn = (
 ) => Promise<SpecialistResult>;
 
 /**
- * Pure option assembly for a specialist run — the capability kernel shared by both the
- * pipeline runner (hand_off path) and direct chats (@mention path).
- * Exported so tests can pin capability parity: if either path drops pack or skips
- * withEffectiveTools, a parity test using this function will catch the divergence.
+ * LEGACY pure option assembly (pre-capability kernel) — kept only for the org-golden
+ * fixture generator/pin and the not-yet-cut-over direct seam; dies in the deletion sweep.
  */
 export function specialistOptions(
   role: RoleDef,
   canonical: string,
-  opts: RunOptions,
+  opts: { cwd: string; model?: string; pack?: ResolvedPack },
   store: Store,
 ): Options {
   const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
@@ -151,18 +154,28 @@ export function withMailOptions(base: Options, mailbox: Mailbox, ctx: MailSendCt
   return { options, deliveredIds: ids };
 }
 
-export function makeRunSpecialist(deps: { store: Store; bus: EventBus; registry: LoadedRegistry; mailbox?: Mailbox }): SpecialistRunFn {
+const DEFAULT_ORIGIN = { channel: "engine", chatId: "goals" };
+
+export function makeRunSpecialist(deps: {
+  store: Store; bus: EventBus; registry: LoadedRegistry; mailbox?: Mailbox;
+  resolveAgent: import("./resolve.js").ResolveAgentFn;
+}): SpecialistRunFn {
   return async (roleName, brief, opts) => {
-    const canonical = deps.registry.agentOf.get(roleName) ?? roleName;
-    const role = deps.registry.agents.get(canonical)?.role;
-    if (!role) throw new Error(`Unknown agent: ${roleName}`);
+    // THE one resolution path (org-model spec §7): capabilities → tools/servers/guards/model.
+    const resolved = deps.resolveAgent(roleName, opts.origin ?? DEFAULT_ORIGIN, {
+      cwd: opts.cwd, workspace: opts.workspace,
+      idempotencyKey: opts.idempotencyKey, model: opts.model,
+    });
+    if (!resolved) throw new Error(`Unknown agent: ${roleName}`);
+    const { canonical, def } = resolved;
+    const role = def.role;
 
     const abort = new AbortController();
     const onAbort = () => abort.abort();
     opts.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      let merged = specialistOptions(role, canonical, opts, deps.store);
+      let merged = resolved.options;
       // Mail server + unread-mail block, applied BEFORE the observer wraps (same widen-before-wrap
       // rule as StructuredOutput below). deliveredIds committed only on run success (below).
       let deliveredIds: string[] = [];

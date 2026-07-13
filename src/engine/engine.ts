@@ -46,7 +46,6 @@ export interface GoalEngineDeps {
   store: Store;
   vault: VaultWriter;
   run: SpecialistRunFn;
-  model?: string;
   log?: (l: string) => void;
   onEvent?: (e: AiosEvent) => void;
   registry: LoadedRegistry;
@@ -55,9 +54,6 @@ export interface GoalEngineDeps {
   maxConcurrentNodes: number;
   spendGuard: SpendGuard;
   onComplete: (o: GoalOutcome) => Promise<void>;
-  resolveDeptFor: (key: string, origin: { channel: string; chatId: string }, byAgent?: boolean,
-                   sandbox?: { taskDir: string; mode: "build" | "analyze" },
-                   idempotencyKey?: string) => ResolvedPack | undefined;
   prepareSandbox?: (goal: GoalRow, opts: { playbook?: Playbook }) => Promise<{ taskDir: string; mode: "build" | "analyze" } | undefined>;
   planner?: Planner;
   replanCap?: number;
@@ -252,18 +248,15 @@ export class GoalEngine {
     const state = this.fold(goalId);
     const spec = state.nodes.get(nodeKey)?.spec;
     if (!spec || !state.created) return;
-    const facade = state.created.planSummary.startsWith(FACADE_PREFIX);
-    const origin = { channel: goal.origin_channel, chatId: goal.origin_chat_id };
     const sandbox = state.workspace?.taskDir && state.workspace.mode
       ? { taskDir: state.workspace.taskDir, mode: state.workspace.mode } : undefined;
-    const idem = `${goalId}:${nodeKey}:${attempt}`;
     try {
+      // resolveAgent (inside deps.run) owns capability/dept resolution per node agent —
+      // origin/workspace/idempotencyKey travel through RunOptions (org-model cutover).
       const res = await runAttempt(goal, spec, attempt, {
         store: this.deps.store, vault: this.deps.vault, run: this.deps.run,
-        model: this.deps.model, log: this.deps.log, onEvent: this.deps.onEvent,
-        resolvePack: () => facade
-          ? this.deps.resolveDeptFor(state.created!.planSummary.slice(FACADE_PREFIX.length), origin, false, sandbox, idem)
-          : this.deps.resolveDeptFor(spec.agent, origin, true, sandbox, idem),
+        log: this.deps.log, onEvent: this.deps.onEvent,
+        workspace: sandbox,
         registry: this.abortRegistry,
         nodeTimeoutMs: this.deps.nodeTimeoutMs ?? 900_000,
       });

@@ -53,7 +53,6 @@ export function harness(over: {
     mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store, capUsd: over.capUsd, todayFn: over.todayFn }),
     onComplete: async (o) => { completions.push({ ok: o.ok }); },
-    resolveDeptFor: () => undefined,
     planner: over.planner,
     replanCap: over.replanCap,
     nodeTimeoutMs: over.nodeTimeoutMs,

@@ -65,21 +65,22 @@ function harness(planOutputs: unknown[]) {
   };
   const planner = makePlanner({
     registry, store, run,
-    resolveDeptFor: () => undefined,
     primaryChat: { channel: "telegram", chatId: "1" },
     projectsRoot: "/tmp/projects",
     postPreview: async (_o, text) => { previews.push(text); },
   });
+  // Per-node agent resolution now happens INSIDE deps.run (resolveAgent) — the harness
+  // observes it by recording every role the engine hands to run.
   const resolvedAgents: string[] = [];
+  const trackedRun: SpecialistRunFn = async (role, brief, opts) => {
+    resolvedAgents.push(role);
+    return run(role, brief, opts);
+  };
   const engine = new GoalEngine({
-    store, vault, registry, run,
+    store, vault, registry, run: trackedRun,
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2, mailMaxDepth: 2,
     spendGuard: new SpendGuard({ store }),
     onComplete: async () => {},
-    resolveDeptFor: (key: string, _o: { channel: string; chatId: string }, byAgent?: boolean) => {
-      if (byAgent) resolvedAgents.push(key);
-      return undefined;
-    },
     planner,
   });
   return { store, engine, previews, planCallsRef: () => planCalls, resolvedAgents };
@@ -273,7 +274,6 @@ describe("replan guards (review fixes)", () => {
         structured: { ops: [{ op: "replace", key: "research", node: { key: "research", type: "run", agent: "odin", brief: "redo", deps: [] } }] },
         costUsd: 0, numTurns: 1,
       }),
-      resolveDeptFor: () => undefined,
       primaryChat: { channel: "telegram", chatId: "1" },
       projectsRoot: "/tmp/projects",
       postPreview: async () => {},

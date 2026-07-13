@@ -96,7 +96,6 @@ async function main(): Promise<void> {
     onQueued: () => goals.pump(),
     onAskParked: (g, n, m) => goals.parkFromAsk(g, n, m),
   });
-  const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox });
   // Agents in privateMemo departments (finance: midas/juno) — their mail is walled out of the
   // vaulted, recall-indexed morning brief (money-wall parity with the standup carve-out).
   const privateAgents = new Set(
@@ -217,10 +216,10 @@ async function main(): Promise<void> {
       ledger: (d) => buildLedgerServer(d, { company: config.financeCompany, members: config.financeMembers }),
     } },
   );
-  // The ONE resolution path (org-model spec §7) — seams cut over to this; resolveDeptFor
-  // coexists until the cutover tasks land, then dies with the Pack struct.
+  // The ONE resolution path (org-model spec §7) — runner/engine/handoff resolve through this;
+  // resolveDeptFor coexists for the direct seam until its cutover, then dies with the Pack struct.
   const resolveAgent = makeResolveAgent({ registry, store, vault, gate, config, categorize });
-  void resolveAgent; // consumed by the seam-cutover tasks
+  const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox, resolveAgent });
 
   const channels = new Map<string, ChannelAdapter>();
 
@@ -274,17 +273,14 @@ async function main(): Promise<void> {
     maxConcurrentNodes: config.maxConcurrentNodes,
     mailMaxDepth: config.mailMaxDepth,
     mailDisabled: config.mailDisabled,
-    model: config.specialistModel,
     spendGuard,
     onComplete: onGoalComplete,
     onEvent: (e) => bus.emit(e),
     log,
-    resolveDeptFor,
     prepareSandbox: prepareGoalSandbox,
     planner: makePlanner({
-      registry, store, run: runSpecialist, resolveDeptFor,
+      registry, store, run: runSpecialist,
       primaryChat: config.primaryChat, projectsRoot: config.projectsRoot,
-      model: config.specialistModel,
       postPreview: async (origin, text) => {
         await channels.get(origin.channel)?.send(origin.chatId, text);
         bus.emit({ type: "chat.out", channel: origin.channel, chatId: origin.chatId, text: text.slice(0, 300) });
@@ -301,12 +297,10 @@ async function main(): Promise<void> {
 
   const handOff = makeHandOff({
     registry,
-    resolveDeptFor,
     runSpecialist,
     bus,
     primaryChat: config.primaryChat,
     projectsRoot: config.projectsRoot,
-    model: config.specialistModel,
   });
 
   const moderator = new Moderator({

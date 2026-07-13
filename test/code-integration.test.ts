@@ -52,11 +52,6 @@ describe("code-analyze end-to-end (stubbed model)", () => {
       return { text: "assessment ok", costUsd: 0, numTurns: 1 };
     });
 
-    const resolveDeptFor = makeResolveDeptFor(
-      reg,
-      { store, vault, gate },
-    );
-
     const goals = new GoalEngine({
       store, vault, run: run as never, playbooks: reg.playbooks, wallTimeMs: 60_000, maxConcurrentNodes: 1, mailMaxDepth: 2,
       spendGuard: new SpendGuard({ store }),
@@ -70,7 +65,6 @@ describe("code-analyze end-to-end (stubbed model)", () => {
         );
         return { taskDir, mode: "analyze" as const };
       },
-      resolveDeptFor: (key, origin, byAgent, sandbox) => resolveDeptFor(key, origin, byAgent, sandbox),
     });
 
     const job = goals.createFromPlaybook({
@@ -83,7 +77,10 @@ describe("code-analyze end-to-end (stubbed model)", () => {
     // Wiring asserts surfaced after the job is done → clear messages, no timeout-masking.
     expect(run).toHaveBeenCalled();
     expect(capturedOpts.cwd).toBe(realRepo); // analyze → taskDir = resolveReal(source)
-    expect(capturedOpts.pack?.confinement?.guard).toBeTruthy(); // pack resolved WITH confinement
+    // Confinement now derives from the workspace INSIDE resolveAgent (runner-internal) —
+    // the engine's contract is threading the workspace through RunOptions.
+    expect(capturedOpts.workspace?.taskDir).toBe(realRepo);
+    expect(capturedOpts.workspace?.mode).toBe("analyze");
     expect(store.getGoal(job.id)!.project_dir).toBe(realRepo); // rewritten to analyze taskDir = resolveReal(source)
     expect(readdirSync(realRepo).sort()).toEqual(repoFilesBefore); // analyzed repo untouched
   }, 15_000);

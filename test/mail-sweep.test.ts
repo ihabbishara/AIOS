@@ -56,7 +56,6 @@ function harness(run: SpecialistRunFn, capUsd?: number, planner?: Planner, opts?
     playbooks: new Map(), wallTimeMs: 60_000, maxConcurrentNodes: 2,
     spendGuard: new SpendGuard({ store, capUsd }),
     onComplete,
-    resolveDeptFor: () => undefined,
     prepareSandbox,
     primaryChat: PRIMARY,
     mailMaxDepth: 2,

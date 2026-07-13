@@ -27,7 +27,6 @@ function harness(run: SpecialistRunFn, specs: NodeSpec[] = [SPEC()]) {
   const registry = new AbortRegistry();
   const deps: WorkerDeps = {
     store, vault, run, registry, nodeTimeoutMs: 900_000,
-    resolvePack: () => undefined,
   };
   return { store, vault, deps, registry, goalDir, goal: () => store.getGoal("g1")! };
 }
