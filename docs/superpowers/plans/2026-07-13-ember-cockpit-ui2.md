@@ -72,7 +72,7 @@ ui2/test/{stubs.ts,router.test.ts,topics.test.ts,dag-layout.test.ts,queue.test.t
   - attention-view.ts: `buildAttentionView(store: Store, senses?: SensesFn, now?: () => Date): AttentionItem[]`, `type SensesFn`.
   - HTTP: `GET /api/attention` → `AttentionItem[]`, severity-sorted (1 first), ts-desc within severity.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // test/attention-view.test.ts
@@ -218,12 +218,12 @@ describe("GET /api/attention", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to make sure it fails**
+- [x] **Step 2: Run it to make sure it fails**
 
 Run: `npx vitest run test/attention-view.test.ts`
 Expected: FAIL — `Cannot find module '../src/web/attention-view.js'`
 
-- [ ] **Step 3: Add the DTO types**
+- [x] **Step 3: Add the DTO types**
 
 In `src/web/dto.ts`, add `originChannel` to `GoalView` (after `lead`):
 
@@ -265,7 +265,7 @@ export interface HealthInfo {
 }
 ```
 
-- [ ] **Step 4: Map originChannel in goals-view**
+- [x] **Step 4: Map originChannel in goals-view**
 
 In `src/web/goals-view.ts` `goalView()` (line 21), add after `lead`:
 
@@ -273,7 +273,7 @@ In `src/web/goals-view.ts` `goalView()` (line 21), add after `lead`:
     originChannel: g.origin_channel,
 ```
 
-- [ ] **Step 5: Write the builder**
+- [x] **Step 5: Write the builder**
 
 ```ts
 // src/web/attention-view.ts — pure builder behind /api/attention (Ember Cockpit spec §5, §9.1).
@@ -358,7 +358,7 @@ export function buildAttentionView(
 }
 ```
 
-- [ ] **Step 6: Wire the route**
+- [x] **Step 6: Wire the route**
 
 In `src/web/server.ts`, import at top (beside the other view imports):
 
@@ -374,13 +374,13 @@ After the `/api/health` block (line ~197), add:
         }
 ```
 
-- [ ] **Step 7: Run tests, fix any exact-shape assertions**
+- [x] **Step 7: Run tests, fix any exact-shape assertions**
 
 Run: `npx vitest run test/attention-view.test.ts` → expect PASS.
 Run: `npx vitest run && npx tsc --noEmit` → the new `GoalView.originChannel` field is additive, but if any existing goal-view test asserts an exact object (`toEqual` on a full GoalView), add `originChannel` to its expected object.
 Expected: full suite green (1046+ pass, 1 skip).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/web/dto.ts src/web/attention-view.ts src/web/server.ts src/web/goals-view.ts test/attention-view.test.ts
@@ -401,7 +401,7 @@ git commit -m "feat(web): GET /api/attention — unified needs-you queue + GoalV
 - Consumes: `loadConfig(root = process.cwd()): Config` (src/config.ts:273).
 - Produces: `ui2/` builds to `ui2/dist/` via `cd ui2 && npm run build`; `AIOS_UI_DIST` env (relative to repo root, or absolute) overrides `config.uiDist`; Ember token names every later task styles with: colors `bg surface raised line dim fg strong accent ok err agent`, fonts `font-sans font-mono`, classes `.label .breathe .arrive .shimmer .tick`.
 
-- [ ] **Step 1: Root vitest config + failing config test**
+- [x] **Step 1: Root vitest config + failing config test**
 
 ```ts
 // vitest.config.ts — pin the root suite to test/ so ui2's jsdom tests stay in ui2's own runner.
@@ -442,7 +442,7 @@ describe("AIOS_UI_DIST", () => {
 Run: `npx vitest run test/config-ui-dist.test.ts` → FAIL (override ignored).
 Also verify the pin did not change collection: `npx vitest run` still collects only `test/**` files.
 
-- [ ] **Step 2: Implement the switch**
+- [x] **Step 2: Implement the switch**
 
 In `src/config.ts` line 213, replace `uiDist: join(root, "ui", "dist"),` with:
 
@@ -452,7 +452,7 @@ In `src/config.ts` line 213, replace `uiDist: join(root, "ui", "dist"),` with:
 
 Add `resolve` to the existing `node:path` import. Run the test → PASS. Run `npx tsc --noEmit`.
 
-- [ ] **Step 3: Scaffold ui2 package**
+- [x] **Step 3: Scaffold ui2 package**
 
 ```json
 // ui2/package.json
@@ -538,7 +538,7 @@ export default defineConfig({
 </html>
 ```
 
-- [ ] **Step 4: Ember tokens + base css**
+- [x] **Step 4: Ember tokens + base css**
 
 ```css
 /* ui2/src/tokens.css — Ember design tokens (spec §3). Single dark theme; swappable by construction. */
@@ -604,7 +604,7 @@ body {
 }
 ```
 
-- [ ] **Step 5: Entry + placeholder App + smoke test**
+- [x] **Step 5: Entry + placeholder App + smoke test**
 
 ```tsx
 // ui2/src/main.tsx
@@ -644,13 +644,13 @@ describe("scaffold", () => {
 });
 ```
 
-- [ ] **Step 6: Install, test, build**
+- [x] **Step 6: Install, test, build**
 
 Run: `cd ui2 && npm install && npx vitest run && npx tsc --noEmit && npm run build`
 Expected: 1 test passes; `ui2/dist/index.html` exists; woff2 files in `ui2/dist/assets/` (self-hosted fonts bundled).
 Run root: `npx vitest run && npx tsc --noEmit` — green, `ui2/` not collected.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add vitest.config.ts src/config.ts test/config-ui-dist.test.ts ui2/package.json ui2/package-lock.json ui2/vite.config.ts ui2/tsconfig.json ui2/index.html ui2/src ui2/test
@@ -677,7 +677,7 @@ git commit -m "feat(ui2): Ember scaffold — Vite+Tailwind v4 tokens, self-hoste
   - format.ts: `ts`, `tsTime`, `usd`, `usdFloat` (verbatim port).
   - dag-layout.ts: verbatim port of `ui/src/views/dag-layout.ts` (same exports: `layoutDag`, `BOX_W/BOX_H/GAP_X/GAP_Y/PAD`, `DagNodeIn/DagBox/DagEdge/DagLayout`).
 
-- [ ] **Step 1: Verbatim copies**
+- [x] **Step 1: Verbatim copies**
 
 ```bash
 cp ui/src/hooks.ts ui2/src/hooks.ts
@@ -688,7 +688,7 @@ cp test/dag-layout.test.ts ui2/test/dag-layout.test.ts
 
 In `ui2/test/dag-layout.test.ts`, repoint the import to `../src/views/dag-layout.js` (the root test imports `../ui/src/views/dag-layout.js`). Everything else stays byte-identical.
 
-- [ ] **Step 2: api.ts — port + two additions**
+- [x] **Step 2: api.ts — port + two additions**
 
 `cp ui/src/api.ts ui2/src/api.ts`, then:
 1. Add `AttentionItem, HealthInfo` to BOTH the `export type { ... }` list and the `import type { ... }` list at the top (still from `"../../src/web/dto.js"` — ui2 sits at the same depth as ui).
@@ -699,7 +699,7 @@ In `ui2/test/dag-layout.test.ts`, repoint the import to `../src/views/dag-layout
   health: () => request<HealthInfo>("/api/health"),
 ```
 
-- [ ] **Step 3: topics.ts — port + attention topic**
+- [x] **Step 3: topics.ts — port + attention topic**
 
 `cp ui/src/lib/topics.ts ui2/src/lib/topics.ts`, then add to `T` (after `agentMail`):
 
@@ -708,7 +708,7 @@ In `ui2/test/dag-layout.test.ts`, repoint the import to `../src/views/dag-layout
   attention: ["action.", "mail.sent", "mail.read", "goal.status", "trust.changed"],
 ```
 
-- [ ] **Step 4: router.ts — rebuilt for the 5-section map**
+- [x] **Step 4: router.ts — rebuilt for the 5-section map**
 
 ```ts
 // ui2/src/lib/router.ts — minimal hash router. #/section/seg1/seg2?query — no dependency.
@@ -744,7 +744,7 @@ export function useRoute(): Route {
 }
 ```
 
-- [ ] **Step 5: Tests**
+- [x] **Step 5: Tests**
 
 ```ts
 // ui2/test/router.test.ts
@@ -794,7 +794,7 @@ describe("topics", () => {
 });
 ```
 
-- [ ] **Step 6: Run + commit**
+- [x] **Step 6: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit`
 Expected: router (3) + topics (2) + dag-layout (ported count) + smoke pass.
@@ -823,7 +823,7 @@ git commit -m "feat(ui2): data layer port — api/hooks/topics/format/dag-layout
   - Section components receive `{ events, route, onOpenChat }` (each later task states its exact props).
   - Status→tone mapping helper in ui.tsx: `toneOfStatus(status: string): "ok"|"err"|"accent"|"agent"|"dim"` — `running/done/ok → ok`, `failed/error → err`, `awaiting-human/paused-user/paused-budget/awaiting-mail/proposed → accent`, `planning/replanning/working → agent`, else `dim`.
 
-- [ ] **Step 1: Test stubs (SSE + fetch fakes every component test reuses)**
+- [x] **Step 1: Test stubs (SSE + fetch fakes every component test reuses)**
 
 ```ts
 // ui2/test/stubs.ts — FakeEventSource + fetch stub for jsdom component tests.
@@ -868,7 +868,7 @@ export const STATE_STUB = {
 };
 ```
 
-- [ ] **Step 2: Primitives**
+- [x] **Step 2: Primitives**
 
 ```tsx
 // ui2/src/components/ui.tsx — Ember primitives (spec §3). Borders over shadows; amber = needs-you only.
@@ -998,7 +998,7 @@ export function TokenGate({ onSet }: { onSet: () => void }) {
 }
 ```
 
-- [ ] **Step 3: Chat + drawer (port of `ui/src/views/Chat.tsx` + `ui/src/components/ChatDrawer.tsx`)**
+- [x] **Step 3: Chat + drawer (port of `ui/src/views/Chat.tsx` + `ui/src/components/ChatDrawer.tsx`)**
 
 `ui2/src/components/Chat.tsx` — copy `ui/src/views/Chat.tsx` and apply exactly these changes (logic, voice recording, localStorage persistence, pending-placeholder resolution, routing trail all stay identical):
 1. Import path fix: `from "../api.js"` stays correct (file moved to components/, api is one level up in both).
@@ -1041,7 +1041,7 @@ export function ChatDrawer({ open, onClose, state, events, target, setTarget, se
 }
 ```
 
-- [ ] **Step 4: Command palette (port of `ui/src/components/CommandPalette.tsx`)**
+- [x] **Step 4: Command palette (port of `ui/src/components/CommandPalette.tsx`)**
 
 Copy the file to `ui2/src/components/CommandPalette.tsx`; keep the ⌘K toggle, Escape close, arrow/enter selection, goal fetch-on-open, and filtering logic identical. Apply:
 1. Replace the zone items with the 5 sections:
@@ -1063,7 +1063,7 @@ Copy the file to `ui2/src/components/CommandPalette.tsx`; keep the ⌘K toggle, 
 3. Restyle: `hud` → `border border-line rounded-lg bg-surface`, `bg-void/70` → `bg-black/60`, `border-phosphor/40`/`focus:border-phosphor` → `border-line`/`focus:border-dim`, selected row `bg-panel-2 text-bright` → `bg-raised text-strong`, hover `hover:bg-panel-2` → `hover:bg-raised`.
 4. `onOpenChat` prop type becomes `(name: string, seed?: string) => void` (palette calls it with just the name).
 
-- [ ] **Step 5: Top bar + App shell**
+- [x] **Step 5: Top bar + App shell**
 
 ```tsx
 // ui2/src/components/TopBar.tsx — AIOS · Home Goals Staff Mail System ··· budget · connection dot · ⌘K.
@@ -1203,7 +1203,7 @@ Notes:
 - `Home/Goals/Staff/Mail/System` do not exist yet — for THIS task create one-line placeholders so the shell compiles, e.g. `export function Goals(_: {events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void}) { return <Empty>Goals — Task 7</Empty>; }` (same pattern for the others with their Task numbers; `BottomTabs` placeholder renders `null` until Task 11).
 - `Home` placeholder for this task: renders `<Empty>Nothing needs you.</Empty>` so the smoke test still passes.
 
-- [ ] **Step 6: Shell test**
+- [x] **Step 6: Shell test**
 
 Replace `ui2/test/smoke.test.tsx` with:
 
@@ -1239,7 +1239,7 @@ describe("app shell", () => {
 });
 ```
 
-- [ ] **Step 7: Run + commit**
+- [x] **Step 7: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit`
 Expected: all ui2 tests pass (shell 2 + router 3 + topics 2 + dag-layout).
@@ -1265,7 +1265,7 @@ git commit -m "feat(ui2): Ember primitives + app shell — top bar, ⌘K palette
   - Queue.tsx: `Queue({ groups, selected, onSelect, onAct, rowErrors, busy })` — presentation + inline action buttons + one-time `.arrive` animation on newly seen ids.
   - Home keyboard: `j/k` walk, `enter` open (select), `a` approve, `r` reject, `d` discuss (→ `onOpenChat("hermes", seed)`); only when Home is the active section and no input is focused.
 
-- [ ] **Step 1: Failing tests for the pure queue model**
+- [x] **Step 1: Failing tests for the pure queue model**
 
 ```ts
 // ui2/test/queue.test.ts
@@ -1294,7 +1294,7 @@ describe("groupQueue", () => {
 
 Run: `cd ui2 && npx vitest run test/queue.test.ts` → FAIL (module missing).
 
-- [ ] **Step 2: Implement queue.ts**
+- [x] **Step 2: Implement queue.ts**
 
 ```ts
 // ui2/src/lib/queue.ts — pure grouping/ordering for the Home cockpit queue (spec §5).
@@ -1326,7 +1326,7 @@ export function flatQueue(groups: QueueGroup[]): AttentionItem[] {
 
 Run the test → PASS.
 
-- [ ] **Step 3: Queue list**
+- [x] **Step 3: Queue list**
 
 ```tsx
 // ui2/src/views/Queue.tsx — the needs-you list: grouped rows, inline actions, one-time arrival animation.
@@ -1405,7 +1405,7 @@ export function Queue({ groups, selected, onSelect, onAct, rowErrors, busy }: {
 }
 ```
 
-- [ ] **Step 4: Today strip**
+- [x] **Step 4: Today strip**
 
 ```tsx
 // ui2/src/views/TodayStrip.tsx — one line above the queue: date · brief link · budget today.
@@ -1436,7 +1436,7 @@ export function TodayStrip({ events, onOpenBrief }: {
 }
 ```
 
-- [ ] **Step 5: Home — selection, optimistic actions, keyboard**
+- [x] **Step 5: Home — selection, optimistic actions, keyboard**
 
 ```tsx
 // ui2/src/views/Home.tsx — the Triage Cockpit: queue (left) + canvas (right) (spec §5).
@@ -1561,7 +1561,7 @@ export function Canvas(_: {
 }
 ```
 
-- [ ] **Step 6: Render test — inline approve collapses the row optimistically**
+- [x] **Step 6: Render test — inline approve collapses the row optimistically**
 
 ```tsx
 // ui2/test/queue-render.test.tsx
@@ -1605,7 +1605,7 @@ describe("Home queue", () => {
 });
 ```
 
-- [ ] **Step 7: Run + commit**
+- [x] **Step 7: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → all green.
 
@@ -1630,7 +1630,7 @@ git commit -m "feat(ui2): Home triage cockpit — grouped needs-you queue, inlin
   - MiniDag.tsx: `MiniDag({ nodes, failedKey? }: { nodes: GoalNodeView[]; failedKey?: string })` — compact read-only SVG (used here AND by Goals detail in Task 7 at full size via a `scale` prop, default 0.6).
   - canvas/index.tsx: `Canvas({ item, events, onAct, onOpenChat, onDone })` — routes by `item.kind` (`null` → OrgPulse; `ref.brief` → MailThread in memo mode).
 
-- [ ] **Step 1: Failing preview test**
+- [x] **Step 1: Failing preview test**
 
 ```ts
 // ui2/test/preview.test.ts
@@ -1672,7 +1672,7 @@ describe("parseApproval", () => {
 
 Run: `cd ui2 && npx vitest run test/preview.test.ts` → FAIL.
 
-- [ ] **Step 2: Implement preview.ts**
+- [x] **Step 2: Implement preview.ts**
 
 ```ts
 // ui2/src/lib/preview.ts — typed approval previews for the canvas (spec §5: gate-authored preview by type).
@@ -1706,7 +1706,7 @@ export function parseApproval(a: ActionInfo): ApprovalPreview {
 
 Run the test → PASS.
 
-- [ ] **Step 3: MiniDag (shared with Goals)**
+- [x] **Step 3: MiniDag (shared with Goals)**
 
 ```tsx
 // ui2/src/views/MiniDag.tsx — read-only DAG snapshot; Goals detail reuses it at scale 1.
@@ -1757,7 +1757,7 @@ export function MiniDag({ nodes, failedKey, scale = 0.6, onSelect }: {
 }
 ```
 
-- [ ] **Step 4: Renderers**
+- [x] **Step 4: Renderers**
 
 ```tsx
 // ui2/src/views/canvas/Approval.tsx — gate-authored preview by type + Approve/Reject(reason)/Discuss.
@@ -2089,7 +2089,7 @@ export function OrgPulse({ events }: { events: StoredEvent[] }) {
 }
 ```
 
-- [ ] **Step 5: The switch**
+- [x] **Step 5: The switch**
 
 Replace `ui2/src/views/canvas/index.tsx`:
 
@@ -2121,7 +2121,7 @@ export function Canvas({ item, events, onAct, onOpenChat, onDone }: {
 }
 ```
 
-- [ ] **Step 6: Run + commit**
+- [x] **Step 6: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → all green (preview 4 new).
 
@@ -2144,7 +2144,7 @@ git commit -m "feat(ui2): canvas renderers — typed approval previews, ask/goal
   - goal-buckets.ts: `type Bucket = "needs" | "running" | "waiting" | "done" | "abandoned"`, `bucketOf(status: string): Bucket`, `BUCKETS: Array<{key: Bucket; label: string}>` (order: Needs attention / Running / Waiting / Done / Abandoned), `provenance(originChannel: string): "mail" | "speculate" | "chat"`.
   - Goals.tsx: `Goals({ events, route, onOpenChat })` — route `goals` = list, `goals/<slug>` = detail (drill-in inside the same component, old-UI pattern).
 
-- [ ] **Step 1: Failing bucket tests**
+- [x] **Step 1: Failing bucket tests**
 
 ```ts
 // ui2/test/goal-buckets.test.ts
@@ -2179,7 +2179,7 @@ describe("goal buckets", () => {
 
 Run: `cd ui2 && npx vitest run test/goal-buckets.test.ts` → FAIL.
 
-- [ ] **Step 2: Implement goal-buckets.ts**
+- [x] **Step 2: Implement goal-buckets.ts**
 
 ```ts
 // ui2/src/lib/goal-buckets.ts — status → list group + provenance chip (spec §6 Goals).
@@ -2210,7 +2210,7 @@ export function provenance(originChannel: string): "mail" | "speculate" | "chat"
 
 Run the test → PASS.
 
-- [ ] **Step 3: Goals view (list + detail)**
+- [x] **Step 3: Goals view (list + detail)**
 
 Replace the Task 4 placeholder `ui2/src/views/Goals.tsx`:
 
@@ -2383,7 +2383,7 @@ function ArtifactPreview({ goalArtifacts, file }: {
 }
 ```
 
-- [ ] **Step 4: Run + commit**
+- [x] **Step 4: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → green.
 
@@ -2404,7 +2404,7 @@ git commit -m "feat(ui2): Goals — bucketed list with provenance chips, Ember D
 - Produces: `Staff({ events, route, onOpenChat })`. Routes: `staff` = org columns; `staff/agents/<name>` = profile; `staff/governance` = governance. Department admin = ⋯ menu on each department column header (spec §6: not a separate section).
 - No new pure-logic tests: this section is composition over already-tested hooks/primitives; root suite covers the endpoints. (ui2 tests stay for logic, per spec §12.)
 
-- [ ] **Step 1: Implement Staff.tsx**
+- [x] **Step 1: Implement Staff.tsx**
 
 ```tsx
 // ui2/src/views/Staff.tsx — org columns + profile + governance + department admin (spec §6 Staff).
@@ -2704,7 +2704,7 @@ function Governance({ events }: { events: StoredEvent[] }) {
 }
 ```
 
-- [ ] **Step 2: Run + commit**
+- [x] **Step 2: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → green.
 
@@ -2724,7 +2724,7 @@ git commit -m "feat(ui2): Staff — org columns with presence, agent profile + a
 - Consumes: `api.mailMine/mailThreadView/markMailRead/answerMail/composeMail/org` (Task 3); `MailThreadCanvas` is NOT reused here — Mail needs mark-read-on-open and ask-answer routing, so it has its own thread view (structural reuse of old `ui/src/views/Mail.tsx` in Ember dress).
 - Produces: `Mail({ events, route })`. Routes: `mail` = thread list + compose; `mail/<threadId>` = detail.
 
-- [ ] **Step 1: Implement Mail.tsx**
+- [x] **Step 1: Implement Mail.tsx**
 
 ```tsx
 // ui2/src/views/Mail.tsx — your correspondence: threads, detail bubbles, compose (spec §6 Mail).
@@ -2872,7 +2872,7 @@ function Compose({ onDone }: { onDone: () => void }) {
 }
 ```
 
-- [ ] **Step 2: Run + commit**
+- [x] **Step 2: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → green.
 
@@ -2892,7 +2892,7 @@ git commit -m "feat(ui2): Mail — threads with ask/refused badges, mark-read-on
 - Consumes: `api.events/costs/goals/config/saveConfig/restart/state/health` (Task 3), `useEvents` buffer from App (prop `events`).
 - Produces: `System({ events, route })`. Routes: `system` = health (default), `system/events`, `system/costs`, `system/config`.
 
-- [ ] **Step 1: Implement System.tsx**
+- [x] **Step 1: Implement System.tsx**
 
 ```tsx
 // ui2/src/views/System.tsx — events tail · costs · config · health (spec §6 System).
@@ -3151,7 +3151,7 @@ function ConfigEditor() {
 }
 ```
 
-- [ ] **Step 2: Run + commit**
+- [x] **Step 2: Run + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → green.
 
@@ -3172,7 +3172,7 @@ git commit -m "feat(ui2): System — filtered event tail, cost charts + top goal
 - Consumes: `SECTIONS`, `href` (Task 3); `Canvas` (Task 6).
 - Produces: `BottomTabs({ section, needsYou })` — `<nav>` fixed bottom, `md:hidden`, 5 tabs ≥44px tall, Home badge. Main content containers already use `flex` layouts; add `pb-14 md:pb-0` on the App root's section wrapper so content clears the tab bar.
 
-- [ ] **Step 1: BottomTabs**
+- [x] **Step 1: BottomTabs**
 
 ```tsx
 // ui2/src/components/BottomTabs.tsx — phone nav: the 5 sections as bottom tabs (spec §7).
@@ -3205,7 +3205,7 @@ export function BottomTabs({ section, needsYou }: { section: string; needsYou: n
 
 In `App.tsx`, wrap the five section divs' parent: change the root's inner container to include `pb-14 md:pb-0` (add the classes to each `show(s)` string: `flex-1 min-h-0 flex flex-col pb-14 md:pb-0`).
 
-- [ ] **Step 2: Home phone detail push**
+- [x] **Step 2: Home phone detail push**
 
 In `ui2/src/views/Home.tsx`, replace the `md:hidden` queue block with a queue/detail switch — when `selected != null` on phone, render the canvas full-screen with a back row:
 
@@ -3224,7 +3224,7 @@ In `ui2/src/views/Home.tsx`, replace the `md:hidden` queue block with a queue/de
 
 (No idle org-pulse on phone — spec §7; when nothing is selected the queue itself is the screen.)
 
-- [ ] **Step 3: Chat sheet tall on phone**
+- [x] **Step 3: Chat sheet tall on phone**
 
 In `ChatDrawer.tsx`, pass `tall` on small screens via CSS instead of JS: change `Sheet`'s height classes to `h-[85vh] md:h-[min(480px,70vh)]` when `tall` is undefined — simplest: in `Sheet.tsx` replace the ternary with:
 
@@ -3232,11 +3232,11 @@ In `ChatDrawer.tsx`, pass `tall` on small screens via CSS instead of JS: change 
         ${tall ? "h-[85vh]" : "h-[85vh] md:h-[min(480px,70vh)]"}
 ```
 
-- [ ] **Step 4: Touch audit**
+- [x] **Step 4: Touch audit**
 
 Verify every interactive row/button in Queue, Goals list, Staff cards, Mail threads, BottomTabs has `min-h-11` (44px) — Tasks 5-9 already set `min-h-11` on rows; add it anywhere missed. DAG containers are `overflow-x-auto` (MiniDag) — pinch/pan works as native scroll.
 
-- [ ] **Step 5: Run + visual check + commit**
+- [x] **Step 5: Run + visual check + commit**
 
 Run: `cd ui2 && npx vitest run && npx tsc --noEmit` → green.
 Run: `cd ui2 && npm run dev` + browser-harness at 390×844 to eyeball the queue-first stack and tabs (screenshot).
@@ -3254,12 +3254,12 @@ git commit -m "feat(ui2): mobile — bottom tabs, queue-first home with full-scr
 - Modify: `.env` (add `AIOS_UI_DIST=ui2/dist`)
 - No source changes — this task is verification + deployment.
 
-- [ ] **Step 1: Final suites in the worktree**
+- [x] **Step 1: Final suites in the worktree**
 
 Run: `npx vitest run && npx tsc --noEmit && cd ui2 && npx vitest run && npx tsc --noEmit && npm run build`
 Expected: root green (1046+~10 new), ui2 green (~15 tests), `ui2/dist/` fresh.
 
-- [ ] **Step 2: Merge (superpowers:finishing-a-development-branch)**
+- [x] **Step 2: Merge (superpowers:finishing-a-development-branch)**
 
 ```bash
 cd /Users/ihabbishara/projects/AIOS
@@ -3268,7 +3268,7 @@ git worktree remove .worktrees/ember-cockpit
 npx vitest run && npx tsc --noEmit   # re-verify on main, outside the worktree
 ```
 
-- [ ] **Step 3: Build + flip the flag + deploy**
+- [x] **Step 3: Build + flip the flag + deploy**
 
 ```bash
 cd ui2 && npm install && npm run build && cd ..
@@ -3279,7 +3279,7 @@ launchctl kickstart -k gui/$(id -u)/com.ihab.aios
 
 Web comes up ~65s after start (slack init). Old `ui/` untouched — rollback = delete the `AIOS_UI_DIST` line + kickstart.
 
-- [ ] **Step 4: Live browser smoke (existing project policy)**
+- [x] **Step 4: Live browser smoke (existing project policy)**
 
 Via browser-harness (`new_tab("http://localhost:4280")`, token from `.env` `AIOS_UI_TOKEN`):
 1. Token gate accepts the token; Ember shell renders; connection dot green.
@@ -3291,7 +3291,7 @@ Via browser-harness (`new_tab("http://localhost:4280")`, token from `.env` `AIOS
 7. Resize to 390px: bottom tabs, queue-first, detail push works.
 8. Screenshot each section for the user.
 
-- [ ] **Step 5: Commit the deploy note + push**
+- [x] **Step 5: Commit the deploy note + push**
 
 ```bash
 git add docs/superpowers/plans/2026-07-13-ember-cockpit-ui2.md
