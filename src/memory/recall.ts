@@ -1,5 +1,5 @@
 import type { Store } from "../store/db.js";
-import type { Label } from "../kernel/policy.js";
+import type { Label, Policy } from "../kernel/policy.js";
 import { tokenize } from "./tokenize.js";
 
 export type MemorySource = "vault" | "event" | "decision" | "memo" | "mail";
@@ -33,7 +33,20 @@ export function indexDoc(store: Store, doc: MemoryDocInput): void {
   store.upsertMemoryDoc({ ...doc, labels: doc.labels ?? [], len }, [...tf.entries()]);
 }
 
-export interface RecallOpts { domain?: Domain; limit?: number }
+export interface RecallOpts {
+  domain?: Domain;
+  limit?: number;
+  /** Caller's confidentiality clearance (ResolvedAgent.labels). When set, docs whose labels the
+   *  caller isn't cleared for are dropped BEFORE the limit slice — closing the domain-broadening
+   *  hole. `shared` docs are always visible. Absent → no filter (moderator/legacy full clearance). */
+  clearance?: string[];
+  policy?: Policy;
+}
+
+/** A doc is visible to a caller iff every label is `shared` or in the caller's clearance. */
+function visibleTo(labels: string[], clearance: string[]): boolean {
+  return labels.every((l) => l === "shared" || clearance.includes(l));
+}
 
 export function recall(store: Store, query: string, opts: RecallOpts = {}): RecallHit[] {
   const qTokens = [...new Set(tokenize(query))];
@@ -53,13 +66,30 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
 
   const scores = new Map<number, number>();
   const meta = new Map<number, { source: MemorySource; ref: string; domain: Domain; ts: string }>();
+  const labelsById = new Map<number, string[]>();
   for (const r of rows) {
     const df = dfByToken.get(r.token)!.size;
     const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
     const denom = r.tf + K1 * (1 - B + B * (r.len / avgdl));
     const contrib = idf * (r.tf * (K1 + 1)) / denom;
     scores.set(r.doc_id, (scores.get(r.doc_id) ?? 0) + contrib);
-    if (!meta.has(r.doc_id)) meta.set(r.doc_id, { source: r.source as MemorySource, ref: r.ref, domain: r.domain as Domain, ts: r.ts });
+    if (!meta.has(r.doc_id)) {
+      meta.set(r.doc_id, { source: r.source as MemorySource, ref: r.ref, domain: r.domain as Domain, ts: r.ts });
+      try { labelsById.set(r.doc_id, JSON.parse(r.labels) as string[]); } catch { labelsById.set(r.doc_id, []); }
+    }
+  }
+
+  // Clearance filter (spec §7.8): drop docs the caller isn't cleared for BEFORE ranking, so a
+  // denied doc never occupies a result slot. Audit logs but keeps the hole open; enforce drops.
+  if (opts.clearance) {
+    for (const [id, docLbls] of labelsById) {
+      if (docLbls.length === 0 || visibleTo(docLbls, opts.clearance)) continue;
+      const decision = opts.policy?.check(
+        { labels: docLbls as Label[], sink: "recall-index", agent: { labels: opts.clearance } },
+        "recall:clearance", meta.get(id)!.ref,
+      );
+      if (decision === "deny") scores.delete(id); // enforce: remove; audit returns "allow", kept
+    }
   }
 
   const limit = Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT);

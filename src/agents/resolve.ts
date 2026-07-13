@@ -7,6 +7,7 @@ import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
+import { Policy } from "../kernel/policy.js";
 import type { Config } from "../config.js";
 import type { AgentDef, AgentKind, LoadedRegistry, LoadedDepartment } from "./registry/loader.js";
 import { AIOS_PACK_BARE, fqPackTool, type CapabilityDef } from "./registry/capabilities.js";
@@ -64,6 +65,8 @@ export interface ResolveAgentDeps {
   config: Config;
   /** Money-server categorizer (index.ts builds the real one; tests may stub). */
   categorize?: MoneyServerDeps["categorize"];
+  /** Info-flow checkpoint — the pack recall tool filters results by the agent's clearance. */
+  policy?: Policy;
 }
 
 type ServerCtx = {
@@ -71,6 +74,8 @@ type ServerCtx = {
   origin: { channel: string; chatId: string };
   dept: LoadedDepartment;
   ceiling: string[];
+  /** The resolving agent's confidentiality clearance (capability label union). */
+  labels: string[];
   idempotencyKey?: string;
 };
 
@@ -83,6 +88,8 @@ const SERVER_BUILDERS: Record<string, (c: ServerCtx) => Record<string, unknown>>
       store: c.deps.store, vault: c.deps.vault, gate: c.deps.gate,
       actions: c.ceiling, memoDomain: c.dept.memoDomain,
       origin: c.origin, idempotencyKey: c.idempotencyKey,
+      labels: c.labels,
+      policy: c.deps.policy ?? new Policy({ mode: "audit", report: () => {} }),
     }),
   }),
   money: (c) => ({ money: buildMoneyServer({ store: c.deps.store, categorize: c.deps.categorize! }) }),
@@ -156,7 +163,7 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
 
     // Static MCP servers from capabilities. Shim era: bare aios-pack tools without an explicit
     // aios-pack capability still get the scoped server (the legacy path always attached it).
-    const serverCtx: ServerCtx = { deps, origin, dept, ceiling, idempotencyKey: ctx.idempotencyKey };
+    const serverCtx: ServerCtx = { deps, origin, dept, ceiling, labels, idempotencyKey: ctx.idempotencyKey };
     const serverNames = new Set(caps.map((c) => c.server).filter(Boolean) as string[]);
     if (caps.some((c) => c.tools.some((t) => AIOS_PACK_BARE.includes(t)))) serverNames.add(AIOS_PACK);
     let mcpServers: Record<string, unknown> = {};

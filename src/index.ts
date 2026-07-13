@@ -217,7 +217,7 @@ async function main(): Promise<void> {
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
   // The ONE resolution path (org-model spec §7) — runner/engine/handoff resolve through this;
   // resolveDeptFor coexists for the direct seam until its cutover, then dies with the Pack struct.
-  const resolveAgent = makeResolveAgent({ registry, store, vault, gate, config, categorize });
+  const resolveAgent = makeResolveAgent({ registry, store, vault, gate, config, categorize, policy: infoPolicy });
   const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox, resolveAgent });
 
   const channels = new Map<string, ChannelAdapter>();
