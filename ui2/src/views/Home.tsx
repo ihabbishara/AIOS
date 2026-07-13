@@ -35,10 +35,12 @@ export function Home({ events, attention, onOpenChat }: {
     if (verb === "open" || verb === "answer") { setSelected(item); return; } // answering happens in the canvas with context
     setRowErrors((e) => ({ ...e, [item.id]: "" }));
     mark(setBusy, item.id, true);
-    const optimistic = ["approve", "reject", "read", "abandon", "resume"].includes(verb);
+    const optimistic = ["approve", "reject", "read", "abandon", "resume", "accept", "retry"].includes(verb);
     if (optimistic) mark(setHandled, item.id, true);
     try {
-      if (verb === "approve" || verb === "reject") await api.resolveAction(item.ref.actionId, verb);
+      if (item.kind === "review" && (verb === "accept" || verb === "retry" || verb === "abandon")) {
+        await api.resolveReview(item.ref.goalId, item.ref.node, verb);
+      } else if (verb === "approve" || verb === "reject") await api.resolveAction(item.ref.actionId, verb);
       else if (verb === "read") {
         const thread = await api.mailThreadView(item.ref.threadId);
         await Promise.all(thread.filter((m) => m.to === "user" && m.status === "unread").map((m) => api.markMailRead(m.id)));

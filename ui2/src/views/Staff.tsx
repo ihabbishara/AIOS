@@ -257,13 +257,14 @@ function Governance({ events }: { events: StoredEvent[] }) {
     <div className="max-w-4xl">
       <SectionLabel>Trust ledger</SectionLabel>
       <table className="w-full text-[12px] mb-6">
-        <thead><tr className="label text-left"><th className="py-1">action type</th><th>state</th><th>✓</th><th>✗</th><th>streak</th><th>last rejection</th><th /></tr></thead>
+        <thead><tr className="label text-left"><th className="py-1">action type</th><th>state</th><th>✓</th><th>✗</th><th>streak</th><th>shadow</th><th>last rejection</th><th /></tr></thead>
         <tbody>
           {(trust ?? []).map((t) => (
             <tr key={t.actionType} className="border-t border-line">
               <td className="py-1.5">{t.actionType}</td>
               <td><Tag tone={t.state === "autonomous" ? "ok" : t.state === "graduating" ? "agent" : "dim"}>{t.state}</Tag></td>
               <td>{t.approvals}</td><td>{t.rejections}</td><td>{t.streak}</td>
+              <td>{t.shadowMatches}{(t.matches ?? 0) + (t.mismatches ?? 0) > 0 ? ` · ${t.matches ?? 0}✓/${t.mismatches ?? 0}✗` : ""}</td>
               <td className="text-dim">{t.lastRejection ? ts(t.lastRejection) : "—"}</td>
               <td className="text-right">
                 {t.state !== "supervised" && (

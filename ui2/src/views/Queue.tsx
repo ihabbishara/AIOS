@@ -9,6 +9,7 @@ import { ts } from "../lib/format.js";
 const ACTION_LABEL: Record<string, string> = {
   approve: "Approve", reject: "Reject", answer: "Answer", open: "Open",
   read: "Mark read", resume: "Resume", abandon: "Abandon",
+  accept: "Accept", retry: "Retry",
 };
 
 export function Queue({ groups, selected, onSelect, onAct, rowErrors, busy }: {
@@ -55,7 +56,7 @@ export function Queue({ groups, selected, onSelect, onAct, rowErrors, busy }: {
                   ) : (
                     <Button
                       key={verb}
-                      variant={verb === "approve" || verb === "answer" ? "primary" : verb === "reject" ? "danger" : "ghost"}
+                      variant={verb === "approve" || verb === "answer" || verb === "accept" ? "primary" : verb === "reject" ? "danger" : "ghost"}
                       disabled={busy.has(i.id)}
                       onClick={() => onAct(i, verb)}
                     >

@@ -45,6 +45,11 @@ export const api = {
   goal: (idOrSlug: string) => request<GoalDetail>(`/api/goals/${encodeURIComponent(idOrSlug)}`),
   goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon") =>
     request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
+  resolveReview: (goalId: string, node: string, verdict: "accept" | "retry" | "abandon", guidance?: string) =>
+    request<{ message: string }>(
+      `/api/goals/${encodeURIComponent(goalId)}/review/${encodeURIComponent(node)}`,
+      { method: "POST", body: JSON.stringify({ verdict, ...(guidance?.trim() ? { guidance } : {}) }) },
+    ),
   mail: (agent?: string, limit = 50) =>
     request<MailView[]>(`/api/mail?${agent ? `agent=${encodeURIComponent(agent)}&` : ""}limit=${limit}`),
   mailUnread: () => request<{ total: number; byAgent: Record<string, number>; pendingUser: number; userInbox: number }>("/api/mail/unread"),

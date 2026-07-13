@@ -5,8 +5,8 @@ import type { StoredEvent } from "../api.js";
 export const T = {
   /** Agent-mailbox events only — a bare "mail." prefix would also match Gmail's mail.received. */
   agentMail: ["mail.sent", "mail.spawned", "mail.read", "mail.asked_user"],
-  /** Everything that can add/remove a needs-you row: actions, user mail, goal transitions, trust. */
-  attention: ["action.", "mail.sent", "mail.read", "goal.status", "trust.changed"],
+  /** Everything that can add/remove a needs-you row: actions, user mail, goal/node transitions, trust. */
+  attention: ["action.", "mail.sent", "mail.read", "goal.status", "node.status", "trust.changed"],
   goals: ["goal.", "node."],
   agentsActions: ["agent.", "action."],
   actions: ["action."],

@@ -2,11 +2,12 @@
 import type { AttentionItem } from "../api.js";
 
 export const GROUPS = [
-  { severity: 1, label: "Approvals" },
-  { severity: 2, label: "Asks" },
-  { severity: 3, label: "Goals" },
-  { severity: 4, label: "Mail" },
-  { severity: 5, label: "Ambient" },
+  { kind: "approval", severity: 1, label: "Approvals" },
+  { kind: "review", severity: 2, label: "Reviews" },
+  { kind: "ask", severity: 2, label: "Asks" },
+  { kind: "goal", severity: 3, label: "Goals" },
+  { kind: "mail", severity: 4, label: "Mail" },
+  { kind: "sense", severity: 5, label: "Ambient" },
 ] as const;
 
 export interface QueueGroup { label: string; severity: number; items: AttentionItem[] }
@@ -15,7 +16,7 @@ export function groupQueue(items: AttentionItem[]): QueueGroup[] {
   return GROUPS.map((g) => ({
     label: g.label,
     severity: g.severity,
-    items: items.filter((i) => i.severity === g.severity).sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0)),
+    items: items.filter((i) => i.kind === g.kind).sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0)),
   })).filter((g) => g.items.length > 0);
 }
 
