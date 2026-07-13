@@ -153,44 +153,33 @@ export class DirectChats {
   }
 }
 
-/** Parses "@name rest" / "name: rest" against an explicit agent-name list. */
-export function parseAgentAddress(
+/**
+ * THE one address parser (org-model spec §8): `@name` anywhere, or `name:` prefix.
+ * Bound group chats pass `requireAt: true` — the bare prefix form is DM-only there,
+ * so ordinary text like "finance: revenue up" no longer hijacks a group message.
+ * Mid-text mentions are stripped so the agent isn't confused by its own name.
+ */
+export function parseAddress(
   text: string,
   names: string[],
+  opts: { requireAt?: boolean } = {},
 ): { role: string; text: string } | undefined {
   if (!names.length) return undefined;
   const pattern = names.map((n) => n.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")).join("|");
-  const m = text.match(new RegExp(`^@?(${pattern})[:,]?\\s+(.+)$`, "is"));
-  if (!m) return undefined;
-  return { role: m[1].toLowerCase(), text: m[2].trim() };
-}
 
-/**
- * Parses direct-address prefixes for specialist roles: "@architect how should we...".
- * Returns the role + remaining text, or undefined when the message is for the moderator.
- * The caller (router) supplies the names list from the live registry.
- */
-export function parseDirectAddress(text: string, names: string[]): { role: string; text: string } | undefined {
-  return parseAgentAddress(text, names);
-}
+  // Prefix form: "@name rest" always; bare "name: rest" only when !requireAt.
+  const at = opts.requireAt ? "@" : "@?";
+  const m = text.match(new RegExp(`^${at}(${pattern})[:,]?\\s+(.+)$`, "is"));
+  if (m) return { role: m[1].toLowerCase(), text: m[2].trim() };
 
-/**
- * Finds an @agent mention ANYWHERE in the message (group convention — people
- * write greetings first, mention on a later line). Returns the full text with
- * the mention removed so the agent isn't confused by its own name.
- */
-export function findAgentMention(
-  text: string,
-  names: string[],
-): { role: string; text: string } | undefined {
-  // Prefix form first (also supports bare "finance: ..." without @).
-  const prefixed = parseAgentAddress(text, names);
-  if (prefixed) return prefixed;
+  // Mention form: @name anywhere (group convention — greeting first, mention later).
   for (const name of names) {
     const escaped = name.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
     const re = new RegExp(`(^|\\s)@${escaped}\\b[:,]?`, "i");
     if (re.test(text)) {
-      return { role: name.toLowerCase(), text: text.replace(re, "$1").trim() };
+      const rest = text.replace(re, "$1").trim();
+      if (!rest) return undefined; // a bare mention with no message is not an address
+      return { role: name.toLowerCase(), text: rest };
     }
   }
   return undefined;

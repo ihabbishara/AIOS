@@ -1,6 +1,6 @@
 import type { InboundMessage } from "./channels/types.js";
 import type { Moderator } from "./moderator/session.js";
-import { type DirectChats, parseDirectAddress, findAgentMention } from "./agents/direct.js";
+import { type DirectChats, parseAddress } from "./agents/direct.js";
 import type { ChatBinding } from "./config.js";
 import type { EventBus } from "./events.js";
 import type { ActionGate } from "./kernel/gate.js";
@@ -136,7 +136,8 @@ export class MessageRouter {
     let reply: RouterResult | null;
 
     if (binding) {
-      const addressed = findAgentMention(msg.text, binding.agents);
+      // Bound groups require the @ form — bare "name:" prefixes stay DM-only (spec §8).
+      const addressed = parseAddress(msg.text, binding.agents, { requireAt: true });
       const hasAttachments = !!msg.attachments?.length;
       if (addressed) {
         const canonicalTo = directChats.canonical(addressed.role) ?? addressed.role;
@@ -154,7 +155,7 @@ export class MessageRouter {
         reply = { text: `[${binding.agents[0]}]\n${result.text}`, attachments: result.attachments };
       }
     } else {
-      const direct = parseDirectAddress(msg.text, directChats.names());
+      const direct = parseAddress(msg.text, directChats.names());
       if (direct) {
         const canonicalTo = directChats.canonical(direct.role) ?? direct.role;
         routed(canonicalTo, "mention", `@${direct.role} addressed`);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { roleOf } from "./fixtures/registry.js";
-import { parseDirectAddress, isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
+import { parseAddress, isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
 import { Store } from "../src/store/db.js";
 import { EventBus } from "../src/events.js";
 import { testRegistry } from "./fixtures/registry.js";
@@ -19,7 +19,7 @@ describe("cfo role", () => {
   it("cfo is registered and @cfo is addressable", () => {
     expect(roleOf("cfo")).toBeDefined();
     expect(roleOf("cfo").privateOnly).toBe(true);
-    expect(parseDirectAddress("@cfo how much did I spend?", registryNames)).toMatchObject({ role: "cfo", text: "how much did I spend?" });
+    expect(parseAddress("@cfo how much did I spend?", registryNames)).toMatchObject({ role: "cfo", text: "how much did I spend?" });
   });
   it("isPrivateOrigin matches the configured primary chat", () => {
     const primary = { channel: "telegram", chatId: "123" };
