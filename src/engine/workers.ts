@@ -201,11 +201,14 @@ export async function runAttempt(
         let feedback = st?.lastFeedback ?? "";
         let lastOutput = st?.lastArtifactRef ? (vault.readGoalArtifact(goal.goal_dir!, st.lastArtifactRef) ?? "") : "";
         let approved = st?.lastVerdict?.verdict === "approve";
+        let lastReasons: string[] = st?.lastVerdict?.reasons ?? [];
         let round = st?.currentRound ?? 0;
+        const guidance = st?.reviewGuidance;
         while (!approved && round < spec.maxRounds) {
           round++;
           const producerBrief = [
             spec.brief, ctx,
+            guidance ? `# User guidance (from review) — follow this\n${guidance}` : "",
             feedback ? `# Reviewer feedback (round ${round - 1}) — address every point\n${feedback}` : "",
             lastOutput ? `# Your previous version\n${truncate(lastOutput)}` : "",
           ].filter(Boolean).join("\n\n");
@@ -224,12 +227,21 @@ export async function runAttempt(
             verdict ? `**Verdict:** ${verdict.verdict}\n\n${verdict.summary}\n\n${verdict.reasons.map((r) => `- ${r}`).join("\n")}` : review.text,
             spec.critic!);
           feedback = verdict ? [verdict.summary, ...verdict.reasons].join("\n- ") : review.text;
+          if (verdict) lastReasons = verdict.reasons;
           recordRound({ node: spec.key, attempt, round, role: "critic", verdict, feedback, artifactRef: `${spec.key}-v${round}.md` });
           if (verdict?.verdict === "approve") approved = true;
         }
-        const note = approved ? "" : `\n\n> [!warning] Loop cap reached (${spec.maxRounds} rounds) without approval — proceeding with last version.\n`;
+        if (!approved) {
+          // Cap reached without approval: escalate, don't proceed (spec §4). One atomic
+          // append — a crash can never leave a finished attempt without its park.
+          appendEvents(store, goal.id, [
+            { type: "attempt.finished", payload: { node: spec.key, attempt, outcome: "ok", costCents, turns } },
+            { type: "review.requested", payload: { node: spec.key, lastArtifactRef: `${spec.key}-v${round}.md`, objections: lastReasons } },
+          ]);
+          break;
+        }
         const file = `${spec.key}.md`;
-        save(file, lastOutput + note, spec.agent);
+        save(file, lastOutput, spec.agent);
         finish("ok", undefined, { artifactRef: file, roundsUsed: round });
         break;
       }
@@ -238,13 +250,15 @@ export async function runAttempt(
         let report: TestReport | undefined = st?.lastReport ?? undefined;
         let round = st?.runnerRounds ?? 0;
         let fixedThrough = st?.fixerRounds ?? 0;
+        const guidance = st?.reviewGuidance;
         // (!report && round > 0) = a fresh retry after a no-report attempt: run the runner again.
         while (round < spec.maxRounds && (!report || !report.passed)) {
           if (round > 0 && report && !report.passed && fixedThrough < round) {
             const fixBrief = [
               ctx,
+              guidance ? `# User guidance (from review) — follow this\n${guidance}` : "",
               `# Failing verification (round ${round}) — fix these\n${report.summary}\n${report.failures.map((f) => `- ${f}`).join("\n")}`,
-            ].join("\n\n");
+            ].filter(Boolean).join("\n\n");
             const fix = await runAgent(spec.critic!, fixBrief);
             save(`${spec.key}-fix-${round}.md`, fix.text, spec.critic!);
             recordRound({ node: spec.key, attempt, round, role: "fixer", feedback: report.summary, artifactRef: `${spec.key}-fix-${round}.md` });
@@ -273,13 +287,22 @@ export async function runAttempt(
           } }]);
           return { claimed: true, outcome: "error", sessionLimit: false };
         }
-        const summary = `**Passed:** ${report.passed}\n\n${report.summary}${report.failures.length ? `\n\nFailures:\n${report.failures.map((f) => `- ${f}`).join("\n")}` : ""}`;
+        if (!report.passed) {
+          // Verification ran and FAILED at the cap — same escalation as loop-cap (spec §4).
+          // Failures become the outstanding objections.
+          appendEvents(store, goal.id, [
+            { type: "attempt.finished", payload: { node: spec.key, attempt, outcome: "ok", costCents, turns } },
+            { type: "review.requested", payload: {
+              node: spec.key, lastArtifactRef: `${spec.key}-run-${round}.md`,
+              objections: [report.summary, ...report.failures],
+            } },
+          ]);
+          break;
+        }
+        const summary = `**Passed:** true\n\n${report.summary}`;
         const file = `${spec.key}.md`;
         save(file, summary, spec.agent);
         finish("ok", undefined, { artifactRef: file, roundsUsed: round });
-        if (!report.passed) {
-          deps.log?.(`node ${spec.key}: verification still failing after ${spec.maxRounds} rounds`);
-        }
         break;
       }
     }

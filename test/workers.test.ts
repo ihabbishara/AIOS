@@ -123,13 +123,42 @@ describe("runAttempt — loop nodes", () => {
     expect(store.listNodes("g1")[0].rounds_used).toBe(2);
   });
 
-  it("cap without approval: soft-gate note appended (current behavior preserved)", async () => {
-    const { vault, deps, goalDir, goal } = harness(async (role) =>
+  it("cap without approval: review.requested with critic objections, no node.completed (spec §4)", async () => {
+    const { store, deps, goal } = harness(async (role) =>
       role === "minos-eng"
-        ? { text: "r", structured: { verdict: "revise", summary: "no", reasons: [] }, costUsd: 0, numTurns: 1 }
+        ? { text: "r", structured: { verdict: "revise", summary: "no", reasons: ["too long"] }, costUsd: 0, numTurns: 1 }
         : { text: "draft", costUsd: 0, numTurns: 1 }, [LOOP]);
     await runAttempt(goal(), LOOP, 1, deps);
-    expect(vault.readGoalArtifact(goalDir, "impl.md")).toContain("Loop cap reached");
+    expect(journalTypes(store)).not.toContain("node.completed");
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "ok" });
+    expect(payloadOf(store, "review.requested")[0]).toMatchObject({
+      node: "impl", lastArtifactRef: "impl-v3.md", objections: ["too long"],
+    });
+    expect(store.listNodes("g1")[0]).toMatchObject({ status: "needs-review", error: "too long" });
+  });
+
+  it("review-retry attempt injects user guidance into the producer brief and runs fresh rounds", async () => {
+    const briefs: string[] = [];
+    const { store, deps, goal } = harness(async (role, brief) => {
+      briefs.push(`${role}:${brief}`);
+      if (role === "minos-eng") return { text: "r", structured: { verdict: "approve", summary: "ok", reasons: [] }, costUsd: 0, numTurns: 1 };
+      return { text: "v", costUsd: 0, numTurns: 1 };
+    }, [LOOP]);
+    // seed: attempt 1 hit the cap, parked, user granted a retry with guidance
+    appendEvents(store, "g1", [
+      { type: "attempt.started", payload: { node: "impl", attempt: 1, agent: "vulcan", deadlineTs: 9e12, idempotencyKey: "g1:impl:1" } },
+      { type: "round.recorded", payload: { node: "impl", attempt: 1, round: 3, role: "critic",
+        verdict: { verdict: "revise", summary: "no", reasons: ["r1"] }, feedback: "no", artifactRef: "impl-v3.md" } },
+      { type: "attempt.finished", payload: { node: "impl", attempt: 1, outcome: "ok", costCents: 0, turns: 0 } },
+      { type: "review.requested", payload: { node: "impl", lastArtifactRef: "impl-v3.md", objections: ["r1"] } },
+      { type: "review.resolved", payload: { node: "impl", verdict: "retry", by: "ihab", guidance: "cut it to one page" } },
+    ]);
+    await runAttempt(goal(), LOOP, 2, deps);
+    const producerBrief = briefs.find((b) => b.startsWith("vulcan:"))!;
+    expect(producerBrief).toContain("cut it to one page");
+    const rounds = payloadOf(store, "round.recorded");
+    expect(rounds[rounds.length - 1]).toMatchObject({ round: 1, attempt: 2 }); // fresh rounds, not 4
+    expect(payloadOf(store, "node.completed")[0]).toMatchObject({ node: "impl" });
   });
 
   it("crash-resume: attempt 2 starts at round N+1 with the critic's last feedback", async () => {
@@ -192,6 +221,19 @@ describe("runAttempt — verify nodes", () => {
     ]);
     await runAttempt(goal(), VERIFY, 2, deps);
     expect(roles).toEqual(["vulcan", "argus"]); // fixer first (round 1 pending fix), then runner round 2
+  });
+
+  it("failing report at cap: review.requested with failures as objections (hard gate)", async () => {
+    const { store, deps, goal } = harness(async (role) =>
+      role === "vulcan"
+        ? { text: "fix", costUsd: 0, numTurns: 1 }
+        : { text: "r", structured: { passed: false, summary: "2 tests fail", failures: ["t1", "t2"] }, costUsd: 0, numTurns: 1 },
+      [VERIFY]);
+    await runAttempt(goal(), VERIFY, 1, deps);
+    expect(journalTypes(store)).not.toContain("node.completed");
+    expect(payloadOf(store, "review.requested")[0]).toMatchObject({
+      node: "test", lastArtifactRef: "test-run-3.md", objections: ["2 tests fail", "t1", "t2"],
+    });
   });
 
   it("no structured report → attempt.finished{error}, no node.completed (spec §3 hard gate)", async () => {
