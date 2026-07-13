@@ -24,6 +24,8 @@ export interface Config {
   /** Daily global spend cap in dollars; undefined = unlimited. */
   dailyBudgetUsd?: number;
   jobWallTimeMs: number;
+  /** Per-attempt deadline base for goal nodes (run nodes; loop/verify get 2x). */
+  nodeTimeoutMs: number;
   moderatorModel?: string;
   specialistModel?: string;
   /**
@@ -200,6 +202,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     maxConcurrentNodes: Number(env.AIOS_MAX_CONCURRENT_NODES ?? 2),
     dailyBudgetUsd: env.AIOS_DAILY_BUDGET_USD ? Number(env.AIOS_DAILY_BUDGET_USD) : undefined,
     jobWallTimeMs: Number(process.env.AIOS_JOB_WALL_TIME_MS ?? 2 * 60 * 60 * 1000),
+    nodeTimeoutMs: Number(process.env.AIOS_NODE_TIMEOUT_MS ?? 15 * 60 * 1000),
     moderatorModel: process.env.AIOS_MODERATOR_MODEL,
     specialistModel: process.env.AIOS_SPECIALIST_MODEL,
     chatBindings: parseBindings(process.env.AIOS_CHAT_BINDINGS),

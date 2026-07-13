@@ -125,13 +125,14 @@ describe("lead planner", () => {
     expect(resolvedAgents).toContain("vulcan");
   });
 
-  it("a replan patch may add a foreign shared agent", async () => {
+  it("a replan patch may add a foreign shared agent (returned to the engine, not written)", async () => {
     const PATCH = { ops: [{ op: "add", nodes: [{ key: "money-check", type: "run", agent: "plutus", brief: "check", deps: [] }] }] };
     const { engine, store } = harness([GOOD_PLAN, PATCH]);
     const g = await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
     await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
-    await engine["deps"].planner!.replan(store.getGoal(g.id)!, store.listNodes(g.id)[0], "boom");
-    expect(store.listNodes(g.id).map((n) => n.agent)).toContain("plutus");
+    const patch = await engine["deps"].planner!.replan(store.getGoal(g.id)!, store.listNodes(g.id)[0], "boom");
+    expect(patch.added.map((n) => n.agent)).toContain("plutus");
+    expect(patch.replaced).toEqual([]);
   });
 
   it("renderPlanPreview lists nodes with agents and deps", () => {

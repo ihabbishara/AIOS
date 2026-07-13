@@ -330,13 +330,12 @@ Same rules as planning: roster agents only, verdict/test-report critics, ≤12 t
       const { v } = validateOrExplain([...current.values()], goal.department, origin);
       if (!v.ok) throw new Error(`patch invalid: ${v.error}`);
 
-      for (const n of replaces) {
-        deps.store.replaceNode(goal.id, n.key, toNewTaskNodes([{ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds }])[0]);
-      }
-      if (adds.length) {
-        deps.store.insertNodes(goal.id, toNewTaskNodes(adds.map((n) => ({ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds }))));
-      }
-      await deps.postPreview(origin, `♻️ Re-planned "${goal.title}" after ${failed.node_key} failed:\n${renderPlanPreview(goal.title, "patched plan", [...current.values()].map((n) => ({ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps })))}`);
+      // Journaled engine: the planner validates and RETURNS the patch; the engine records
+      // it as replan.recorded (journal is the truth — no direct row writes here).
+      const toGraph = (n: RawNode): GraphNodeSpec =>
+        ({ key: n.key, type: n.type, agent: n.agent, critic: n.critic, brief: n.brief, deps: n.deps, maxRounds: n.maxRounds });
+      await deps.postPreview(origin, `♻️ Re-planned "${goal.title}" after ${failed.node_key} failed:\n${renderPlanPreview(goal.title, "patched plan", [...current.values()].map(toGraph))}`);
+      return { replaced: replaces.map(toGraph), added: adds.map(toGraph) };
     },
   };
 }

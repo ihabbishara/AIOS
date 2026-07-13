@@ -688,14 +688,6 @@ export class Store {
     ).run(new Date().toISOString(), goalId);
   }
 
-  /** Startup-only sweep: re-run nodes orphaned mid-flight by a daemon restart. */
-  resetRunningNodes(): string[] {
-    const rows = this.db.prepare("SELECT DISTINCT goal_id FROM task_nodes WHERE status = 'running'")
-      .all() as unknown as Array<{ goal_id: string }>;
-    this.db.prepare("UPDATE task_nodes SET status = 'pending', started_at = NULL WHERE status = 'running'").run();
-    return rows.map((r) => r.goal_id);
-  }
-
   /** Raw journal insert. Throws on a (goal_id, gseq) UNIQUE conflict — that throw IS
    *  the optimistic-claim-loss signal; journal.ts interprets it. */
   journalInsert(goalId: string, gseq: number, type: string, payloadJson: string, ts: number): number {

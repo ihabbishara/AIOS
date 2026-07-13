@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { makeResolveDeptFor, resolvePack } from "../src/packs/resolve.js";
 import { packSchema } from "../src/packs/types.js";
-import { runNode } from "../src/engine/goals.js";
+import { runAttempt, AbortRegistry } from "../src/engine/goals.js";
+import { appendEvents, type NodeSpec } from "../src/engine/journal.js";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { EventBus } from "../src/events.js";
@@ -68,16 +69,19 @@ describe("pack e2e (via resolvePack with Pack shape)", () => {
       return { text: "audit complete", costUsd: 0, numTurns: 1 };
     };
 
-    store.insertGoal({
-      id: "j", slug: "audit", title: "Audit", request: "audit my subs", department: "finance", lead: "midas",
-      origin_channel: "cli", origin_chat_id: "x", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "playbook:audit", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.setGoalDir("j", "2026-06-14-audit");
-    store.insertNodes("j", [
-      { node_key: "s1", type: "run", agent: "faris", critic: null, brief: "", depends_on: [], max_rounds: 1 },
+    const spec: NodeSpec = { key: "s1", kind: "run", agent: "faris", critic: null, brief: "", dependsOn: [], maxRounds: 1 };
+    appendEvents(store, "j", [
+      { type: "goal.created", payload: {
+        slug: "audit", title: "Audit", request: "audit my subs", department: "finance", lead: "midas",
+        origin: { channel: "cli", chatId: "x" }, chainDepth: 0, spawnedByMail: null,
+        planSummary: "playbook:audit", goalDir: "2026-06-14-audit", projectDir: null } },
+      { type: "plan.recorded", payload: { summary: "s", needsWorkspace: "none", nodes: [spec] } },
+      { type: "workspace.prepared", payload: { taskDir: null, mode: null } },
     ]);
-    await runNode(store.getGoal("j")!, store.listNodes("j")[0], { store, vault, run, resolvePack: () => resolvedPack });
+    await runAttempt(store.getGoal("j")!, spec, 1, {
+      store, vault, run, resolvePack: () => resolvedPack,
+      registry: new AbortRegistry(), nodeTimeoutMs: 900_000,
+    });
 
     expect(capturedContextBlock).toContain("## Pillar: finance");
     expect(capturedContextBlock).toContain("be frugal");

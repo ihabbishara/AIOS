@@ -70,13 +70,10 @@ describe("goal store", () => {
     expect(n.error).toBeNull();
   });
 
-  it("skipUnfinishedNodes + resetRunningNodes", () => {
+  it("skipUnfinishedNodes", () => {
     const s = new Store(":memory:");
     s.insertGoal(goal());
     s.insertNodes("g1", NODES);
-    s.updateNodeStatus("g1", "design", "running");
-    expect(s.resetRunningNodes()).toEqual(["g1"]);
-    expect(s.listNodes("g1")[0].status).toBe("pending");
     s.updateNodeStatus("g1", "design", "done");
     s.skipUnfinishedNodes("g1");
     expect(s.listNodes("g1").map((n) => n.status)).toEqual(["done", "skipped"]);

@@ -93,6 +93,7 @@ async function main(): Promise<void> {
     primaryChat: config.primaryChat,
     onEvent: (e) => bus.emit(e),
     onQueued: () => goals.pump(),
+    onAskParked: (g, n, m) => goals.parkFromAsk(g, n, m),
   });
   const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox });
   // Agents in privateMemo departments (finance: midas/juno) — their mail is walled out of the
@@ -264,6 +265,7 @@ async function main(): Promise<void> {
     store, vault, run: runSpecialist, registry,
     playbooks: registry.playbooks,
     wallTimeMs: config.jobWallTimeMs,
+    nodeTimeoutMs: config.nodeTimeoutMs,
     maxConcurrentNodes: config.maxConcurrentNodes,
     mailMaxDepth: config.mailMaxDepth,
     mailDisabled: config.mailDisabled,
@@ -446,6 +448,10 @@ async function main(): Promise<void> {
   pruneOld();
   const retentionTimer = setInterval(pruneOld, 24 * 3_600_000);
   retentionTimer.unref?.();
+
+  // Journaled engine heartbeat: sweeps attempt deadlines, budget-abort, stalled decides.
+  const engineTick = setInterval(() => goals.tick(), 30_000);
+  engineTick.unref?.();
 
   // ---- second brain: backfill the index on boot, then keep it fresh ----
   // NOTE: the write-time indexing subscription is registered earlier (right after

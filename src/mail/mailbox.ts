@@ -13,6 +13,9 @@ export interface MailboxDeps {
   primaryChat?: { channel: string; chatId: string };
   onEvent?: (e: AiosEvent) => void;
   onQueued?: () => void;
+  /** Journaled engine hook: records ask.parked (parks the goal + marks the asking node
+   *  done) inside THIS mailbox transaction. Absent only in unit tests → direct fallback. */
+  onAskParked?: (goalId: string, nodeKey: string | null, mailId: string) => void;
 }
 
 export interface MailSendCtx {
@@ -99,8 +102,11 @@ export class Mailbox {
           thread_id: parentThread ?? id, in_reply_to: null,
           from_node: ctx.nodeKey ?? null,
         });
-        this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
-        if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
+        if (this.deps.onAskParked) this.deps.onAskParked(ctx.goalId!, ctx.nodeKey ?? null, id);
+        else {
+          this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
+          if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
+        }
       });
       this.deps.onEvent?.({ type: "mail.asked_user", id, from: ctx.from, question: args.question, goalId: ctx.goalId });
       this.deps.onEvent?.({ type: "goal.status", goalId: ctx.goalId, status: "awaiting-mail" });
@@ -126,10 +132,13 @@ export class Mailbox {
         thread_id: parentThread ?? id, in_reply_to: null,
         from_node: ctx.nodeKey ?? null,
       });
-      this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
-      // The asking node did its job (it asked) — mark it done inside the same tx so a later
-      // run reject can't fail it and a crash-time resetRunningNodes can't re-run it.
-      if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
+      // The asking node did its job (it asked) — parked inside the same tx so a later
+      // run reject can't fail it. Journaled engine: ask.parked joins this transaction.
+      if (this.deps.onAskParked) this.deps.onAskParked(ctx.goalId!, ctx.nodeKey ?? null, id);
+      else {
+        this.deps.store.parkGoalAwaiting(ctx.goalId!, id);
+        if (ctx.nodeKey) this.deps.store.updateNodeStatus(ctx.goalId!, ctx.nodeKey, "done");
+      }
     });
     this.deps.onEvent?.({ type: "mail.sent", id, from: ctx.from, to: canonical, kind: "request" });
     this.deps.onEvent?.({ type: "goal.status", goalId: ctx.goalId!, status: "awaiting-mail" });

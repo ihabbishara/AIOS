@@ -7,6 +7,7 @@ import { Store, type MailRow, type GoalRow } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { GoalEngine, MAIL_PREFIX, type Planner } from "../src/engine/goals.js";
+import { appendEvents } from "../src/engine/journal.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import { Mailbox } from "../src/mail/mailbox.js";
 import { indexMailThread } from "../src/memory/indexer.js";
@@ -72,7 +73,7 @@ const okRun: SpecialistRunFn = async (_r, brief) => {
 // A two-node graph, mirroring production: startPlannedGoal with the mail's provenance, no workspace.
 const graphPlanner = (): Planner => ({
   plan: async () => { throw new Error("unused"); },
-  replan: async () => {},
+  replan: async () => ({ replaced: [], added: [] }),
   planFromMail: async (engine, params, mail): Promise<GoalRow> => engine.startPlannedGoal({
     title: params.title, request: params.request, department: params.department, lead: "athena",
     origin: { channel: params.channel, chatId: params.chatId }, summary: "graph plan",
@@ -88,7 +89,7 @@ const graphPlanner = (): Planner => ({
 // The engine layer alone must decide whether it survives.
 const workspacePlanner = (projectDir?: string, lead = "athena"): Planner => ({
   plan: async () => { throw new Error("unused"); },
-  replan: async () => {},
+  replan: async () => ({ replaced: [], added: [] }),
   planFromMail: async (engine, params, mail): Promise<GoalRow> => engine.startPlannedGoal({
     title: params.title, request: params.request, department: params.department, lead,
     origin: { channel: params.channel, chatId: params.chatId }, summary: "graph plan",
@@ -99,6 +100,20 @@ const workspacePlanner = (projectDir?: string, lead = "athena"): Planner => ({
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 50));
+
+/** Journal-backed parked asker (the new engine schedules journal goals only). */
+function seedParkedAsker(store: Store, id: string, slug: string, agent = "vulcan") {
+  appendEvents(store, id, [
+    { type: "goal.created", payload: {
+      slug, title: "Asker", request: "r", department: "engineering", lead: "athena",
+      origin: { channel: "telegram", chatId: "1" }, chainDepth: 0, spawnedByMail: null,
+      planSummary: "graph", goalDir: null, projectDir: null } },
+    { type: "plan.recorded", payload: { summary: "graph", needsWorkspace: "none",
+      nodes: [{ key: "ask", kind: "run", agent, critic: null, brief: "b", dependsOn: [], maxRounds: 1 }] } },
+    { type: "workspace.prepared", payload: { taskDir: null, mode: null } },
+    { type: "ask.parked", payload: { node: "ask", mailId: "m1" } },
+  ]);
+}
 
 describe("mail sweep", () => {
   it("queued request spawns a single-node goal and reports back on completion (no chat ping)", async () => {
@@ -229,7 +244,7 @@ describe("mail sweep", () => {
 
   it("planner failure refuses the lead-mail; the queue keeps draining", async () => {
     const failPlanner: Planner = {
-      plan: async () => { throw new Error("unused"); }, replan: async () => {},
+      plan: async () => { throw new Error("unused"); }, replan: async () => ({ replaced: [], added: [] }),
       planFromMail: async () => { throw new Error("no plan"); },
     };
     const { store, engine } = harness(okRun, undefined, failPlanner);
@@ -252,14 +267,7 @@ describe("mail sweep", () => {
     const heldRun: SpecialistRunFn = () => new Promise(() => {});
     const { store, engine } = harness(heldRun, undefined, failingPlanner);
     // Asker goal, parked awaiting m1 (mirrors Mailbox.ask's post-state).
-    store.insertGoal({
-      id: "gask", slug: "asker", title: "Asker", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
-      plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.insertNodes("gask", [{ node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
-    store.updateNodeStatus("gask", "ask", "done");
-    store.parkGoalAwaiting("gask", "m1");
+    seedParkedAsker(store, "gask", "asker");
     // Request to the LEAD (graph path).
     store.insertMail(reqMail({ id: "m1", from_agent: "vulcan", to_agent: "athena" }));
 
@@ -279,14 +287,7 @@ describe("mail sweep", () => {
     const hangRun: SpecialistRunFn = () => new Promise(() => {}); // node never finishes
     const { store, engine } = harness(hangRun);
     // Asker parked on m1 (same setup as the H2 test).
-    store.insertGoal({
-      id: "gask", slug: "asker2", title: "Asker", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
-      plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.insertNodes("gask", [{ node_key: "ask", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
-    store.updateNodeStatus("gask", "ask", "done");
-    store.parkGoalAwaiting("gask", "m1");
+    seedParkedAsker(store, "gask", "asker2", "athena");
     store.insertMail(reqMail({ id: "m1", from_agent: "athena", to_agent: "vulcan" }));
 
     engine.pump(); // spawns vulcan's goal, node hangs
@@ -306,13 +307,11 @@ describe("mail sweep", () => {
 
   it("a lead-mail graph is re-plannable (spawned_by_mail does not block re-plan)", async () => {
     let replans = 0;
-    const store2Ref: { store?: Store } = {};
     const rePlanner: Planner = {
       plan: async () => { throw new Error("unused"); },
-      async replan(goal, failed) {
+      async replan(_goal, failed) {
         replans++;
-        store2Ref.store!.replaceNode(goal.id, failed.node_key,
-          { node_key: failed.node_key, type: "run", agent: "athena", critic: null, brief: "retry", depends_on: [], max_rounds: 1 });
+        return { replaced: [{ key: failed.node_key, type: "run", agent: "athena", brief: "retry", deps: [] }], added: [] };
       },
       planFromMail: async (engine, params, mail): Promise<GoalRow> => engine.startPlannedGoal({
         title: params.title, request: params.request, department: params.department, lead: "athena",
@@ -328,7 +327,6 @@ describe("mail sweep", () => {
       return { text: "ok", costUsd: 0, numTurns: 1 };
     };
     const { store, engine } = harness(flaky, undefined, rePlanner);
-    store2Ref.store = store;
     store.insertMail(reqMail({ from_agent: "vulcan", to_agent: "athena" }));
     engine.pump();
     await vi.waitFor(() => expect(store.getGoal(store.getMail("m1")!.goal_id!)!.status).toBe("done"));
@@ -359,19 +357,21 @@ describe("mail sweep", () => {
 
 describe("answerUserMail", () => {
   function parkedOnUserAsk(store: Store) {
-    store.insertGoal({
-      id: "gask", slug: "ask-user", title: "Asker", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null, goal_dir: null,
-      plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.insertNodes("gask", [{ node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
-    store.updateNodeStatus("gask", "ask", "done");
     store.insertMail({
       id: "u1", from_agent: "vulcan", to_agent: "user", kind: "request", body: "which vendor?",
       goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
       status: "awaiting-human", error: null, thread_id: "u1",
     });
-    store.parkGoalAwaiting("gask", "u1");
+    appendEvents(store, "gask", [
+      { type: "goal.created", payload: {
+        slug: "ask-user", title: "Asker", request: "r", department: "engineering", lead: "athena",
+        origin: { channel: "telegram", chatId: "1" }, chainDepth: 0, spawnedByMail: null,
+        planSummary: "graph", goalDir: null, projectDir: null } },
+      { type: "plan.recorded", payload: { summary: "graph", needsWorkspace: "none",
+        nodes: [{ key: "ask", kind: "run", agent: "vulcan", critic: null, brief: "b", dependsOn: [], maxRounds: 1 }] } },
+      { type: "workspace.prepared", payload: { taskDir: null, mode: null } },
+      { type: "ask.parked", payload: { node: "ask", mailId: "u1" } },
+    ]);
   }
 
   it("answers a pending user-ask: report inserted, goal resumed with Q+A", () => {
@@ -439,17 +439,17 @@ describe("M3 — sibling failure on a parked goal", () => {
   it("clears awaiting_mail when a sibling failure fails the parked goal", async () => {
     let engineRef!: GoalEngine;
     let storeRef!: Store;
+    let gparId = "";
     const run: SpecialistRunFn = async (_r, brief) => {
       if (brief.includes("PARKER")) {
-        // Simulate ask_mail's park (same store writes, same tx shape).
+        // Simulate ask_mail's park (production shape: mail row + engine.parkFromAsk in one tx).
         storeRef.transaction(() => {
           storeRef.insertMail({
             id: "q1", from_agent: "vulcan", to_agent: "athena", kind: "request", body: "q?",
             goal_id: null, origin_channel: "telegram", origin_chat_id: "1",
             chain_depth: 1, status: "queued", error: null, thread_id: "q1",
           });
-          storeRef.parkGoalAwaiting("gpar", "q1");
-          storeRef.updateNodeStatus("gpar", "parker", "done");
+          engineRef.parkFromAsk(gparId, "parker", "q1");
         });
         return { text: "asked", costUsd: 0, numTurns: 1 };
       }
@@ -459,19 +459,18 @@ describe("M3 — sibling failure on a parked goal", () => {
     };
     const h = harness(run);
     engineRef = h.engine; storeRef = h.store;
-    h.store.insertGoal({
-      id: "gpar", slug: "gpar", title: "P", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    const gpar = h.engine.startPlannedGoal({
+      title: "P", request: "r", department: "engineering", lead: "athena",
+      origin: { channel: "telegram", chatId: "1" }, summary: "graph", needsWorkspace: "none",
+      nodes: [
+        { node_key: "parker", type: "run", agent: "vulcan", critic: null, brief: "PARKER", depends_on: [], max_rounds: 1 },
+        { node_key: "sibling", type: "run", agent: "vulcan", critic: null, brief: "SIBLING", depends_on: [], max_rounds: 1 },
+      ],
     });
-    h.store.insertNodes("gpar", [
-      { node_key: "parker", type: "run", agent: "vulcan", critic: null, brief: "PARKER", depends_on: [], max_rounds: 1 },
-      { node_key: "sibling", type: "run", agent: "vulcan", critic: null, brief: "SIBLING", depends_on: [], max_rounds: 1 },
-    ]);
-    h.engine.pump();
-    await vi.waitFor(() => expect(h.store.getGoal("gpar")!.status).toBe("failed"));
+    gparId = gpar.id;
+    await vi.waitFor(() => expect(h.store.getGoal(gparId)!.status).toBe("failed"));
     // The pointer must NOT dangle: no permanent ask-block, late answer no-ops cleanly.
-    expect(h.store.getGoal("gpar")!.awaiting_mail).toBeNull();
+    expect(h.store.getGoal(gparId)!.awaiting_mail).toBeNull();
   });
 });
 
@@ -479,23 +478,24 @@ describe("M4 — resume node DAG wiring", () => {
   it("resume node depends on the asking node, dependents are repointed, brief carries the asking brief", () => {
     const hangRun: SpecialistRunFn = () => new Promise(() => {});
     const { store, engine } = harness(hangRun);
-    store.insertGoal({
-      id: "gdag", slug: "gdag", title: "G", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.insertNodes("gdag", [
-      { node_key: "research", type: "run", agent: "vulcan", critic: null, brief: "find vendor options", depends_on: [], max_rounds: 1 },
-      { node_key: "writeup", type: "run", agent: "athena", critic: null, brief: "write the summary", depends_on: ["research"], max_rounds: 1 },
-    ]);
     // research asked mid-run (ask_mail semantics: node done, goal parked, from_node stamped)
-    store.updateNodeStatus("gdag", "research", "done");
     store.insertMail({
       id: "qd", from_agent: "vulcan", to_agent: "user", kind: "request", body: "vendor A or B?",
       goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
       status: "awaiting-human", error: null, thread_id: "qd", from_node: "research",
     });
-    store.parkGoalAwaiting("gdag", "qd");
+    appendEvents(store, "gdag", [
+      { type: "goal.created", payload: {
+        slug: "gdag", title: "G", request: "r", department: "engineering", lead: "athena",
+        origin: { channel: "telegram", chatId: "1" }, chainDepth: 0, spawnedByMail: null,
+        planSummary: "graph", goalDir: null, projectDir: null } },
+      { type: "plan.recorded", payload: { summary: "graph", needsWorkspace: "none", nodes: [
+        { key: "research", kind: "run", agent: "vulcan", critic: null, brief: "find vendor options", dependsOn: [], maxRounds: 1 },
+        { key: "writeup", kind: "run", agent: "athena", critic: null, brief: "write the summary", dependsOn: ["research"], maxRounds: 1 },
+      ] } },
+      { type: "workspace.prepared", payload: { taskDir: null, mode: null } },
+      { type: "ask.parked", payload: { node: "research", mailId: "qd" } },
+    ]);
 
     expect(engine.answerUserMail("qd", "Vendor B.")).toEqual({ ok: true });
 
@@ -511,23 +511,24 @@ describe("M4 — resume node DAG wiring", () => {
   it("boot reconcile takes the identical from_node DAG-wiring path (crash-then-resume)", () => {
     const hangRun: SpecialistRunFn = () => new Promise(() => {});
     const { store, engine } = harness(hangRun);
-    store.insertGoal({
-      id: "gdag2", slug: "gdag2", title: "G", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.insertNodes("gdag2", [
-      { node_key: "research", type: "run", agent: "vulcan", critic: null, brief: "find vendor options", depends_on: [], max_rounds: 1 },
-      { node_key: "writeup", type: "run", agent: "athena", critic: null, brief: "write the summary", depends_on: ["research"], max_rounds: 1 },
-    ]);
     // research asked mid-run, then the daemon crashed before the answer landed.
-    store.updateNodeStatus("gdag2", "research", "done");
     store.insertMail({
       id: "qd2", from_agent: "vulcan", to_agent: "user", kind: "request", body: "vendor A or B?",
       goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
       status: "awaiting-human", error: null, thread_id: "qd2", from_node: "research",
     });
-    store.parkGoalAwaiting("gdag2", "qd2");
+    appendEvents(store, "gdag2", [
+      { type: "goal.created", payload: {
+        slug: "gdag2", title: "G", request: "r", department: "engineering", lead: "athena",
+        origin: { channel: "telegram", chatId: "1" }, chainDepth: 0, spawnedByMail: null,
+        planSummary: "graph", goalDir: null, projectDir: null } },
+      { type: "plan.recorded", payload: { summary: "graph", needsWorkspace: "none", nodes: [
+        { key: "research", kind: "run", agent: "vulcan", critic: null, brief: "find vendor options", dependsOn: [], maxRounds: 1 },
+        { key: "writeup", kind: "run", agent: "athena", critic: null, brief: "write the summary", dependsOn: ["research"], maxRounds: 1 },
+      ] } },
+      { type: "workspace.prepared", payload: { taskDir: null, mode: null } },
+      { type: "ask.parked", payload: { node: "research", mailId: "qd2" } },
+    ]);
     // Answer arrived while down: report row inserted directly (not via answerUserMail).
     store.insertMail({
       id: "rd2", from_agent: "user", to_agent: "vulcan", kind: "report", body: "Vendor B.",
@@ -550,21 +551,21 @@ describe("M4 — resume node DAG wiring", () => {
   it("legacy request without from_node resumes exactly as before", () => {
     const hangRun: SpecialistRunFn = () => new Promise(() => {});
     const { store, engine } = harness(hangRun);
-    store.insertGoal({
-      id: "gold", slug: "gold", title: "G", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
-    });
-    store.insertNodes("gold", [
-      { node_key: "ask", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
-    ]);
-    store.updateNodeStatus("gold", "ask", "done");
     store.insertMail({
       id: "ql", from_agent: "vulcan", to_agent: "user", kind: "request", body: "q?",
       goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1,
       status: "awaiting-human", error: null, thread_id: "ql", // from_node omitted → NULL
     });
-    store.parkGoalAwaiting("gold", "ql");
+    appendEvents(store, "gold", [
+      { type: "goal.created", payload: {
+        slug: "gold", title: "G", request: "r", department: "engineering", lead: "athena",
+        origin: { channel: "telegram", chatId: "1" }, chainDepth: 0, spawnedByMail: null,
+        planSummary: "graph", goalDir: null, projectDir: null } },
+      { type: "plan.recorded", payload: { summary: "graph", needsWorkspace: "none",
+        nodes: [{ key: "ask", kind: "run", agent: "vulcan", critic: null, brief: "b", dependsOn: [], maxRounds: 1 }] } },
+      { type: "workspace.prepared", payload: { taskDir: null, mode: null } },
+      { type: "ask.parked", payload: { node: "ask", mailId: "ql" } },
+    ]);
     expect(engine.answerUserMail("ql", "A.")).toEqual({ ok: true });
     const resume = store.listNodes("gold").find((n) => n.node_key === "resume_1")!;
     expect(JSON.parse(resume.depends_on)).toEqual([]);              // legacy fallback unchanged
@@ -574,32 +575,33 @@ describe("M4 — resume node DAG wiring", () => {
 describe("late-reject guard (engine × real Mailbox.ask)", () => {
   it("a run that parks via ask_mail then rejects does not fail the parked goal (late-reject guard)", async () => {
     let mailboxRef!: Mailbox;
+    let glateId = "";
     const run: SpecialistRunFn = async () => {
       // Real runs are async SDK sessions — they always yield the event loop before any tool call,
       // so the ask lands AFTER pump()'s synchronous pass (a sync ask would race the terminal check).
       await Promise.resolve();
       mailboxRef.ask(
-        { from: "athena", origin: PRIMARY, goalDepth: 0, goalId: "glate", nodeKey: "ask" },
+        { from: "athena", origin: PRIMARY, goalDepth: 0, goalId: glateId, nodeKey: "ask" },
         { to: "user", question: "q?" }, // user-ask is awaiting-human — never swept → isolates the guard
       );
       throw new Error("late boom"); // session dies AFTER the ask parked the goal
     };
     const { store, engine } = harness(run);
-    mailboxRef = new Mailbox({ store, registry, maxDepth: 2, disabled: false, primaryChat: PRIMARY });
-    store.insertGoal({
-      id: "glate", slug: "glate", title: "L", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: null,
-      goal_dir: null, plan_summary: "graph", replans_used: 0, chain_depth: 0, error: null,
+    mailboxRef = new Mailbox({
+      store, registry, maxDepth: 2, disabled: false, primaryChat: PRIMARY,
+      onAskParked: (g, n, m) => engine.parkFromAsk(g, n, m), // production wiring
     });
-    store.insertNodes("glate", [
-      { node_key: "ask", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
-    ]);
-    engine.pump();
-    await vi.waitFor(() => expect(store.getGoal("glate")!.status).toBe("awaiting-mail"));
+    const glate = engine.startPlannedGoal({
+      title: "L", request: "r", department: "engineering", lead: "athena",
+      origin: { channel: "telegram", chatId: "1" }, summary: "graph", needsWorkspace: "none",
+      nodes: [{ node_key: "ask", type: "run", agent: "athena", critic: null, brief: "b", depends_on: [], max_rounds: 1 }],
+    });
+    glateId = glate.id;
+    await vi.waitFor(() => expect(store.getGoal(glateId)!.status).toBe("awaiting-mail"));
     await new Promise((r) => setTimeout(r, 30)); // let the rejection land
-    const fresh = store.getGoal("glate")!;
+    const fresh = store.getGoal(glateId)!;
     expect(fresh.status).toBe("awaiting-mail");                                  // NOT failed
-    expect(store.listNodes("glate").find((n) => n.node_key === "ask")!.status).toBe("done");
+    expect(store.listNodes(glateId).find((n) => n.node_key === "ask")!.status).toBe("done");
   });
 });
 
@@ -692,16 +694,17 @@ describe("mail workspace (user-gated, spec 2026-07-07)", () => {
 
   it("boot resume strips a persisted project_dir from an ineligible mail-goal (crash window)", async () => {
     const { store, engine, prepareSandbox } = harness(okRun);
-    // Simulate a crash after insertGoal persisted a planner-passed dir but before startGoal
-    // could strip it: the row exists with a raw repo path and an agent-sent source mail.
+    // Simulate a crash after goal.created persisted a planner-passed dir but before the
+    // workspace step could strip it: journal has no workspace event, an agent-sent source mail.
     store.insertMail(reqMail({ id: "mx", status: "spawned" }));
-    store.insertGoal({
-      id: "g-crash", slug: "g-crash", title: "t", request: "r", department: "engineering", lead: "athena",
-      origin_channel: "telegram", origin_chat_id: "1", status: "running", project_dir: "/tmp/projects/x",
-      goal_dir: null, plan_summary: "graph plan", replans_used: 0, chain_depth: 1,
-      spawned_by_mail: "mx", error: null,
-    });
-    store.insertNodes("g-crash", [{ node_key: "n1", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 }]);
+    appendEvents(store, "g-crash", [
+      { type: "goal.created", payload: {
+        slug: "g-crash", title: "t", request: "r", department: "engineering", lead: "athena",
+        origin: { channel: "telegram", chatId: "1" }, chainDepth: 1, spawnedByMail: "mx",
+        planSummary: "graph plan", goalDir: null, projectDir: "/tmp/projects/x" } },
+      { type: "plan.recorded", payload: { summary: "graph plan", needsWorkspace: "none",
+        nodes: [{ key: "n1", kind: "run", agent: "vulcan", critic: null, brief: "b", dependsOn: [], maxRounds: 1 }] } },
+    ]);
     engine.resumeUnfinished();
     await flush();
     expect(store.getGoal("g-crash")!.project_dir).toBeNull();
