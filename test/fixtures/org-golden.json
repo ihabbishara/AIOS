@@ -1,0 +1,265 @@
+{
+  "argus": {
+    "tools": [
+      "Bash",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "Write",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "bypassPermissions",
+    "maxTurns": 40,
+    "guarded": false
+  },
+  "athena": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 25,
+    "guarded": false
+  },
+  "atlas": {
+    "tools": [
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "TodoWrite",
+      "WebFetch",
+      "WebSearch",
+      "Write",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "default",
+    "maxTurns": 40,
+    "guarded": true
+  },
+  "clio": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "WebFetch",
+      "WebSearch",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__research__list_sources",
+      "mcp__research__save_source",
+      "mcp__research__search_sources"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 25,
+    "guarded": false
+  },
+  "halalo": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "TodoWrite",
+      "WebFetch",
+      "WebSearch",
+      "Write",
+      "mcp__aios_attachments__attach_file",
+      "mcp__halalo_analytics__cloudflare_analytics"
+    ],
+    "permissionMode": "default",
+    "maxTurns": 60,
+    "guarded": true
+  },
+  "hermes": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "WebFetch",
+      "WebSearch",
+      "mcp__aios__add_reminder",
+      "mcp__aios__add_triage_rule",
+      "mcp__aios__cancel_reminder",
+      "mcp__aios__forget",
+      "mcp__aios__goal_status",
+      "mcp__aios__hand_off",
+      "mcp__aios__list_inbox",
+      "mcp__aios__list_playbooks",
+      "mcp__aios__list_reminders",
+      "mcp__aios__plan_goal",
+      "mcp__aios__propose_action",
+      "mcp__aios__read_email",
+      "mcp__aios__recall",
+      "mcp__aios__remember",
+      "mcp__aios__run_playbook",
+      "mcp__aios__send_mail",
+      "mcp__aios__vault_list",
+      "mcp__aios__vault_read",
+      "mcp__aios__vault_write"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 40,
+    "guarded": false
+  },
+  "janus": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "WebFetch",
+      "WebSearch",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__research__list_sources",
+      "mcp__research__save_source",
+      "mcp__research__search_sources"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 40,
+    "guarded": false
+  },
+  "jasmine": {
+    "tools": [
+      "mcp__aios-pack__vault_read",
+      "mcp__lifeops__add_task",
+      "mcp__lifeops__complete_task",
+      "mcp__lifeops__dismiss_task",
+      "mcp__lifeops__list_tasks",
+      "mcp__lifeops__update_task"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 20,
+    "guarded": false
+  },
+  "juno": {
+    "tools": [
+      "Read",
+      "mcp__aios_attachments__attach_file",
+      "mcp__ledger__add_expense",
+      "mcp__ledger__export_csv",
+      "mcp__ledger__list_expenses",
+      "mcp__ledger__remove_expense",
+      "mcp__ledger__send_receipt",
+      "mcp__ledger__settle"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 30,
+    "guarded": true
+  },
+  "midas": {
+    "tools": [
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__money__add_subscription",
+      "mcp__money__budget_status",
+      "mcp__money__confirm_subscription",
+      "mcp__money__dismiss_subscription",
+      "mcp__money__list_budgets",
+      "mcp__money__list_subscriptions",
+      "mcp__money__list_transactions",
+      "mcp__money__set_budget",
+      "mcp__money__set_category_rule",
+      "mcp__money__spending_summary"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 20,
+    "guarded": false
+  },
+  "minos": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__research__list_sources",
+      "mcp__research__save_source",
+      "mcp__research__search_sources"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 15,
+    "guarded": false
+  },
+  "odin": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "WebFetch",
+      "WebSearch",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 30,
+    "guarded": false
+  },
+  "themis": {
+    "tools": [
+      "Bash",
+      "Glob",
+      "Grep",
+      "Read",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 30,
+    "guarded": false
+  },
+  "venus": {
+    "tools": [
+      "Glob",
+      "Grep",
+      "Read",
+      "WebFetch",
+      "WebSearch",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__research__list_sources",
+      "mcp__research__save_source",
+      "mcp__research__search_sources"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 30,
+    "guarded": false
+  },
+  "vulcan": {
+    "tools": [
+      "Bash",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "TodoWrite",
+      "Write",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "bypassPermissions",
+    "maxTurns": 80,
+    "guarded": false
+  }
+}
