@@ -26,3 +26,5 @@ maxTurns: 20
 permissionMode: dontAsk
 visibility: private
 aliases: []
+kind: lead
+capabilities: [lifeops, vault-read]

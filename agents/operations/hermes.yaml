@@ -12,3 +12,5 @@ tools: []
 maxTurns: 40
 permissionMode: dontAsk
 aliases: [moderator, rami]
+kind: coordinator
+capabilities: [coordination, files-ro, web]

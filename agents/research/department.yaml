@@ -6,3 +6,4 @@ vaultSection: knowledge
 toolServer: research
 actions: [vault.write]
 playbooks: [research-report, market-research, product-design]
+capabilities: [files-ro, memory, vault-write, research-kb]

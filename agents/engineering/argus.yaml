@@ -18,3 +18,5 @@ maxTurns: 40
 permissionMode: bypassPermissions
 outputSchema: test-report
 aliases: [tester, tarek]
+kind: critic
+capabilities: [editing, shell]

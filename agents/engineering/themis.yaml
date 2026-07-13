@@ -17,3 +17,5 @@ tools: [Read, Grep, Glob, Bash, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 30
 permissionMode: dontAsk
 aliases: [code-reviewer, nadia]
+kind: worker
+capabilities: [shell]

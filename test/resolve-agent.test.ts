@@ -29,10 +29,9 @@ const FQ_BARE = ["recall", "vault_read", "vault_write", "propose_action"];
 const fq = (t: string) => (FQ_BARE.includes(t) ? `mcp__aios-pack__${t}` : t);
 
 describe("resolveAgent", () => {
-  it("matches the golden surface for every agent except hermes (fixed by YAML migration)", () => {
+  it("matches the golden surface for every agent — hermes included (v2 migration landed)", () => {
     const { resolve, registry } = setup();
     for (const name of [...registry.agents.keys()]) {
-      if (name === "hermes") continue; // hermes carries tools:[] until the YAML migration
       const r = resolve(name, origin)!;
       expect([...(r.options.allowedTools ?? [])].sort(), name).toEqual(golden[name].tools);
     }

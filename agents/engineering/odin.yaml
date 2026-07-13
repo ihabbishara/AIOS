@@ -18,3 +18,5 @@ tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__code__sh, recall, vault_read
 maxTurns: 30
 permissionMode: dontAsk
 aliases: [researcher, ziad]
+kind: worker
+capabilities: [web]

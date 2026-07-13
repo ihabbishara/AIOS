@@ -18,3 +18,5 @@ tools: [Read, Grep, Glob, mcp__code__sh, recall, vault_read, vault_write]
 maxTurns: 25
 permissionMode: dontAsk
 aliases: [architect, kai]
+kind: lead
+capabilities: []

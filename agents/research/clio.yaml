@@ -33,3 +33,5 @@ tools:
 maxTurns: 25
 permissionMode: dontAsk
 aliases: [analyst, lina]
+kind: lead
+capabilities: [web]

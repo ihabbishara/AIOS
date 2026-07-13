@@ -18,3 +18,5 @@ maxTurns: 15
 permissionMode: dontAsk
 outputSchema: verdict
 aliases: [reviewer, yara]
+kind: critic
+capabilities: []

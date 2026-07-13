@@ -7,3 +7,4 @@ toolServers: [ledger]
 actions: []
 playbooks: []
 privateMemo: true
+capabilities: []

@@ -50,3 +50,5 @@ tools:
 maxTurns: 60
 permissionMode: default
 aliases: []
+kind: lead
+capabilities: [files-ro, drafting, web, todo, halalo-aws, attach]

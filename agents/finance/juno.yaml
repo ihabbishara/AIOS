@@ -38,3 +38,5 @@ tools:
 maxTurns: 30
 permissionMode: dontAsk
 aliases: [finance, salim]
+kind: worker
+capabilities: [ledger, reading, attach, ledger-confine]

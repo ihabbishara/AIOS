@@ -26,3 +26,5 @@ maxTurns: 30
 permissionMode: dontAsk
 skills: [design-tokens]
 aliases: [ui-ux-designer, dalia]
+kind: worker
+capabilities: [web]

@@ -23,3 +23,5 @@ maxTurns: 40
 permissionMode: dontAsk
 skills: [market-sizing]
 aliases: [market-researcher, sami]
+kind: worker
+capabilities: [web]

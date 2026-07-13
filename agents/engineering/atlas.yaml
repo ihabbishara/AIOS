@@ -20,3 +20,5 @@ tools: [Read, Grep, Glob, Edit, Write, WebSearch, WebFetch, TodoWrite, mcp__code
 maxTurns: 40
 permissionMode: default
 aliases: [devops, omar]
+kind: worker
+capabilities: [editing, web, todo, ops-guardrail]

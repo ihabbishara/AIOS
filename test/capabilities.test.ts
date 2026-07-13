@@ -136,6 +136,17 @@ describe("loader v2", () => {
     expect(reg2.capabilities.get("__legacy:old")!.tools).toEqual(["Read", "Bash"]);
   });
 
+  it("live tree is fully v2: no __legacy shims, hermes coordinates, critics inferred right", () => {
+    const reg = loadRegistry("agents", "playbooks", {}, () => {});
+    expect([...reg.capabilities.keys()].filter((k) => k.startsWith("__legacy"))).toEqual([]);
+    expect(reg.coordinator).toBe("hermes");
+    expect(reg.agents.get("argus")!.kind).toBe("critic");
+    expect(reg.agents.get("minos")!.kind).toBe("critic");
+    expect(reg.agents.get("athena")!.kind).toBe("lead");
+    expect(reg.agents.get("halalo")!.kind).toBe("lead");
+    expect(reg.agents.get("vulcan")!.kind).toBe("worker");
+  });
+
   it("manifest model: flows into RoleDef", () => {
     const dir = tree({
       "_capabilities.yaml": CAPS,

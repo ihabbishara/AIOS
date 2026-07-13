@@ -17,3 +17,5 @@ tools: [Read, Grep, Glob, Edit, Write, Bash, TodoWrite, mcp__code__sh, recall, v
 maxTurns: 80
 permissionMode: bypassPermissions
 aliases: [developer, maya]
+kind: worker
+capabilities: [editing, shell, todo]

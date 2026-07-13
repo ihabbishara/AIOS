@@ -164,6 +164,7 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
     if (caps.some((c) => c.tools.some((t) => AIOS_PACK_BARE.includes(t)))) serverNames.add(AIOS_PACK);
     let mcpServers: Record<string, unknown> = {};
     for (const s of serverNames) {
+      if (s === "code") continue; // workspace-scoped — built in the sandbox branch below
       const builder = SERVER_BUILDERS[s];
       if (!builder) throw new Error(`unknown MCP server "${s}" for agent ${canonical} — add it to SERVER_BUILDERS`);
       mcpServers = { ...mcpServers, ...builder(serverCtx) };

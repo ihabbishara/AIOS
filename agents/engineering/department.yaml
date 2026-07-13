@@ -6,3 +6,4 @@ vaultSection: code
 actions: [vault.write]
 sandbox: true
 playbooks: [code-build, code-analyze]
+capabilities: [files-ro, code-sandbox, memory, vault-write]
