@@ -56,12 +56,13 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
 ];
 
 /**
- * Returns true when the web UI `target` field should be routed to the Chief of Staff (Hermes).
- * Accepts the legacy "moderator" sentinel and the old "rami" name (transition window) as well
- * as the current "hermes" name and undefined/empty (default path).
+ * Returns true when the web UI `target` field should be routed to the coordinator (Chief of
+ * Staff). Registry-derived — the target (or any of its aliases) resolving to the coordinator
+ * agent counts; undefined/empty is the default coordinator path (org-model spec §5).
  */
-export function isChiefOfStaff(target?: string): boolean {
-  return !target || target === "moderator" || target === "rami" || target === "hermes";
+export function toCoordinator(registry: LoadedRegistry, target?: string): boolean {
+  if (!target) return true;
+  return (registry.agentOf.get(target.toLowerCase()) ?? "") === registry.coordinator;
 }
 
 export interface WebDeps {
@@ -245,7 +246,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         if (path === "/api/chat" && req.method === "POST") {
           const body = JSON.parse(await readBody(req)) as { target: string; text: string };
           if (!body.text?.trim()) return json(res, 400, { error: "text required" });
-          const text = body.target && !isChiefOfStaff(body.target) ? `@${body.target} ${body.text}` : body.text;
+          const text = body.target && !toCoordinator(registry, body.target) ? `@${body.target} ${body.text}` : body.text;
           const reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? null;
           return json(res, 200, { reply });
         }
@@ -263,7 +264,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
             writeFileSync(audioPath, body);
             const transcript = await voice.transcribe(audioPath);
             if (!transcript.trim()) return json(res, 422, { error: "could not transcribe audio" });
-            const text = target && !isChiefOfStaff(target) ? `@${target} ${transcript}` : transcript;
+            const text = target && !toCoordinator(registry, target) ? `@${target} ${transcript}` : transcript;
             const reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? "";
             let audio: string | null = null;
             try {

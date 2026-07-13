@@ -9,7 +9,7 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { Config } from "../config.js";
 import type { AgentDef, AgentKind, LoadedRegistry, LoadedDepartment } from "./registry/loader.js";
-import type { CapabilityDef } from "./registry/capabilities.js";
+import { AIOS_PACK_BARE, fqPackTool, type CapabilityDef } from "./registry/capabilities.js";
 import { roleQueryOptions } from "./runner.js";
 import { withEffectiveTools } from "./permissions.js";
 import { guardOptions, NAMED_GUARDS, type GuardConfig, type NamedGuard, type ToolCheck } from "./guards/index.js";
@@ -25,10 +25,7 @@ import { buildCloudflareServer } from "../senses/cloudflare/server.js";
 import { HALALO_DIR } from "./registry/extras.js";
 import type { MoneyServerDeps } from "../money/server.js";
 
-/** Manifest tool names that live on the scoped aios-pack server (bare → fq at resolve). */
-const AIOS_PACK_BARE = ["recall", "vault_read", "vault_write", "propose_action"];
 const AIOS_PACK = "aios-pack";
-const fqPackTool = (t: string): string => (AIOS_PACK_BARE.includes(t) ? `mcp__${AIOS_PACK}__${t}` : t);
 
 export interface ResolveCtx {
   cwd?: string;

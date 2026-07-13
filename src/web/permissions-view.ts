@@ -1,8 +1,7 @@
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
-import type { LoadedRegistry } from "../agents/registry/loader.js";
+import { capabilityTools, type LoadedRegistry } from "../agents/registry/loader.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
-import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
 
 /** The Claude Agent SDK's built-in tool names — the universally grantable set (case-sensitive). */
 export const BUILTIN_TOOLS = [
@@ -38,30 +37,17 @@ interface CatalogEntry {
   base: string[];
 }
 
-/** Every controllable role: the live registry agents (canonical names, compiled base tools)
- *  + the hermes pseudo-role (its real allowlist is MODERATOR_ALLOWED_TOOLS, not its empty manifest). */
+/** Every controllable role: the live registry agents, uniformly — hermes included (org-model
+ *  spec §5: the pseudo-role special case is gone; capabilities are the base truth). */
 export function permissionRoleCatalog(registry: LoadedRegistry): CatalogEntry[] {
-  const codeRoles = [...registry.agents.values()]
-    .filter((a) => a.manifest.name !== "hermes") // hermes is the pseudo-role below, not a specialist
-    .map((a) => ({
-      role: a.role.name,
-      description: a.role.description,
-      permissionMode: a.role.permissionMode,
-      toolCheckFallback: a.role.toolCheckFallback ?? "allow",
-      skills: a.role.skills ?? [],
-      base: a.role.allowedTools,
-    }));
-  return [
-    ...codeRoles,
-    {
-      role: "hermes",
-      description: "Chief of Staff — routes work, talks to you, and hands off to specialists.",
-      permissionMode: "dontAsk",
-      toolCheckFallback: "allow",
-      skills: [],
-      base: MODERATOR_ALLOWED_TOOLS,
-    },
-  ];
+  return [...registry.agents.values()].map((a) => ({
+    role: a.role.name,
+    description: a.role.description,
+    permissionMode: a.role.permissionMode,
+    toolCheckFallback: a.role.toolCheckFallback ?? "allow",
+    skills: a.role.skills ?? [],
+    base: capabilityTools(registry, a.manifest.name),
+  }));
 }
 
 export function buildPermissionsView(store: Store, bus: EventBus, registry: LoadedRegistry): PermissionInfo[] {

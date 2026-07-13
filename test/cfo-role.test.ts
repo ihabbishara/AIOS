@@ -7,6 +7,14 @@ import { testRegistry } from "./fixtures/registry.js";
 
 const registryNames = [...testRegistry().agentOf.keys()];
 
+const stubResolve = (registry: ReturnType<typeof testRegistry>) =>
+  ((name, _origin, _ctx) => {
+    const canonical = registry.agentOf.get(name.toLowerCase());
+    const def = canonical ? registry.agents.get(canonical) : undefined;
+    if (!canonical || !def) return undefined;
+    return { canonical, kind: def.kind, def, options: { systemPrompt: "", allowedTools: [] }, ceiling: [], labels: [] };
+  }) as import("../src/agents/resolve.js").ResolveAgentFn;
+
 describe("cfo role", () => {
   it("cfo is registered and @cfo is addressable", () => {
     expect(roleOf("cfo")).toBeDefined();
@@ -39,6 +47,7 @@ describe("cfo role", () => {
       bus,
       projectsRoot: "/tmp",
       registry,
+      resolveAgent: stubResolve(registry),
       // no primaryChat → group-123 is not a private origin
     });
     // "cfo" is an alias for faris (visibility: private → privateOnly: true)

@@ -29,14 +29,3 @@ describe("packRunOptions", () => {
   });
 });
 
-describe("direct chat pack resolver", () => {
-  it("DirectChats accepts an optional resolvePackFor dep without breaking construction", () => {
-    const calls: string[] = [];
-    const dc = new DirectChats({
-      store: {} as never, bus: { emit() {} } as never, projectsRoot: "/tmp",
-      registry: testRegistry(),
-      resolvePackFor: (role) => { calls.push(role); return undefined; },
-    });
-    expect(dc).toBeTruthy();
-  });
-});

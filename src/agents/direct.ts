@@ -1,12 +1,11 @@
 import { resolve } from "node:path";
 import type { LoadedRegistry } from "./registry/loader.js";
+import type { ResolveAgentFn } from "./resolve.js";
 import { resumableTurn, clearSession } from "./resumable.js";
-import { roleQueryOptions, roleSystemPrompt, packRunOptions } from "./runner.js";
-import { withEffectiveTools, withDenialObserver } from "./permissions.js";
+import { withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer } from "./attachment-server.js";
 import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox } from "../mail/mailbox.js";
-import { buildCloudflareServer } from "../senses/cloudflare/server.js";
 import { HALALO_EXPORTS_DIR } from "./guards/halalo-readonly.js";
 import type { Attachment } from "./attachment.js";
 import type { Store } from "../store/db.js";
@@ -24,10 +23,9 @@ export interface DirectChatsDeps {
   bus: EventBus;
   projectsRoot: string;
   registry: LoadedRegistry;
-  model?: string;
+  /** THE one resolution path (org-model spec §7) — capabilities → tools/servers/guards/model. */
+  resolveAgent: ResolveAgentFn;
   log?: (line: string) => void;
-  /** Resolve a pack for a direct-addressed role (undefined = role has no/ambiguous pack). */
-  resolvePackFor?: (role: string, origin: { channel: string; chatId: string }) => import("../packs/resolve.js").ResolvedPack | undefined;
   /** The private primary chat — privateOnly roles are refused from any other origin. */
   primaryChat?: { channel: string; chatId: string };
   /** Agent mailbox — when set, @mention turns get send_mail + their unread-mail block. */
@@ -65,9 +63,10 @@ export class DirectChats {
     sender?: { name?: string; username?: string },
     attachments?: Array<{ path: string; fileName: string }>,
   ): Promise<{ text: string; attachments: Attachment[] }> {
-    const canonical = this.deps.registry.agentOf.get(role);
-    const def = canonical ? this.deps.registry.agents.get(canonical)?.role : undefined;
-    if (!def || !canonical) throw new Error(`Unknown specialist: ${role}`);
+    const resolved = this.deps.resolveAgent(role, { channel, chatId }, { cwd: this.deps.projectsRoot });
+    if (!resolved) throw new Error(`Unknown specialist: ${role}`);
+    const { canonical } = resolved;
+    const def = resolved.def.role;
 
     if (def.privateOnly && !isPrivateOrigin(this.deps.primaryChat, channel, chatId)) {
       return { text: "That's private — ask me from your private chat.", attachments: [] };
@@ -79,13 +78,10 @@ export class DirectChats {
     this.locks.set(key, new Promise((r) => (release = r)));
     await prev;
     try {
-      const pack = this.deps.resolvePackFor?.(canonical, { channel, chatId });
-      const base = {
-        ...roleQueryOptions(def, { cwd: this.deps.projectsRoot, model: this.deps.model }),
-        systemPrompt: roleSystemPrompt(def) + DIRECT_ADDENDUM,
+      let options = {
+        ...resolved.options,
+        systemPrompt: `${resolved.options.systemPrompt}${DIRECT_ADDENDUM}`,
       };
-      const withPack = pack ? packRunOptions(base, pack) : base;
-      let options = withEffectiveTools(withPack, canonical, this.deps.store);
       // Mail: per-turn aios-mail server + widen allowlist BEFORE the observer wraps; the unread-mail
       // block prepends to the per-turn prompt (the system prompt is fixed on resumed sessions).
       let mailBlock = "";
@@ -112,10 +108,8 @@ export class DirectChats {
       ];
       const attachmentServer = buildAttachmentServer(collected, safeDirs);
 
-      // Halalo gets a read-only Cloudflare analytics tool: true edge visitor counts,
-      // the source of truth its log-derived numbers undercount (CDN cache hits).
-      const roleServers: Record<string, ReturnType<typeof buildCloudflareServer>> =
-        canonical === "halalo" ? { halalo_analytics: buildCloudflareServer() } : {};
+      // (Cloudflare analytics for halalo now arrives inside resolved.options.mcpServers via
+      // the halalo-aws capability — the hardcoded roleServers wiring is gone.)
 
       // Prefix the user text with sender identity when provided (group-chat attribution).
       // Attachment markers follow the sender prefix so the agent sees evidence before the text.
@@ -140,7 +134,7 @@ export class DirectChats {
         onSuccess: () => this.deps.mailbox?.markDelivered(deliveredIds),
         options: {
           ...observed,
-          mcpServers: { ...(observed.mcpServers ?? {}), ...roleServers, ...mailServers, aios_attachments: attachmentServer },
+          mcpServers: { ...(observed.mcpServers ?? {}), ...mailServers, aios_attachments: attachmentServer },
         },
       });
 

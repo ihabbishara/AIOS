@@ -20,14 +20,24 @@ vi.mock("../src/agents/resumable.js", () => ({
 // Import AFTER vi.mock so we get the stub
 import * as resumableModule from "../src/agents/resumable.js";
 
+const stubResolve = (registry: ReturnType<typeof testRegistry>) =>
+  ((name, _origin, _ctx) => {
+    const canonical = registry.agentOf.get(name.toLowerCase());
+    const def = canonical ? registry.agents.get(canonical) : undefined;
+    if (!canonical || !def) return undefined;
+    return { canonical, kind: def.kind, def, options: { systemPrompt: "", allowedTools: [] }, ceiling: [], labels: [] };
+  }) as import("../src/agents/resolve.js").ResolveAgentFn;
+
 function makeDirectChats(): DirectChats {
   const store = new Store(":memory:");
   const bus = new EventBus(store);
+  const registry = testRegistry();
   return new DirectChats({
     store,
     bus,
     projectsRoot: "/tmp",
-    registry: testRegistry(),
+    registry,
+    resolveAgent: stubResolve(registry),
   });
 }
 

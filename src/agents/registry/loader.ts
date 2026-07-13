@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { loadPlaybook, type Playbook } from "../../engine/playbook.js";
 import { agentSchema, departmentSchema, type AgentManifest, type DepartmentManifest } from "./types.js";
-import { capabilitySchema, loadCapabilities, type CapabilityDef } from "./capabilities.js";
+import { capabilitySchema, loadCapabilities, fqPackTool, type CapabilityDef } from "./capabilities.js";
 import { VERDICT_SCHEMA, TEST_REPORT_SCHEMA, type RoleDef } from "../roles/index.js";
 import { NAMED_GUARDS } from "../guards/index.js";
 import type { ToolCheck } from "../guards/halalo-readonly.js";
@@ -219,6 +219,16 @@ export function loadRegistry(
   const coordinator = coordinators[0] ?? "";
 
   return { agents, departments, agentOf, ownerOfPlaybook, playbooks, capabilities, coordinator };
+}
+
+/** Capability-truth base allowlist for an agent (fq-mapped) — what the web views show as
+ *  "default" tools. Mirrors resolveAgent's tool union without building any servers. */
+export function capabilityTools(reg: LoadedRegistry, canonical: string): string[] {
+  const def = reg.agents.get(canonical);
+  if (!def) return [];
+  return [...new Set(
+    def.capabilities.flatMap((c) => reg.capabilities.get(c)?.tools ?? []).map(fqPackTool),
+  )];
 }
 
 /** Kill-switch: remove a department, its agents/aliases, and its playbooks. */

@@ -1,4 +1,4 @@
-import { moderatorPrompt } from "./prompt.js";
+import { moderatorBlocks } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn, clearSession } from "../agents/resumable.js";
@@ -10,7 +10,8 @@ import type { ActionGate } from "../kernel/gate.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
 import type { Mailbox } from "../mail/mailbox.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
-import { effectiveAllowedTools, withDenialObserver } from "../agents/permissions.js";
+import type { ResolveAgentFn } from "../agents/resolve.js";
+import { withDenialObserver } from "../agents/permissions.js";
 import type { EventBus } from "../events.js";
 
 const MCP_TOOLS = [
@@ -35,7 +36,8 @@ const MCP_TOOLS = [
   "mcp__aios__forget",
 ];
 
-/** The moderator (hermes) pseudo-role's code-default allowlist — single source of truth (also read by /api/permissions). */
+/** DEPRECATED — truth now lives in the `coordination` capability (agents/_capabilities.yaml);
+ *  kept only for the org-golden legacy-path pin. Deleted in the org-model cleanup task. */
 export const MODERATOR_ALLOWED_TOOLS = [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
 /** hand_off runs a full specialist session inside an MCP call — allow up to 10 min. */
@@ -52,8 +54,8 @@ export interface ModeratorDeps {
   handOff: (agent: string, task: string, origin: { channel: string; chatId: string }) => Promise<{ text: string }>;
   registry: LoadedRegistry;
   projectsRoot: string;
-  model?: string;
-  specialistModel?: string;
+  /** THE one resolution path — hermes is a normal coordinator agent (org-model spec §5). */
+  resolveAgent: ResolveAgentFn;
   log?: (line: string) => void;
   gate: ActionGate;
   actionTypes: string[];
@@ -125,13 +127,18 @@ export class Moderator {
       department: a.department,
     }));
 
-    // Prepend hermes's persona block (tolerate hermes absent — skip prefix).
-    const hermesPersona = registry.agents.get("hermes")?.role.systemPrompt;
-    const basePrompt = moderatorPrompt(goals.listPlaybooks(), projectsRoot, memoContext(store, vault), roster);
-    const systemPrompt = hermesPersona ? `${hermesPersona}\n\n${basePrompt}` : basePrompt;
+    // hermes is a normal coordinator agent — resolveAgent supplies YAML prompt + dept context
+    // + capability tools + tiered model; the generated blocks (roster/playbooks/paths/memo)
+    // are appended here because they cannot live in YAML.
+    const resolved = this.deps.resolveAgent(registry.coordinator, this.origin, { cwd: projectsRoot });
+    if (!resolved) throw new Error(`coordinator agent "${registry.coordinator}" missing from registry`);
+    const systemPrompt = `${resolved.options.systemPrompt}\n\n${moderatorBlocks({
+      playbooks: goals.listPlaybooks(), projectsRoot,
+      memoBlock: memoContext(store, vault), roster,
+    })}`;
 
-    // hermes is the chief of staff himself — never a hand_off target (would recurse).
-    const agentNames = [...registry.agents.keys()].filter((n) => n !== "hermes");
+    // The coordinator is the chief of staff himself — never a hand_off target (would recurse).
+    const agentNames = [...registry.agents.keys()].filter((n) => n !== registry.coordinator);
 
     const server = buildModeratorServer({
       goals,
@@ -151,15 +158,12 @@ export class Moderator {
     });
 
     const moderatorOptions = {
+      ...resolved.options,
       systemPrompt,
-      mcpServers: { aios: server },
-      allowedTools: effectiveAllowedTools("hermes", MODERATOR_ALLOWED_TOOLS, store),
-      permissionMode: "dontAsk" as const,
+      mcpServers: { ...(resolved.options.mcpServers ?? {}), aios: server },
       settingSources: [],
       strictMcpConfig: true,
-      maxTurns: 40,
       env: { ...process.env, CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: String(STREAM_CLOSE_TIMEOUT_MS) },
-      ...(this.deps.model ? { model: this.deps.model } : {}),
     };
 
     return resumableTurn({
@@ -167,7 +171,7 @@ export class Moderator {
       sessionKey: `moderator-session:${chatKey}`,
       prompt,
       log: this.deps.log,
-      options: withDenialObserver(moderatorOptions, "hermes", (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
+      options: withDenialObserver(moderatorOptions, resolved.canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
     });
   }
 }

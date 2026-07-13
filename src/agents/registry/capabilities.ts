@@ -19,6 +19,11 @@ export const capabilitySchema = z.object({
 
 export type CapabilityDef = z.infer<typeof capabilitySchema>;
 
+/** Manifest tool names that live on the scoped aios-pack server (bare → fq at resolve). */
+export const AIOS_PACK_BARE = ["recall", "vault_read", "vault_write", "propose_action"];
+export const fqPackTool = (t: string): string =>
+  AIOS_PACK_BARE.includes(t) ? `mcp__aios-pack__${t}` : t;
+
 export function loadCapabilities(path: string): Map<string, CapabilityDef> {
   const out = new Map<string, CapabilityDef>();
   if (!existsSync(path)) return out;

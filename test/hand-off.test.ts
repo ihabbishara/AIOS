@@ -63,7 +63,7 @@ describe("capability parity", () => {
 
     for (const [name, def] of reg.agents) {
       // hermes: the legacy Path A reads manifest tools ([]) while capabilities give the real
-      // coordinator set — parity for hermes lands with the direct-seam cutover. TODO(org T6).
+      // coordinator set — Path A is the legacy composition, deleted in the cleanup task with this skip. TODO(org T8).
       if (name === "hermes") continue;
       // Shared pack — same isAgent=true closure used by both paths in production.
       const pack = resolveDeptFor(name, origin, true);

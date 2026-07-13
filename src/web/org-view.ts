@@ -1,9 +1,8 @@
 // src/web/org-view.ts — pure builders behind GET /api/org and GET /api/agents/<name>.
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
-import type { LoadedRegistry } from "../agents/registry/loader.js";
+import { capabilityTools, type LoadedRegistry } from "../agents/registry/loader.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
-import { MODERATOR_ALLOWED_TOOLS } from "../moderator/session.js";
 
 export type AgentLiveStatus = "idle" | "working" | "waiting";
 
@@ -90,9 +89,8 @@ export function buildAgentProfile(
   if (!def) return null;
   const dept = registry.departments.get(def.department);
 
-  // hermes's real allowlist is the moderator toolset, not its empty manifest tools
-  // (same special case as permissionRoleCatalog in permissions-view.ts).
-  const base = def.manifest.name === "hermes" ? MODERATOR_ALLOWED_TOOLS : def.role.allowedTools;
+  // Capabilities are the base truth for every agent — hermes included (no pseudo-role).
+  const base = capabilityTools(registry, def.manifest.name);
   const overrides = store.listRolePermissions(def.manifest.name);
   const granted = new Set(overrides.filter((o) => o.allow === 1).map((o) => o.tool));
   const baseSet = new Set(base);

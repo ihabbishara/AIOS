@@ -7,7 +7,8 @@ import { ExecutorRegistry, type Executor } from "../src/kernel/actions.js";
 import { ActionGate } from "../src/kernel/gate.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { MessageRouter } from "../src/router.js";
-import { isChiefOfStaff } from "../src/web/server.js";
+import { toCoordinator } from "../src/web/server.js";
+import { testRegistry } from "./fixtures/registry.js";
 
 function setup() {
   const store = new Store(":memory:");
@@ -67,27 +68,23 @@ describe("router gate commands", () => {
   });
 });
 
-describe("isChiefOfStaff predicate (web sentinel)", () => {
-  it("returns true for missing / empty target — default Rami path", () => {
-    expect(isChiefOfStaff()).toBe(true);
-    expect(isChiefOfStaff(undefined)).toBe(true);
+describe("toCoordinator predicate (web sentinel, registry-derived)", () => {
+  const reg = testRegistry();
+
+  it("returns true for missing / empty target — default coordinator path", () => {
+    expect(toCoordinator(reg)).toBe(true);
+    expect(toCoordinator(reg, undefined)).toBe(true);
   });
 
-  it("returns true for legacy sentinel 'moderator' — backward-compat transition window", () => {
-    expect(isChiefOfStaff("moderator")).toBe(true);
-  });
-
-  it("returns true for current chief-of-staff name 'hermes'", () => {
-    expect(isChiefOfStaff("hermes")).toBe(true);
-  });
-
-  it("returns true for legacy chief-of-staff name 'rami' — backward-compat transition window", () => {
-    expect(isChiefOfStaff("rami")).toBe(true);
+  it("returns true for the coordinator's name and every alias (moderator/rami are hermes aliases)", () => {
+    expect(toCoordinator(reg, "hermes")).toBe(true);
+    expect(toCoordinator(reg, "moderator")).toBe(true);
+    expect(toCoordinator(reg, "rami")).toBe(true);
   });
 
   it("returns false for specialist names — they get routed as @-mentions", () => {
-    expect(isChiefOfStaff("vulcan")).toBe(false);
-    expect(isChiefOfStaff("finance")).toBe(false);
-    expect(isChiefOfStaff("architect")).toBe(false);
+    expect(toCoordinator(reg, "vulcan")).toBe(false);
+    expect(toCoordinator(reg, "finance")).toBe(false);
+    expect(toCoordinator(reg, "architect")).toBe(false);
   });
 });

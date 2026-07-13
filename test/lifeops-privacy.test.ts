@@ -11,6 +11,14 @@ import { testRegistry } from "./fixtures/registry.js";
 //   indexDoc(). It never calls indexDoc() for personal_* tables. Therefore a
 //   string that appears ONLY in a personal_tasks title/notes yields no hit.
 // ---------------------------------------------------------------------------
+const stubResolve = (registry: ReturnType<typeof testRegistry>) =>
+  ((name, _origin, _ctx) => {
+    const canonical = registry.agentOf.get(name.toLowerCase());
+    const def = canonical ? registry.agents.get(canonical) : undefined;
+    if (!canonical || !def) return undefined;
+    return { canonical, kind: def.kind, def, options: { systemPrompt: "", allowedTools: [] }, ceiling: [], labels: [] };
+  }) as import("../src/agents/resolve.js").ResolveAgentFn;
+
 describe("lifeops privacy: tasks never enter recall", () => {
   it("a task title is not retrievable via recall", () => {
     const store = new Store(":memory:");
@@ -46,11 +54,13 @@ describe("lifeops privacy: jasmine refused from non-private origin", () => {
   it("DirectChats.handle returns the private-refusal text for a non-primary origin", async () => {
     // Construct DirectChats with a primaryChat. The refusal fires before any
     // async work (lock, resumableTurn), so a stub store/bus is sufficient.
+    const reg = testRegistry();
     const dc = new DirectChats({
       store: {} as never,
       bus: { emit() {} } as never,
       projectsRoot: "/tmp",
-      registry: testRegistry(),
+      registry: reg,
+      resolveAgent: stubResolve(reg),
       primaryChat: { channel: "telegram", chatId: "123" },
     });
     // Send from a different chatId — jasmine must refuse.
