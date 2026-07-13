@@ -17,7 +17,8 @@ describe("app shell", () => {
     for (const s of ["home", "goals", "staff", "mail", "system"]) {
       expect(await screen.findByText(s)).toBeTruthy();
     }
-    expect(await screen.findByText("Nothing needs you.")).toBeTruthy();
+    // The queue renders in both the desktop and phone containers (visibility is CSS-only).
+    expect((await screen.findAllByText("Nothing needs you.")).length).toBeGreaterThan(0);
   });
 
   it("gates on 401", async () => {
