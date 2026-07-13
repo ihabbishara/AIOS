@@ -29,6 +29,7 @@ import type { ChannelAdapter } from "./channels/types.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
 import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor, ledgerWriteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
+import { Policy } from "./kernel/policy.js";
 import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
 import { Triage, modelClassifier } from "./heartbeat/triage.js";
@@ -160,6 +161,14 @@ async function main(): Promise<void> {
   const gate = new ActionGate({
     store, registry: executors, policy: config.trustPolicy, bus, expiryMs: config.actionExpiryMs, log,
   });
+
+  // Information-flow checkpoint (spec §4). Reports violations onto the bus; audit blocks nothing.
+  const infoPolicy = new Policy({
+    mode: config.policyMode,
+    report: (v) => bus.emit({ type: "policy.violation", ...v }),
+  });
+  log(`policy: ${config.policyMode} mode`);
+  void infoPolicy; // wired into memory/heartbeat consumers in later policy tasks
 
   // Startup recovery: actions stuck mid-execution from a previous daemon death.
   // MUST run only here, before any executor can be in flight — never on an interval.

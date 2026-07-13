@@ -81,6 +81,8 @@ export interface Config {
   mailDisabled: boolean;
   /** Kill-switch for standups only. */
   standupDisabled: boolean;
+  /** Information-flow policy posture: "audit" logs violations, blocks nothing; "enforce" fail-closes. */
+  policyMode: "audit" | "enforce";
   /** Model for the triage classifier one-shot. */
   triageModel: string;
   /** Voice kill-switch (AIOS_VOICE_ENABLED=false disables STT/TTS everywhere). */
@@ -239,6 +241,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     mailMaxDepth: (() => { const n = Number(process.env.AIOS_MAIL_MAX_DEPTH); return Number.isFinite(n) && n > 0 ? n : 2; })(),
     mailDisabled: process.env.AIOS_MAIL_DISABLED === "1",
     standupDisabled: process.env.AIOS_STANDUP_DISABLED === "1",
+    policyMode: process.env.AIOS_POLICY_MODE === "enforce" ? "enforce" : "audit",
     anchorSpeculate: process.env.AIOS_ANCHOR_SPECULATE ?? "03:00",
     speculateMaxJobs: Number(process.env.AIOS_SPECULATE_MAX_JOBS ?? 2),
     speculateModel: process.env.AIOS_SPECULATE_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
