@@ -10,6 +10,7 @@ export type JournalEventType =
   | "workspace.prepared" | "workspace.failed"
   | "attempt.started" | "round.recorded" | "attempt.finished"
   | "node.completed" | "node.failed" | "node.skipped"
+  | "review.requested" | "review.resolved"
   | "ask.parked" | "ask.resumed"
   | "goal.paused" | "goal.resumed"
   | "goal.completed" | "goal.failed" | "goal.abandoned";
@@ -78,6 +79,15 @@ export interface AttemptFinishedPayload {
   node: string; attempt: number; outcome: AttemptOutcome; costCents: number; turns: number; error?: string;
 }
 export interface NodeCompletedPayload { node: string; artifactRef: string; roundsUsed: number }
+/** Loop cap / verify cap reached without approval — node parks as needs-review (spec §4). */
+export interface ReviewRequestedPayload { node: string; lastArtifactRef: string; objections: string[] }
+export interface ReviewResolvedPayload {
+  node: string;
+  verdict: "accept" | "retry" | "abandon";
+  by: string;
+  /** retry only: injected as producer feedback on the granted attempt. */
+  guidance?: string;
+}
 
 // ---- Append / read ----
 

@@ -6,6 +6,7 @@ import type {
   GoalCreatedPayload, PlanRecordedPayload, ReplanRecordedPayload,
   WorkspacePreparedPayload, AttemptStartedPayload, RoundRecordedPayload,
   AttemptFinishedPayload, NodeCompletedPayload,
+  ReviewRequestedPayload, ReviewResolvedPayload,
 } from "./journal.js";
 
 export type GoalPhase =
@@ -15,7 +16,7 @@ export type GoalPhase =
 export interface NodeState {
   spec: NodeSpec;
   /** Persistent status. "running"/"ready" are DERIVED — see nodeStatus(). */
-  status: "pending" | "done" | "failed" | "skipped";
+  status: "pending" | "done" | "failed" | "skipped" | "needs-review";
   /** Finished attempts of THIS node incarnation (reset when a replan replaces the node) —
    *  the retry budget. Attempt NUMBERS are goal-lifetime monotonic: see GoalState.attemptSeq. */
   attempts: number;
@@ -32,6 +33,10 @@ export interface NodeState {
   lastArtifactRef: string | null;
   artifact: string | null;
   costCents: number;
+  /** review.resolved{retry} grants one attempt past the cap; cleared by attempt.started. */
+  reviewRetry: boolean;
+  reviewObjections: string[] | null;
+  reviewGuidance: string | null;
 }
 
 export interface GoalState {
@@ -62,6 +67,7 @@ const freshNode = (spec: NodeSpec): NodeState => ({
   currentRound: 0, loopRounds: 0, runnerRounds: 0, fixerRounds: 0,
   lastVerdict: null, lastReport: null, lastFeedback: null, lastArtifactRef: null,
   artifact: null, costCents: 0,
+  reviewRetry: false, reviewObjections: null, reviewGuidance: null,
 });
 
 const freshState = (goalId: string): GoalState => ({
@@ -74,7 +80,7 @@ const freshState = (goalId: string): GoalState => ({
 
 /** Derived node status: dangling attempt → running; pending with all deps done → ready. */
 export function nodeStatus(state: GoalState, key: string):
-  "pending" | "ready" | "running" | "done" | "failed" | "skipped" {
+  "pending" | "ready" | "running" | "done" | "failed" | "skipped" | "needs-review" {
   const n = state.nodes.get(key);
   if (!n) return "pending";
   if (n.runningAttempt) return "running";
@@ -135,7 +141,10 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
         const ap = p as unknown as AttemptStartedPayload;
         state.attemptSeq.set(ap.node, Math.max(state.attemptSeq.get(ap.node) ?? 0, ap.attempt));
         const n = state.nodes.get(ap.node);
-        if (n) n.runningAttempt = { attempt: ap.attempt, deadlineTs: ap.deadlineTs, startedTs: ev.ts };
+        if (n) {
+          n.runningAttempt = { attempt: ap.attempt, deadlineTs: ap.deadlineTs, startedTs: ev.ts };
+          n.reviewRetry = false;
+        }
         break;
       }
       case "round.recorded": {
@@ -183,6 +192,37 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
       case "node.skipped": {
         const n = state.nodes.get(String((p as { node: string }).node));
         if (n && n.status === "pending") n.status = "skipped";
+        break;
+      }
+      case "review.requested": {
+        const rp = p as unknown as ReviewRequestedPayload;
+        const n = state.nodes.get(rp.node);
+        if (n) {
+          n.status = "needs-review";
+          n.reviewObjections = rp.objections;
+          n.lastArtifactRef = rp.lastArtifactRef;
+        }
+        break;
+      }
+      case "review.resolved": {
+        const rp = p as unknown as ReviewResolvedPayload;
+        const n = state.nodes.get(rp.node);
+        if (!n) break;
+        n.reviewObjections = null;
+        if (rp.verdict === "retry") {
+          n.status = "pending";
+          n.reviewRetry = true;
+          n.reviewGuidance = rp.guidance ?? null;
+          // Fresh rounds for the granted attempt — a resumed loop/verify must not
+          // start at the cap it already hit.
+          n.currentRound = 0;
+          n.loopRounds = 0;
+          n.runnerRounds = 0;
+          n.fixerRounds = 0;
+          n.lastVerdict = null;
+          state.lastResumeTs = ev.ts; // fresh wall-time window for the human-granted retry
+        }
+        // accept → node.completed follows in the same batch; abandon → node.failed follows.
         break;
       }
       case "ask.parked": {

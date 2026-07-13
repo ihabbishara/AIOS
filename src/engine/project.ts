@@ -9,6 +9,7 @@ import type {
   GoalCreatedPayload, PlanRecordedPayload, ReplanRecordedPayload,
   WorkspacePreparedPayload, AttemptStartedPayload, RoundRecordedPayload,
   AttemptFinishedPayload, NodeCompletedPayload,
+  ReviewRequestedPayload, ReviewResolvedPayload,
 } from "./journal.js";
 
 const toRow = (n: NodeSpec): NewTaskNode => ({
@@ -105,6 +106,19 @@ export function projectEvent(store: Store, ev: JournalEvent): void {
         store.updateNodeStatus(goalId, p.node, "skipped");
       }
       return;
+    }
+    case "review.requested": {
+      const p = ev.payload as unknown as ReviewRequestedPayload;
+      // artifact = last produced version so the UI can show it while parked;
+      // node.completed overwrites it with the final file on accept.
+      store.setNodeArtifact(goalId, p.node, p.lastArtifactRef);
+      store.updateNodeStatus(goalId, p.node, "needs-review", p.objections.join("; ") || undefined);
+      return;
+    }
+    case "review.resolved": {
+      const p = ev.payload as unknown as ReviewResolvedPayload;
+      if (p.verdict === "retry") store.updateNodeStatus(goalId, p.node, "ready");
+      return; // accept → node.completed / abandon → node.failed project in the same batch
     }
     case "ask.parked": {
       const p = ev.payload as { node: string | null; mailId: string };

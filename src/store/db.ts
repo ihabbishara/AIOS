@@ -5,7 +5,7 @@ import type { TrustRecord } from "../kernel/trust.js";
 import type { ActionRow, ActionStatus } from "../kernel/actions.js";
 
 export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "replanning" | "done" | "failed" | "abandoned" | "awaiting-mail";
-export type NodeStatus = "pending" | "ready" | "running" | "done" | "failed" | "skipped";
+export type NodeStatus = "pending" | "ready" | "running" | "done" | "failed" | "skipped" | "needs-review";
 
 export interface GoalRow {
   id: string;
@@ -656,11 +656,28 @@ export class Store {
       .all(goalId) as unknown as TaskNodeRow[];
   }
 
+  /** Nodes parked for human review on still-live goals (verification-hardening §4). */
+  needsReviewNodes(): Array<{
+    goal_id: string; node_key: string; agent: string; artifact: string | null;
+    error: string | null; finished_at: string | null; goal_title: string; goal_slug: string;
+  }> {
+    return this.db.prepare(
+      `SELECT tn.goal_id, tn.node_key, tn.agent, tn.artifact, tn.error, tn.finished_at,
+              g.title AS goal_title, g.slug AS goal_slug
+       FROM task_nodes tn JOIN goals g ON g.id = tn.goal_id
+       WHERE tn.status = 'needs-review' AND g.status NOT IN ('done', 'failed', 'abandoned')
+       ORDER BY tn.finished_at DESC`,
+    ).all() as unknown as Array<{
+      goal_id: string; node_key: string; agent: string; artifact: string | null;
+      error: string | null; finished_at: string | null; goal_title: string; goal_slug: string;
+    }>;
+  }
+
   updateNodeStatus(goalId: string, key: string, status: NodeStatus, error?: string): void {
     const now = new Date().toISOString();
     const stamps =
       status === "running" ? ", started_at = ?" :
-      status === "done" || status === "failed" || status === "skipped" ? ", finished_at = ?" : "";
+      status === "done" || status === "failed" || status === "skipped" || status === "needs-review" ? ", finished_at = ?" : "";
     const sql = `UPDATE task_nodes SET status = ?, error = ?${stamps} WHERE goal_id = ? AND node_key = ?`;
     const args: SQLInputValue[] = stamps ? [status, error ?? null, now, goalId, key] : [status, error ?? null, goalId, key];
     this.db.prepare(sql).run(...args);

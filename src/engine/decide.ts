@@ -81,7 +81,10 @@ export function decide(states: GoalState[], caps: Caps, now: number): Command[] 
       const n = s.nodes.get(key)!;
       if (n.status !== "pending" || n.runningAttempt) continue;
       const nextAttempt = (s.attemptSeq.get(key) ?? 0) + 1;
-      if (n.lastOutcome && n.lastOutcome !== "ok" && n.attempts < caps.maxAttempts) {
+      if (n.reviewRetry) {
+        // Human-granted retry (review.resolved{retry}) — bypasses the attempts cap once.
+        retries.push({ goalId: s.goalId, node: key, attempt: nextAttempt });
+      } else if (n.lastOutcome && n.lastOutcome !== "ok" && n.attempts < caps.maxAttempts) {
         retries.push({ goalId: s.goalId, node: key, attempt: nextAttempt });
       } else if (n.attempts === 0 && !n.lastOutcome && nodeStatus(s, key) === "ready") {
         fresh.push({ goalId: s.goalId, node: key, attempt: nextAttempt });
@@ -95,9 +98,13 @@ export function decide(states: GoalState[], caps: Caps, now: number): Command[] 
       continue;
     }
 
+    // Nodes parked for human review exempt the goal from wall-time and the deadlock
+    // guard — a goal waiting on a verdict is not stuck (verification-hardening §4).
+    const anyNeedsReview = [...s.nodes.values()].some((n) => n.status === "needs-review");
+
     // 5. Wall-time — measured from the last resume event: a budget-parked goal resumed
     //    next morning gets a fresh window instead of instant failure.
-    if (now > s.lastResumeTs + caps.wallTimeMs) {
+    if (!anyNeedsReview && now > s.lastResumeTs + caps.wallTimeMs) {
       commands.push({ cmd: "FailGoal", goalId: s.goalId, error: "Goal wall-time budget exceeded" });
       continue;
     }
@@ -130,7 +137,7 @@ export function decide(states: GoalState[], caps: Caps, now: number): Command[] 
     // 8. Deadlock guard: nothing running, nothing startable, pending remain → some node
     //    depends transitively on a failed/skipped node. Fail loudly, never hang.
     const anyRunning = all.some((n) => n.runningAttempt);
-    if (!anyRunning && all.some((n) => n.status === "pending")) {
+    if (!anyRunning && !anyNeedsReview && all.some((n) => n.status === "pending")) {
       commands.push({ cmd: "FailGoal", goalId: s.goalId, error: "stuck: unfinished nodes depend on failed/skipped nodes" });
     }
   }
