@@ -322,6 +322,8 @@ export class Store {
       this.db.exec("ALTER TABLE goals ADD COLUMN legacy INTEGER NOT NULL DEFAULT 0");
       this.db.exec("UPDATE goals SET legacy = 1");
     } catch { /* column exists — migration already ran */ }
+    // Migration (info-flow policy): memory docs carry confidentiality labels (JSON array).
+    try { this.db.exec("ALTER TABLE memory_doc ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'"); } catch { /* exists */ }
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
     this.db.exec("DROP TABLE IF EXISTS jobs; DROP TABLE IF EXISTS stages;");
     this.db.exec(`
@@ -408,6 +410,7 @@ export class Store {
         source TEXT NOT NULL,
         ref TEXT NOT NULL,
         domain TEXT NOT NULL,
+        labels TEXT NOT NULL DEFAULT '[]',
         title TEXT NOT NULL,
         body TEXT NOT NULL,
         ts TEXT NOT NULL,
@@ -1231,7 +1234,7 @@ export class Store {
   }
 
   upsertMemoryDoc(
-    doc: { source: string; ref: string; domain: string; title: string; body: string; ts: string; len: number; fingerprint: string },
+    doc: { source: string; ref: string; domain: string; labels?: string[]; title: string; body: string; ts: string; len: number; fingerprint: string },
     postings: Array<[string, number]>,
   ): void {
     const now = new Date().toISOString();
@@ -1243,9 +1246,9 @@ export class Store {
         this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
       }
       const res = this.db
-        .prepare(`INSERT INTO memory_doc (source, ref, domain, title, body, ts, len, fingerprint, indexed_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(doc.source, doc.ref, doc.domain, doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
+        .prepare(`INSERT INTO memory_doc (source, ref, domain, labels, title, body, ts, len, fingerprint, indexed_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(doc.source, doc.ref, doc.domain, JSON.stringify(doc.labels ?? []), doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
       const docId = Number(res.lastInsertRowid);
       const ins = this.db.prepare("INSERT INTO memory_token (token, doc_id, tf) VALUES (?, ?, ?)");
       for (const [token, tf] of postings) ins.run(token, docId, tf);
@@ -1281,10 +1284,10 @@ export class Store {
     return { count: Number(r.c), avgLen: Number(r.a) };
   }
 
-  memoryPostings(tokens: string[], domain?: string): Array<{ token: string; doc_id: number; tf: number; len: number; domain: string; source: string; ref: string; ts: string }> {
+  memoryPostings(tokens: string[], domain?: string): Array<{ token: string; doc_id: number; tf: number; len: number; domain: string; labels: string; source: string; ref: string; ts: string }> {
     if (!tokens.length) return [];
     const ph = tokens.map(() => "?").join(", ");
-    const sql = `SELECT t.token, t.doc_id, t.tf, d.len, d.domain, d.source, d.ref, d.ts
+    const sql = `SELECT t.token, t.doc_id, t.tf, d.len, d.domain, d.labels, d.source, d.ref, d.ts
                  FROM memory_token t JOIN memory_doc d ON d.id = t.doc_id
                  WHERE t.token IN (${ph})${domain ? " AND d.domain = ?" : ""}`;
     const args = domain ? [...tokens, domain] : tokens;

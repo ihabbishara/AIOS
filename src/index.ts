@@ -111,12 +111,14 @@ async function main(): Promise<void> {
   // gate.propose) is live-indexed, not just recovered on the next restart's reconcile.
   bus.on((e) => {
     try {
-      if (e.event.type === "calendar.changed") indexEvent(store, e);
+      // infoPolicy is a forward-ref (constructed below, after the gate) — this closure only
+      // fires at runtime, long after boot, so the binding is resolved by then.
+      if (e.event.type === "calendar.changed") indexEvent(store, e, infoPolicy);
       else if (e.event.type === "action.executed" || e.event.type === "action.resolved") {
-        indexDecision(store, e.event.actionId);
+        indexDecision(store, e.event.actionId, infoPolicy);
       } else if (e.event.type === "mail.sent" || e.event.type === "mail.asked_user") {
         const m = store.getMail(e.event.id);
-        if (m) indexMailThread(store, registry, m.thread_id ?? m.id);
+        if (m) indexMailThread(store, registry, m.thread_id ?? m.id, infoPolicy);
       }
     } catch (err) {
       log(`memory index (write-time) failed: ${(err as Error).message}`);
@@ -168,7 +170,6 @@ async function main(): Promise<void> {
     report: (v) => bus.emit({ type: "policy.violation", ...v }),
   });
   log(`policy: ${config.policyMode} mode`);
-  void infoPolicy; // wired into memory/heartbeat consumers in later policy tasks
 
   // Startup recovery: actions stuck mid-execution from a previous daemon death.
   // MUST run only here, before any executor can be in flight — never on an interval.
@@ -454,7 +455,7 @@ async function main(): Promise<void> {
   // are still live-indexed. reconcile() below is just a snapshot backfill; the
   // listener is idempotent via fingerprints, so any overlap is a harmless no-op.
   try {
-    reconcile(store, vault, registry);
+    reconcile(store, vault, registry, infoPolicy);
   } catch (err) {
     log(`memory reconcile failed: ${(err as Error).message}`);
   }

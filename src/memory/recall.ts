@@ -1,4 +1,5 @@
 import type { Store } from "../store/db.js";
+import type { Label } from "../kernel/policy.js";
 import { tokenize } from "./tokenize.js";
 
 export type MemorySource = "vault" | "event" | "decision" | "memo" | "mail";
@@ -7,6 +8,8 @@ export const DOMAINS: Domain[] = ["inbox", "money", "code", "research", "lifeops
 
 export interface MemoryDocInput {
   source: MemorySource; ref: string; domain: Domain;
+  /** Confidentiality labels (info-flow policy §6). Defaults to [] when a caller omits them. */
+  labels?: Label[];
   title: string; body: string; ts: string; fingerprint: string;
 }
 export interface RecallHit {
@@ -27,7 +30,7 @@ export function indexDoc(store: Store, doc: MemoryDocInput): void {
   for (const t of tokenize(doc.title)) tf.set(t, (tf.get(t) ?? 0) + TITLE_BOOST);
   for (const t of tokenize(doc.body)) tf.set(t, (tf.get(t) ?? 0) + 1);
   const len = [...tf.values()].reduce((a, b) => a + b, 0);
-  store.upsertMemoryDoc({ ...doc, len }, [...tf.entries()]);
+  store.upsertMemoryDoc({ ...doc, labels: doc.labels ?? [], len }, [...tf.entries()]);
 }
 
 export interface RecallOpts { domain?: Domain; limit?: number }
