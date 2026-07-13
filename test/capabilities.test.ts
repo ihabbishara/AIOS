@@ -96,44 +96,40 @@ describe("loader v2", () => {
     expect(() => loadRegistry(d2, join(d2, "nopb"), {}, () => {})).toThrow(/coordinator/i);
   });
 
-  it("kind inference shim: hermes→coordinator wins over lead; outputSchema→critic; dept lead→lead; else worker", () => {
+  it("kind is explicit-or-worker; the inference shim is gone", () => {
     const dir = tree({
       "_capabilities.yaml": CAPS,
-      "operations/department.yaml": `\ndepartment: operations\nmission: m\nlead: leader\nmemoDomain: general\n`,
-      "operations/hermes.yaml": agentYaml("hermes"), // no kind, no capabilities → shims
-      "operations/leader.yaml": agentYaml("leader"),
-      "operations/judge.yaml": agentYaml("judge", "outputSchema: verdict"),
+      "operations/department.yaml": `
+department: operations
+mission: m
+lead: leader
+memoDomain: general
+`,
+      "operations/hermes.yaml": HERMES,
+      "operations/leader.yaml": agentYaml("leader"), // dept lead WITHOUT kind → worker (no inference)
+      "operations/judge.yaml": agentYaml("judge", "outputSchema: verdict\nkind: critic\n"),
       "operations/pleb.yaml": agentYaml("pleb"),
     });
     const reg = loadRegistry(dir, join(dir, "nopb"), {}, () => {});
     expect(reg.agents.get("hermes")!.kind).toBe("coordinator");
-    expect(reg.agents.get("leader")!.kind).toBe("lead");
+    expect(reg.agents.get("leader")!.kind).toBe("worker");
     expect(reg.agents.get("judge")!.kind).toBe("critic");
     expect(reg.agents.get("pleb")!.kind).toBe("worker");
     expect(reg.coordinator).toBe("hermes");
   });
 
-  it("capability synthesis shim preserves manifest tools; dept capabilities are inherited", () => {
+  it("no __legacy synthesis: v1 fields are ignored; dept capabilities are inherited", () => {
     const dir = tree({
       "_capabilities.yaml": CAPS,
       "operations/department.yaml": OPS_DEPT + "capabilities: [web]\n",
       "operations/hermes.yaml": HERMES,
-      "operations/old.yaml": agentYaml("old", "tools: [Read, Bash]\nkind: worker"),
+      "operations/old.yaml": agentYaml("old", "tools: [Read, Bash]\nkind: worker\n"), // v1 tools stripped by zod
     });
     const reg = loadRegistry(dir, join(dir, "nopb"), {}, () => {});
     const old = reg.agents.get("old")!;
-    expect(old.capabilities).toContain("web"); // dept default inherited (agent has no own capabilities)
-    // the shim only fires when NEITHER agent nor dept declare capabilities:
-    expect(reg.capabilities.has("__legacy:old")).toBe(false);
-
-    const dir2 = tree({
-      "_capabilities.yaml": CAPS,
-      "operations/department.yaml": OPS_DEPT,
-      "operations/hermes.yaml": HERMES,
-      "operations/old.yaml": agentYaml("old", "tools: [Read, Bash]\nkind: worker"),
-    });
-    const reg2 = loadRegistry(dir2, join(dir2, "nopb"), {}, () => {});
-    expect(reg2.capabilities.get("__legacy:old")!.tools).toEqual(["Read", "Bash"]);
+    expect(old.capabilities).toEqual(["web"]); // dept default inherited; no legacy pseudo-capability
+    expect(old.role.allowedTools).toEqual(["WebSearch", "WebFetch"]);
+    expect([...reg.capabilities.keys()].some((k) => k.startsWith("__legacy"))).toBe(false);
   });
 
   it("live tree is fully v2: no __legacy shims, hermes coordinates, critics inferred right", () => {

@@ -14,31 +14,6 @@ import type { ResolveAgentFn } from "../agents/resolve.js";
 import { withDenialObserver } from "../agents/permissions.js";
 import type { EventBus } from "../events.js";
 
-const MCP_TOOLS = [
-  "mcp__aios__run_playbook",
-  "mcp__aios__goal_status",
-  "mcp__aios__plan_goal",
-  "mcp__aios__list_playbooks",
-  "mcp__aios__hand_off",
-  "mcp__aios__send_mail",
-  "mcp__aios__vault_write",
-  "mcp__aios__vault_read",
-  "mcp__aios__vault_list",
-  "mcp__aios__propose_action",
-  "mcp__aios__add_reminder",
-  "mcp__aios__list_reminders",
-  "mcp__aios__cancel_reminder",
-  "mcp__aios__add_triage_rule",
-  "mcp__aios__list_inbox",
-  "mcp__aios__read_email",
-  "mcp__aios__recall",
-  "mcp__aios__remember",
-  "mcp__aios__forget",
-];
-
-/** DEPRECATED — truth now lives in the `coordination` capability (agents/_capabilities.yaml);
- *  kept only for the org-golden legacy-path pin. Deleted in the org-model cleanup task. */
-export const MODERATOR_ALLOWED_TOOLS = [...MCP_TOOLS, "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
 /** hand_off runs a full specialist session inside an MCP call — allow up to 10 min. */
 const STREAM_CLOSE_TIMEOUT_MS = 10 * 60 * 1000;

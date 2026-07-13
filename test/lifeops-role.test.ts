@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { roleOf } from "./fixtures/registry.js";
 import { testRegistry } from "./fixtures/registry.js";
+import { departmentActions } from "../src/agents/registry/loader.js";
 
 describe("jasmine role", () => {
   it("exists, is privateOnly, and carries no write tools", () => {
@@ -19,9 +20,9 @@ describe("life department manifest (registry)", () => {
     const reg = testRegistry();
     const life = reg.departments.get("life")!;
     expect(life).toBeDefined();
-    expect(life.actions).toEqual([]);
+    expect(departmentActions(reg, "life")).toEqual([]);
     expect(life.sandbox).toBe(false);
-    expect(life.toolServer).toBe("lifeops");
+    expect(reg.agents.get("jasmine")!.capabilities).toContain("lifeops"); // capability names the server
     expect(reg.agentOf.get("jasmine")).toBe("jasmine");
     expect(reg.agents.get("jasmine")?.department).toBe("life");
   });

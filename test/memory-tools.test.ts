@@ -13,8 +13,8 @@ describe("teachingDomain routing", () => {
 });
 
 describe("memory tools registration", () => {
-  it("session MCP_TOOLS includes recall/remember/forget", () => {
-    const src = readFileSync(new URL("../src/moderator/session.ts", import.meta.url), "utf8");
+  it("the coordination capability includes recall/remember/forget", () => {
+    const src = readFileSync(new URL("../agents/_capabilities.yaml", import.meta.url), "utf8");
     expect(src).toContain("mcp__aios__recall");
     expect(src).toContain("mcp__aios__remember");
     expect(src).toContain("mcp__aios__forget");

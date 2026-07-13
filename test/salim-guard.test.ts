@@ -2,18 +2,22 @@ import { describe, it, expect } from "vitest";
 import { join, resolve } from "node:path";
 import { testRegistry } from "./fixtures/registry.js";
 import { ledgerReadCheck } from "../src/agents/guards/read-confined.js";
+import { NAMED_GUARDS } from "../src/agents/guards/index.js";
 
 // The live testRegistry fixture builds extras with vaultPath "/tmp/v", subdir "AIOS".
 const VAULT = "/tmp/v/AIOS";
 
-describe("juno Read confinement (compiled role)", () => {
+describe("juno Read confinement (ledger-confine capability guard)", () => {
   const reg = testRegistry();
   const juno = reg.agents.get("juno")!;
-  const readCheck = juno.role.toolChecks!.Read;
+  const guardName = juno.capabilities.map((c) => reg.capabilities.get(c)?.guard).find(Boolean)!;
+  const named = NAMED_GUARDS[guardName]({ halaloDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
+  const readCheck = named.checks.Read;
 
   it("wires a Read guard with the default 'allow' fallback (mirrors old FinanceAgent)", () => {
+    expect(guardName).toBe("ledger-confine".replace("ledger-confine", "ledger-read-confine"));
     expect(readCheck).toBeDefined();
-    expect(juno.role.toolCheckFallback ?? "allow").toBe("allow");
+    expect(named.fallback ?? "allow").toBe("allow");
   });
 
   it("denies reads of secrets outside the finance evidence dirs", () => {

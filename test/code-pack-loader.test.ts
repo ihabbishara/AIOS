@@ -1,14 +1,15 @@
-// test/code-pack-loader.test.ts
+// test/code-pack-loader.test.ts — engineering department pins (capability era).
 import { describe, it, expect } from "vitest";
 import { testRegistry } from "./fixtures/registry.js";
+import { capabilityTools, departmentActions } from "../src/agents/registry/loader.js";
 
 describe("engineering department loads (registry)", () => {
   const reg = testRegistry();
   it("registers the engineering department with sandbox + vault.write ceiling", () => {
     const dept = reg.departments.get("engineering");
     expect(dept?.sandbox).toBe(true);
-    expect(dept?.actions).toEqual(["vault.write"]);
-    expect(dept?.toolsUnion).toContain("Bash");
+    expect(departmentActions(reg, "engineering")).toEqual(["vault.write"]);
+    expect(capabilityTools(reg, "vulcan")).toContain("Bash");
   });
   it("owns code-build and code-analyze", () => {
     expect(reg.playbooks.has("code-build")).toBe(true);

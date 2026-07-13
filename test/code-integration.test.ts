@@ -10,7 +10,6 @@ import { GoalEngine } from "../src/engine/goals.js";
 import { SpendGuard } from "../src/engine/budget.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { allocateWorkspace } from "../src/code/workspace.js";
-import { makeResolveDeptFor } from "../src/packs/resolve.js";
 import { ActionGate } from "../src/kernel/gate.js";
 import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";

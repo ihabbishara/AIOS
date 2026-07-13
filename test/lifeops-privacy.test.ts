@@ -4,6 +4,7 @@ import { recall } from "../src/memory/recall.js";
 import { roleOf } from "./fixtures/registry.js";
 import { isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
 import { testRegistry } from "./fixtures/registry.js";
+import { capabilityTools } from "../src/agents/registry/loader.js";
 
 // ---------------------------------------------------------------------------
 // Invariant 1: personal_tasks rows NEVER enter the recall index.
@@ -78,13 +79,14 @@ describe("lifeops privacy: jasmine refused from non-private origin", () => {
 describe("lifeops privacy: life department tools contain no outward/gated tools", () => {
   it("life department agents have only mcp__lifeops__* tools plus vault_read", () => {
     const reg = testRegistry();
-    const life = reg.departments.get("life")!;
-    expect(life).toBeDefined();
-    const tools = life.toolsUnion;
+    expect(reg.departments.get("life")).toBeDefined();
+    const tools = [...reg.agents.values()]
+      .filter((a) => a.department === "life")
+      .flatMap((a) => capabilityTools(reg, a.manifest.name));
     expect(tools).toContain("mcp__lifeops__add_task");
-    expect(tools).toContain("vault_read");
-    expect(tools).not.toContain("vault_write");
-    expect(tools).not.toContain("propose_action");
+    expect(tools).toContain("mcp__aios-pack__vault_read");
+    expect(tools).not.toContain("mcp__aios-pack__vault_write");
+    expect(tools).not.toContain("mcp__aios-pack__propose_action");
     for (const t of tools) {
       expect(t).not.toMatch(/propose|gate|email|git|calendar/i);
     }

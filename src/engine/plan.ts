@@ -6,7 +6,6 @@ import { toNewTaskNodes, type GraphNodeSpec } from "./compile.js";
 import { resolve } from "node:path";
 import type { Store } from "../store/db.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
-import type { ResolvedPack } from "../packs/resolve.js";
 
 export const MAX_NODES = 12;
 const KEY_RE = /^[a-z][a-z0-9-]*$/;

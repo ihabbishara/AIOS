@@ -9,11 +9,8 @@ import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { testRegistry } from "./fixtures/registry.js";
-import { makeResolveDeptFor } from "../src/packs/resolve.js";
-import { roleQueryOptions, packRunOptions } from "../src/agents/runner.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
 import { loadConfig } from "../src/config.js";
-import { withEffectiveTools } from "../src/agents/permissions.js";
 import { buildModeratorServer } from "../src/moderator/tools.js";
 import { makeHandOff } from "../src/moderator/handoff.js";
 import type { ModeratorToolsDeps } from "../src/moderator/tools.js";
@@ -44,81 +41,42 @@ const callText = async (h: { handler: ToolHandler }, a: unknown) =>
   (await h.handler(a)).content[0].text;
 
 // ---------------------------------------------------------------------------
-// Capability parity: hand_off and @mention resolve identical allowedTools
-//
-// Two DISTINCT production paths are exercised:
-//   Path A (@mention / DirectChats): roleQueryOptions → packRunOptions(pack?) → withEffectiveTools
-//                                    (mirrors direct.ts handle() option assembly — legacy until its cutover)
-//   Path B (hand_off / makeRunSpecialist): resolveAgent — the capability kernel
-//
-// If either path drops the dept resolution or skips withEffectiveTools the test will fail.
+// Capability surface pins — every seam resolves through resolveAgent (org-model
+// spec §7), so "parity" is structural; these pin the deny-row + resolution paths.
 // ---------------------------------------------------------------------------
 
 describe("capability parity", () => {
-  it("hand_off and @mention resolve identical allowedTools for every agent", () => {
+  function resolver() {
     const reg = testRegistry();
     const deps = makeDeps();
-    const resolveDeptFor = makeResolveDeptFor(reg, deps);
-    const origin = { channel: "cli", chatId: "x" };
-
-    for (const [name, def] of reg.agents) {
-      // hermes: the legacy Path A reads manifest tools ([]) while capabilities give the real
-      // coordinator set — Path A is the legacy composition, deleted in the cleanup task with this skip. TODO(org T8).
-      if (name === "hermes") continue;
-      // Shared pack — same isAgent=true closure used by both paths in production.
-      const pack = resolveDeptFor(name, origin, true);
-
-      // Path A: DirectChats handle() option assembly (DIRECT_ADDENDUM is prompt-only; allowedTools unaffected).
-      const baseA = roleQueryOptions(def.role, { cwd: "/tmp" });
-      const withPackA = pack ? packRunOptions(baseA, pack) : baseA;
-      const optionsA = withEffectiveTools(withPackA, name, deps.store);
-
-      // Path B: the capability kernel (what makeRunSpecialist resolves through).
-      const resolveAgent = makeResolveAgent({
-        registry: reg, store: deps.store, vault: deps.vault, gate: deps.gate,
-        config: loadConfig(process.cwd()), categorize: async () => "other" as const,
-      });
-      const optionsB = resolveAgent(name, origin, { cwd: "/tmp" })!.options;
-
-      expect([...(optionsA.allowedTools ?? [])].sort(), `${name} allowedTools`).toEqual(
-        [...(optionsB.allowedTools ?? [])].sort(),
-      );
-    }
-  });
-
-  it("a role_permission deny row is honoured by BOTH paths", () => {
-    const reg = testRegistry();
-    const deps = makeDeps();
-    const resolveDeptFor = makeResolveDeptFor(reg, deps);
-    const origin = { channel: "cli", chatId: "x" };
-
-    // Pick the first agent that has at least one base allowedTool to revoke.
-    const entry = [...reg.agents].find(([, d]) => (d.role.allowedTools?.length ?? 0) > 0);
-    expect(entry, "test requires at least one agent with allowedTools").toBeDefined();
-    const [name, def] = entry!;
-    const tool = def.role.allowedTools![0];
-
-    // Insert a deny row in the in-memory store — simulates a UI "revoke" action.
-    deps.store.setRolePermission(name, tool, 0, "test");
-
-    const pack = resolveDeptFor(name, origin, true);
-
-    // Path A
-    const baseA = roleQueryOptions(def.role, { cwd: "/tmp" });
-    const withPackA = pack ? packRunOptions(baseA, pack) : baseA;
-    const optionsA = withEffectiveTools(withPackA, name, deps.store);
-
-    // Path B
     const resolveAgent = makeResolveAgent({
       registry: reg, store: deps.store, vault: deps.vault, gate: deps.gate,
       config: loadConfig(process.cwd()), categorize: async () => "other" as const,
     });
-    const optionsB = resolveAgent(name, origin, { cwd: "/tmp" })!.options;
+    return { reg, deps, resolveAgent };
+  }
+  const origin = { channel: "cli", chatId: "x" };
 
-    expect(optionsA.allowedTools, `${name} Path A must drop ${tool}`).not.toContain(tool);
-    expect(optionsB.allowedTools, `${name} Path B must drop ${tool}`).not.toContain(tool);
-    // Parity holds even after a revoke.
-    expect([...(optionsA.allowedTools ?? [])].sort()).toEqual([...(optionsB.allowedTools ?? [])].sort());
+  it("every agent resolves; alias and canonical name yield the same surface", () => {
+    const { reg, resolveAgent } = resolver();
+    for (const [name, def] of reg.agents) {
+      const byName = resolveAgent(name, origin, { cwd: "/tmp" })!;
+      expect(byName, name).toBeTruthy();
+      const alias = def.manifest.aliases[0];
+      if (!alias) continue;
+      const byAlias = resolveAgent(alias, origin, { cwd: "/tmp" })!;
+      expect([...(byAlias.options.allowedTools ?? [])].sort(), `${name} via @${alias}`)
+        .toEqual([...(byName.options.allowedTools ?? [])].sort());
+    }
+  });
+
+  it("a role_permission deny row is honoured by the resolution path", () => {
+    const { reg, deps, resolveAgent } = resolver();
+    const entry = [...reg.agents].find(([, d]) => (d.role.allowedTools?.length ?? 0) > 0)!;
+    const [name, def] = entry;
+    const tool = def.role.allowedTools![0];
+    deps.store.setRolePermission(name, tool, 0, "test");
+    expect(resolveAgent(name, origin, { cwd: "/tmp" })!.options.allowedTools).not.toContain(tool);
   });
 });
 

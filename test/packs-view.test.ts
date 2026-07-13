@@ -14,8 +14,10 @@ function fixtureConfig(overrides: Record<string, unknown> = {}) {
   const pbEngDir = join(playbooksDir, "engineering");
   mkdirSync(engDir, { recursive: true });
   mkdirSync(pbEngDir, { recursive: true });
+  writeFileSync(join(agentsDir, "_capabilities.yaml"),
+    "files-basic: { tools: [Read, Edit, Write] }\nvw: { actions: [vault.write] }\n");
   writeFileSync(join(engDir, "department.yaml"),
-    `department: engineering\nmission: "Build software."\nmemoDomain: code\nsandbox: true\nactions: [vault.write]\nplaybooks: [code-build]\n`);
+    `department: engineering\nmission: "Build software."\nmemoDomain: code\nsandbox: true\ncapabilities: [files-basic, vw]\nplaybooks: [code-build]\n`);
   writeFileSync(join(engDir, "maya.yaml"),
     `name: maya\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns code changes.\npersona: Terse.\nprompt: You are maya.\ntools: [Read, Edit, Write]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\n`);
   writeFileSync(join(pbEngDir, "code-build.yaml"),

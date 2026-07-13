@@ -35,7 +35,7 @@ export interface AgentDef {
   capabilities: string[];
 }
 
-export type LoadedDepartment = DepartmentManifest & { toolsUnion: string[] };
+export type LoadedDepartment = DepartmentManifest;
 
 export interface LoadedRegistry {
   agents: Map<string, AgentDef>;
@@ -63,12 +63,12 @@ export function disabledDepartments(env: NodeJS.ProcessEnv, deptNames: Iterable<
   return out;
 }
 
-function compile(m: AgentManifest, x: AgentExtras = {}): RoleDef {
+function compile(m: AgentManifest, x: AgentExtras = {}, allowedTools: string[] = []): RoleDef {
   return {
     name: m.name,
     description: `${m.title} — ${m.charter.trim().split(/(?<=\.)\s/)[0]}`,
     systemPrompt: `${m.persona.trim()}\n\n${m.prompt.trim()}${x.promptSuffix ?? ""}`,
-    allowedTools: m.tools,
+    allowedTools,
     ...(m.model ? { model: m.model } : {}),
     permissionMode: m.permissionMode,
     maxTurns: m.maxTurns,
@@ -152,27 +152,7 @@ export function loadRegistry(
           throw new Error(`agent name collision: "${m.name}" (${dirName}/${f}) is already registered`);
         }
 
-        // ---- v2 kind (shim: infer when absent; deleted with the shims in the cleanup task) ----
-        const kind: AgentKind = m.kind
-          ?? (m.name === "hermes" ? "coordinator"
-            : m.outputSchema ? "critic"
-            : dept.lead === m.name ? "lead"
-            : "worker");
-
-        // ---- v2 capabilities (shim: synthesize from v1 fields when absent) ----
-        let capNames = [...new Set([...dept.capabilities, ...m.capabilities])];
-        if (m.capabilities.length === 0 && dept.capabilities.length === 0) {
-          const legacy = `__legacy:${m.name}`;
-          capabilities.set(legacy, capabilitySchema.parse({
-            tools: m.tools, actions: dept.actions, sandbox: dept.sandbox,
-          }));
-          capNames = [legacy];
-          for (const server of [dept.toolServer, ...dept.toolServers].filter(Boolean) as string[]) {
-            const key = `__legacy-server:${dept.department}:${server}`;
-            if (!capabilities.has(key)) capabilities.set(key, capabilitySchema.parse({ server }));
-            capNames.push(key);
-          }
-        }
+        const capNames = [...new Set([...dept.capabilities, ...m.capabilities])];
         for (const c of capNames) {
           const capDef = capabilities.get(c);
           if (!capDef) throw new Error(`unknown capability "${c}" on agent ${m.name}`);
@@ -180,10 +160,11 @@ export function loadRegistry(
             throw new Error(`unknown guard "${capDef.guard}" in capability "${c}" (agent ${m.name})`);
           }
         }
+        const tools = [...new Set(capNames.flatMap((c) => capabilities.get(c)!.tools).map(fqPackTool))];
 
         const def: AgentDef = {
-          manifest: m, role: compile(m, extras[m.name]), department: dept.department,
-          kind, capabilities: capNames,
+          manifest: m, role: compile(m, extras[m.name], tools), department: dept.department,
+          kind: m.kind, capabilities: capNames,
         };
         agents.set(m.name, def);
         agentOf.set(m.name, m.name);
@@ -197,10 +178,7 @@ export function loadRegistry(
         members.push(def);
       }
 
-      departments.set(dept.department, {
-        ...dept,
-        toolsUnion: [...new Set([...dept.tools, ...members.flatMap((a) => a.manifest.tools)])],
-      });
+      departments.set(dept.department, dept);
       for (const pb of dept.playbooks) ownerOfPlaybook.set(pb, dept.department);
     } catch (err) {
       // Boot-check violations must escape (collision/capability/guard errors are fatal by design);
@@ -229,6 +207,17 @@ export function capabilityTools(reg: LoadedRegistry, canonical: string): string[
   return [...new Set(
     def.capabilities.flatMap((c) => reg.capabilities.get(c)?.tools ?? []).map(fqPackTool),
   )];
+}
+
+/** Gate action-ceiling union for a department (dept defaults ∪ every member's capabilities). */
+export function departmentActions(reg: LoadedRegistry, deptName: string): string[] {
+  const dept = reg.departments.get(deptName);
+  if (!dept) return [];
+  const capNames = new Set(dept.capabilities);
+  for (const a of reg.agents.values()) {
+    if (a.department === deptName) for (const c of a.capabilities) capNames.add(c);
+  }
+  return [...new Set([...capNames].flatMap((c) => reg.capabilities.get(c)?.actions ?? []))];
 }
 
 /** Kill-switch: remove a department, its agents/aliases, and its playbooks. */

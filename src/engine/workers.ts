@@ -6,7 +6,6 @@
 import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
-import type { ResolvedPack } from "../packs/resolve.js";
 import type { AiosEvent } from "../events.js";
 import {
   appendEvents, attemptClaimed, readJournal,

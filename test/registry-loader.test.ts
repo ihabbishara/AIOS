@@ -35,7 +35,6 @@ describe("loadRegistry", () => {
     expect(reg.ownerOfPlaybook.get("eng-build")).toBe("engineering");
     expect(reg.ownerOfPlaybook.has("echo")).toBe(false);        // packless
     expect(reg.playbooks.has("echo")).toBe(true);
-    expect(reg.departments.get("engineering")!.toolsUnion).toEqual(["Read", "Edit", "Grep"]);
     const maya = reg.agents.get("maya")!;
     expect(maya.role.permissionMode).toBe("bypassPermissions");
     expect(maya.role.systemPrompt).toContain("Terse.");

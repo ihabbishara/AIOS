@@ -6,7 +6,7 @@ describe("kill-switch removes the engineering department from the registry", () 
   it("dropDepartment('engineering') deletes dept + its agents + aliases + playbooks", () => {
     const maya = {
       manifest: { name: "maya", title: "t", department: "engineering", charter: "c", persona: "p", prompt: "s",
-        tools: [], guards: [], skills: [], capabilities: [], maxTurns: 80, permissionMode: "bypassPermissions" as const, visibility: "shared" as const, aliases: ["developer"] },
+        tools: [], guards: [], skills: [], capabilities: [], kind: "coordinator" as const, maxTurns: 80, permissionMode: "bypassPermissions" as const, visibility: "shared" as const, aliases: ["developer"] },
       role: { name: "maya", description: "d", systemPrompt: "s", allowedTools: [], permissionMode: "bypassPermissions" as const, maxTurns: 80 },
       department: "engineering",
       kind: "coordinator" as const, capabilities: [],

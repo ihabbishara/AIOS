@@ -1,6 +1,6 @@
-// test/org-golden.test.ts — the migration's acceptance bar. The fixture pins the resolved
-// tool surface per agent; capability migration must reproduce it exactly. Regenerate ONLY
-// at documented delta points: npx tsx scripts/gen-org-golden.ts
+// test/org-golden.test.ts — pins every agent's resolved surface (tools sorted, permissionMode,
+// maxTurns, guard presence) through resolveAgent, the ONE resolution path. Regenerate ONLY at
+// documented delta points: npx tsx scripts/gen-org-golden.ts (then diff-review).
 import { describe, it, expect } from "vitest";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,9 +10,7 @@ import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
-import { makeResolveDeptFor } from "../src/packs/resolve.js";
-import { specialistOptions } from "../src/agents/runner.js";
-import { MODERATOR_ALLOWED_TOOLS } from "../src/moderator/session.js";
+import { makeResolveAgent } from "../src/agents/resolve.js";
 import type { ActionGate } from "../src/kernel/gate.js";
 
 const golden = JSON.parse(readFileSync("test/fixtures/org-golden.json", "utf8")) as
@@ -24,7 +22,7 @@ describe("org golden surface", () => {
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "golden-")), "AIOS");
   const gate = { propose: async () => ({}) } as unknown as ActionGate;
   const registry = loadRegistry("agents", "playbooks", buildExtras(config), () => {});
-  const resolveDeptFor = makeResolveDeptFor(registry, { store, vault, gate, toolServers: {} });
+  const resolve = makeResolveAgent({ registry, store, vault, gate, config, categorize: async () => "other" as const });
   const origin = { channel: "web", chatId: "ui" };
 
   it("fixture covers exactly the live registry", () => {
@@ -34,15 +32,12 @@ describe("org golden surface", () => {
   for (const name of Object.keys(golden)) {
     it(`${name} resolves to the pinned surface`, () => {
       const def = registry.agents.get(name)!;
-      if (name === "hermes") {
-        expect([...MODERATOR_ALLOWED_TOOLS].sort()).toEqual(golden[name].tools);
-        return;
-      }
-      const opts = specialistOptions(def.role, name, { cwd: "/tmp", pack: resolveDeptFor(name, origin, true) }, store);
-      expect([...(opts.allowedTools ?? [])].sort()).toEqual(golden[name].tools);
+      const r = resolve(name, origin)!;
+      expect([...(r.options.allowedTools ?? [])].sort()).toEqual(golden[name].tools);
       expect(def.role.permissionMode).toBe(golden[name].permissionMode);
       expect(def.role.maxTurns).toBe(golden[name].maxTurns);
-      expect(!!def.role.toolChecks).toBe(golden[name].guarded);
+      expect(def.capabilities.some((c) => registry.capabilities.get(c)?.guard !== undefined))
+        .toBe(golden[name].guarded);
     });
   }
 });

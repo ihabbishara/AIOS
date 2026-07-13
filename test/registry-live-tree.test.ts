@@ -10,8 +10,8 @@ import { ActionGate } from "../src/kernel/gate.js";
 import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
-import { makeResolveDeptFor } from "../src/packs/resolve.js";
-import { clampTools } from "../src/agents/runner.js";
+import { capabilityTools } from "../src/agents/registry/loader.js";
+import { NAMED_GUARDS } from "../src/agents/guards/index.js";
 
 const reg = loadRegistry(
   join(process.cwd(), "agents"),
@@ -19,14 +19,6 @@ const reg = loadRegistry(
   buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "IDAMA", financeMembers: [{ name: "Ihab" }] }),
 );
 
-function makeDeps() {
-  const vaultRoot = mkdtempSync(join(tmpdir(), "vault-"));
-  const store = new Store(":memory:");
-  const bus = new EventBus(store);
-  const vault = new VaultWriter(vaultRoot, "AIOS");
-  const gate = new ActionGate({ store, registry: new ExecutorRegistry(), policy: DEFAULT_POLICY, bus, expiryMs: 60_000 });
-  return { store, vault, gate };
-}
 
 describe("live agents/ tree", () => {
   it("loads 6 departments and 15 agents", () => {
@@ -50,12 +42,14 @@ describe("live agents/ tree", () => {
     })) expect(reg.agentOf.get(alias), alias).toBe(name);
   });
 
-  it("halalo extras wire the deterministic guard", () => {
-    const h = reg.agents.get("halalo")!.role;
-    expect(h.toolCheckFallback).toBe("deny");
-    expect(h.toolChecks?.Bash).toBeDefined();
-    expect(h.systemPrompt).toContain("Exports directory");
-    expect(h.systemPrompt).not.toMatch(/ABSOLUTE path under data\/downloads/);
+  it("halalo carries the deterministic readonly guard via the halalo-aws capability", () => {
+    const halalo = reg.agents.get("halalo")!;
+    const guards = halalo.capabilities.map((c) => reg.capabilities.get(c)?.guard).filter(Boolean);
+    expect(guards).toContain("halalo-readonly");
+    const named = NAMED_GUARDS["halalo-readonly"]({ halaloDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
+    expect(named.fallback).toBe("deny");
+    expect(named.checks.Bash).toBeDefined();
+    expect(halalo.role.systemPrompt).toContain("Exports directory");
   });
 
   it("jasmine prompt has unbroken tool chain", () => {
@@ -79,24 +73,14 @@ describe("tool ownership pins (regression guard against pack.yaml deletion)", ()
   ];
 
   it("cfo capability pin: midas resolved pack + clamp contains all 10 money tools + aios-pack recall/vault_read", () => {
-    const deps = makeDeps();
-    const resolve = makeResolveDeptFor(reg, deps);
-    const pack = resolve("midas", { channel: "cli", chatId: "x" }, true)!;
-    expect(pack).toBeDefined();
-    const midas = reg.agents.get("midas")!;
-    const clamped = clampTools(midas.role.allowedTools, pack.tools);
+    const clamped = capabilityTools(reg, "midas");
     for (const t of MONEY_TOOLS) expect(clamped, `cfo must have ${t}`).toContain(t);
     expect(clamped).toContain("mcp__aios-pack__recall");
     expect(clamped).toContain("mcp__aios-pack__vault_read");
   });
 
   it("bookkeeper privacy pin: juno clamped tools include ledger tools but NOT mcp__money__* nor the aios-pack memo tools", () => {
-    const deps = makeDeps();
-    const resolve = makeResolveDeptFor(reg, deps);
-    const pack = resolve("juno", { channel: "cli", chatId: "x" }, true)!;
-    expect(pack).toBeDefined();
-    const juno = reg.agents.get("juno")!;
-    const clamped = clampTools(juno.role.allowedTools, pack.tools);
+    const clamped = capabilityTools(reg, "juno");
     expect(clamped).toContain("mcp__ledger__add_expense");
     for (const t of MONEY_TOOLS) expect(clamped, `bookkeeper must NOT see ${t}`).not.toContain(t);
     // juno does not own bare recall/vault_read → the finance union's aios-pack memo tools
@@ -106,17 +90,8 @@ describe("tool ownership pins (regression guard against pack.yaml deletion)", ()
   });
 
   it("engineering shell pin: vulcan clamped tools contain mcp__code__sh + vault_write; athena does NOT get Edit/Write/Bash", () => {
-    const deps = makeDeps();
-    const resolve = makeResolveDeptFor(reg, deps);
-    const vulcanPack = resolve("vulcan", { channel: "cli", chatId: "x" }, true)!;
-    const athenaPack = resolve("athena", { channel: "cli", chatId: "x" }, true)!;
-    expect(vulcanPack).toBeDefined();
-    expect(athenaPack).toBeDefined();
-
-    const vulcan = reg.agents.get("vulcan")!;
-    const athena = reg.agents.get("athena")!;
-    const vulcanClamped = clampTools(vulcan.role.allowedTools, vulcanPack.tools);
-    const athenaClamped = clampTools(athena.role.allowedTools, athenaPack.tools);
+    const vulcanClamped = capabilityTools(reg, "vulcan");
+    const athenaClamped = capabilityTools(reg, "athena");
 
     expect(vulcanClamped).toContain("mcp__code__sh");
     expect(vulcanClamped).toContain("mcp__aios-pack__vault_write");

@@ -1,7 +1,6 @@
 import type { EventBus } from "../events.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
-import type { ResolvedPack } from "../packs/resolve.js";
 import { isPrivateOrigin } from "../agents/direct.js";
 
 export interface HandOffDeps {

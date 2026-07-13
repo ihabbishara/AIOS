@@ -9,16 +9,15 @@ export const agentSchema = z.object({
   persona: z.string().min(1),
   prompt: z.string().min(1),
   model: z.string().optional(),
-  tools: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
   maxTurns: z.number().int().positive().default(25),
   permissionMode: z.enum(["dontAsk", "bypassPermissions", "default"]).default("dontAsk"),
   visibility: z.enum(["shared", "private"]).default("shared"),
   outputSchema: z.enum(["verdict", "test-report"]).optional(),
   aliases: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/)).default([]),
-  /** v2: org role. Optional during migration (inferred by the loader shim); required after cleanup. */
-  kind: z.enum(["coordinator", "lead", "worker", "critic"]).optional(),
-  /** v2: capability names (agents/_capabilities.yaml), merged with the department's defaults. */
+  /** Org role — declared explicitly; workers are the default. Exactly one coordinator at boot. */
+  kind: z.enum(["coordinator", "lead", "worker", "critic"]).default("worker"),
+  /** Capability names (agents/_capabilities.yaml), merged with the department's defaults. */
   capabilities: z.array(z.string()).default([]),
 });
 export type AgentManifest = z.infer<typeof agentSchema>;
@@ -30,13 +29,7 @@ export const departmentSchema = z.object({
   lead: z.string().optional(),
   memoDomain: z.string().min(1),
   vaultSection: z.string().optional(),
-  toolServer: z.string().optional(),
-  /** Additional pack-specific MCP tool-server names (merged with singular toolServer, back-compat). */
-  toolServers: z.array(z.string()).default([]),
-  /** Dept-level tool names prepended to the toolsUnion (e.g. recall/vault_read that are safe dept-wide). */
-  tools: z.array(z.string()).default([]),
-  actions: z.array(z.string()).default([]),
-  /** v2: capability defaults inherited by every member agent. */
+  /** Capability defaults inherited by every member agent (org-model spec §4). */
   capabilities: z.array(z.string()).default([]),
   playbooks: z.array(z.string()).default([]),
   sandbox: z.boolean().default(false),

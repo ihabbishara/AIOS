@@ -9,7 +9,8 @@ describe("agentSchema", () => {
     });
     expect(a.visibility).toBe("shared");
     expect(a.aliases).toEqual([]);
-    expect(a.tools).toEqual([]);
+    expect(a.capabilities).toEqual([]);
+    expect(a.kind).toBe("worker"); // explicit-or-default (org-model)
     expect(a.permissionMode).toBe("dontAsk");
     expect(a.maxTurns).toBe(25);
   });
@@ -26,7 +27,7 @@ describe("departmentSchema", () => {
   it("parses and defaults vaultSection to department", () => {
     const d = departmentSchema.parse({ department: "engineering", mission: "Build software.", memoDomain: "code" });
     expect(d.vaultSection).toBe("engineering");
-    expect(d.actions).toEqual([]);
+    expect(d.capabilities).toEqual([]);
     expect(d.playbooks).toEqual([]);
     expect(d.sandbox).toBe(false);
   });

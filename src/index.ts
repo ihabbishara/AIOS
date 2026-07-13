@@ -3,7 +3,6 @@ import { existsSync, statSync, unlinkSync } from "node:fs";
 import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { makeResolveDeptFor } from "./packs/resolve.js";
 import { makeResolveAgent } from "./agents/resolve.js";
 import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
 import { buildExtras } from "./agents/registry/extras.js";
@@ -205,17 +204,7 @@ async function main(): Promise<void> {
   if (bunq.enabled()) log(`bunq sense: enabled (${config.bunqEnv})`);
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
-  // Resolve a department context for a playbook (GoalEngine facade) or an agent (direct @role chats).
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
-  const resolveDeptFor = makeResolveDeptFor(
-    registry,
-    { store, vault, gate, toolServers: {
-      money: (d) => buildMoneyServer({ store: d.store, categorize }),
-      research: (d) => buildResearchServer({ store: d.store }),
-      lifeops: (d) => buildLifeopsServer({ store: d.store }),
-      ledger: (d) => buildLedgerServer(d, { company: config.financeCompany, members: config.financeMembers }),
-    } },
-  );
   // The ONE resolution path (org-model spec §7) — runner/engine/handoff resolve through this;
   // resolveDeptFor coexists for the direct seam until its cutover, then dies with the Pack struct.
   const resolveAgent = makeResolveAgent({ registry, store, vault, gate, config, categorize });

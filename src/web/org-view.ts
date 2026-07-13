@@ -1,7 +1,7 @@
 // src/web/org-view.ts — pure builders behind GET /api/org and GET /api/agents/<name>.
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
-import { capabilityTools, type LoadedRegistry } from "../agents/registry/loader.js";
+import { capabilityTools, departmentActions, type LoadedRegistry } from "../agents/registry/loader.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
 
 export type AgentLiveStatus = "idle" | "working" | "waiting";
@@ -14,6 +14,12 @@ const HISTORY_WINDOW = 5000; // same window as /api/costs
 /** The router emits alias names on mention paths — canonicalize before matching registry entries. */
 function canonical(registry: LoadedRegistry, agent: string): string {
   return registry.agentOf.get(agent) ?? agent;
+}
+
+/** An agent is "guarded" when any of its capabilities carries a named deterministic guard. */
+function isGuarded(registry: LoadedRegistry, name: string): boolean {
+  const def = registry.agents.get(name);
+  return !!def?.capabilities.some((c) => registry.capabilities.get(c)?.guard);
 }
 
 export function buildOrgView(
@@ -58,7 +64,7 @@ export function buildOrgView(
           title: a.manifest.title,
           charter: a.manifest.charter.trim(),
           visibility: a.manifest.visibility,
-          guarded: !!a.role.toolChecks,
+          guarded: isGuarded(registry, a.manifest.name),
           status,
           currentTask: context,
           costTodayUsd: costToday.get(a.manifest.name) ?? 0,
@@ -70,7 +76,7 @@ export function buildOrgView(
       lead: dept.lead ?? null,
       memoDomain: dept.memoDomain,
       sandbox: dept.sandbox,
-      actions: dept.actions,
+      actions: departmentActions(registry, deptName),
       agents,
     });
   }
@@ -102,7 +108,7 @@ export function buildAgentProfile(
     .filter((o) => o.allow === 0 && baseSet.has(o.tool))
     .map((o) => ({ name: o.tool, source: "revoked" as const }));
 
-  const deptActions = new Set(dept?.actions ?? []);
+  const deptActions = new Set(dept ? departmentActions(registry, dept.department) : []);
   const trust = store.listTrust().filter((t) => deptActions.has(t.actionType));
 
   const recentRuns: AgentProfileInfo["recentRuns"] = [];
@@ -138,7 +144,7 @@ export function buildAgentProfile(
     permissionMode: def.role.permissionMode,
     model: def.manifest.model ?? null,
     skills: def.manifest.skills,
-    guarded: !!def.role.toolChecks,
+    guarded: isGuarded(registry, def.manifest.name),
     maxTurns: def.manifest.maxTurns,
     tools,
     revoked,

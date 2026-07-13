@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import type { Config } from "../config.js";
 import type { Store } from "../store/db.js";
 import { agentSchema, departmentSchema } from "../agents/registry/types.js";
+import { loadCapabilities, fqPackTool, type CapabilityDef } from "../agents/registry/capabilities.js";
 import { loadPlaybook, playbookSchema } from "../engine/playbook.js";
 
 // Reverse-alias map: new dept name → legacy env name
@@ -29,6 +30,9 @@ function isDeptEnabled(deptName: string): boolean {
 export function buildPacksView(config: Config, store: Store): PackView[] {
   const out: PackView[] = [];
   const agentsDir = config.agentsDir;
+  const capDefs = loadCapabilities(join(agentsDir, "_capabilities.yaml"));
+  const capTools = (names: string[]): string[] =>
+    [...new Set(names.flatMap((c) => capDefs.get(c)?.tools ?? []).map(fqPackTool))];
   let entries: string[];
   try { entries = readdirSync(agentsDir); } catch { return out; }
 
@@ -52,12 +56,15 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
     // Load agents in this dept to build roles view + tools union
     const roleViews: PackRoleView[] = [];
     const toolsSet = new Set<string>();
+    const capNamesSet = new Set<string>(dept.capabilities);
     for (const f of readdirSync(deptDir)) {
       if (!/\.ya?ml$/.test(f) || f === "department.yaml") continue;
       try {
         const m = agentSchema.parse(parseYaml(readFileSync(join(deptDir, f), "utf8")));
         if (m.department !== dept.department) continue;
-        for (const t of m.tools) toolsSet.add(t);
+        for (const c of m.capabilities) capNamesSet.add(c);
+        const agentTools = capTools([...dept.capabilities, ...m.capabilities]);
+        for (const t of agentTools) toolsSet.add(t);
         const desc = `${m.title} — ${m.charter.trim().split(/(?<=\.)\s/)[0]}`;
         roleViews.push({
           name: m.name,
@@ -65,7 +72,7 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
           privateOnly: m.visibility === "private",
           advisoryInDirect: dept.sandbox,
           permissionMode: m.permissionMode,
-          allowedTools: m.tools,
+          allowedTools: agentTools,
         });
       } catch { /* skip bad agent file */ }
     }
@@ -113,9 +120,9 @@ export function buildPacksView(config: Config, store: Store): PackView[] {
       vaultSection: dept.vaultSection,
       sandbox: dept.sandbox,
       enabled,
-      toolServer: dept.toolServer,
+      toolServer: [...new Set([...capNamesSet].map((c) => capDefs.get(c)?.server).filter(Boolean))].join(",") || undefined,
       tools: [...toolsSet],
-      actions: dept.actions,
+      actions: [...new Set([...capNamesSet].flatMap((c) => capDefs.get(c)?.actions ?? []))],
       roles: roleViews,
       playbooks: playbookViews,
       recentJobs: jobViews,

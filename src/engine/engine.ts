@@ -9,7 +9,6 @@ import type { Store, GoalRow, MailRow, NewTaskNode, TaskNodeRow } from "../store
 import { isPrivateOrigin } from "../agents/direct.js";
 import { slugify, type VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
-import type { ResolvedPack } from "../packs/resolve.js";
 import type { AiosEvent } from "../events.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import type { Playbook } from "./playbook.js";

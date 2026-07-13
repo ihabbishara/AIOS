@@ -1,6 +1,7 @@
 // test/research-pack.test.ts
 import { describe, it, expect } from "vitest";
 import { testRegistry } from "./fixtures/registry.js";
+import { departmentActions } from "../src/agents/registry/loader.js";
 import { dropDepartment } from "../src/agents/registry/loader.js";
 
 describe("research department (registry)", () => {
@@ -8,8 +9,8 @@ describe("research department (registry)", () => {
     const reg = testRegistry();
     const dept = reg.departments.get("research")!;
     expect(dept).toBeTruthy();
-    expect(dept.toolServer).toBe("research");
-    expect(dept.actions).toEqual(["vault.write"]);
+    expect(dept.capabilities).toContain("research-kb"); // capability names the server
+    expect(departmentActions(reg, "research")).toEqual(["vault.write"]);
     expect(dept.sandbox).toBeFalsy();
     expect(dept.memoDomain).toBe("research");
     expect(dept.vaultSection).toBe("knowledge");
@@ -29,7 +30,7 @@ describe("research department (registry)", () => {
 
   it("leaves finance + engineering departments intact", () => {
     const reg = testRegistry();
-    expect(reg.departments.get("finance")?.toolServer).toBe("money");
+    expect(reg.agents.get("midas")?.capabilities).toContain("money-analysis");
     expect(reg.departments.get("engineering")?.sandbox).toBe(true);
   });
 

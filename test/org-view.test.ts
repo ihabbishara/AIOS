@@ -18,8 +18,10 @@ export function fixtureRegistry() {
   mkdirSync(eng, { recursive: true });
   mkdirSync(fin, { recursive: true });
   mkdirSync(playbooksDir, { recursive: true });
+  writeFileSync(join(agentsDir, "_capabilities.yaml"),
+    "files-basic: { tools: [Read, Edit, Write] }\nvw: { actions: [vault.write] }\n");
   writeFileSync(join(eng, "department.yaml"),
-    `department: engineering\nmission: Build software safely.\nlead: athena\nmemoDomain: code\nsandbox: true\nactions: [vault.write]\nplaybooks: []\n`);
+    `department: engineering\nmission: Build software safely.\nlead: athena\nmemoDomain: code\nsandbox: true\ncapabilities: [files-basic, vw]\nplaybooks: []\n`);
   writeFileSync(join(eng, "vulcan.yaml"),
     // vulcan doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
     `name: vulcan\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns implementing code changes.\npersona: Terse.\nprompt: You are vulcan.\ntools: [Read, Edit, Write]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\nkind: coordinator\n`);

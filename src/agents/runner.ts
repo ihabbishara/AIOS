@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import type { RoleDef } from "./roles/index.js";
 import { guardOptions } from "./guards/index.js";
-import type { ResolvedPack } from "../packs/resolve.js";
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import type { LoadedRegistry } from "./registry/loader.js";
@@ -54,41 +53,7 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
   };
 }
 
-/** Ownership-based clamp: a pack tool survives only if the role actually owns it. Applies to
- *  aios-pack tools too — they are dept-scoped + gate-ceilinged, but a dept-mate must NOT
- *  inherit one it doesn't own (e.g. shared salim must never get faris's recall/vault_read via
- *  the finance union). aios-pack tools are owned by the BARE manifest name (recall/vault_read/…)
- *  which resolvePack maps to the fq mcp__aios-pack__ name; the fq name is also accepted. Every
- *  other tool (built-in or other mcp__ server) requires exact ownership. */
-export function clampTools(roleTools: string[] | undefined, packTools: string[]): string[] {
-  const owned = new Set(roleTools ?? []);
-  const AIOS_PACK = "mcp__aios-pack__";
-  return packTools.filter((t) => {
-    if (t.startsWith(AIOS_PACK)) return owned.has(t.slice(AIOS_PACK.length)) || owned.has(t);
-    return owned.has(t);
-  });
-}
 
-/** Apply a resolved pack to base SDK options: persona+memo appended to the prompt,
- *  tool allowlist clamped to role's built-ins + all pack MCP tools, scoped MCP server added.
- *  When pack.confinement is present, overrides permissionMode, drops allowDangerouslySkipPermissions,
- *  and installs the confinement guard (canUseTool + PreToolUse hook). Pure — returns a new object. */
-export function packRunOptions(base: Options, pack: ResolvedPack): Options {
-  const merged: Options = {
-    ...base,
-    systemPrompt: `${base.systemPrompt}\n\n${pack.contextBlock}`,
-    allowedTools: clampTools(base.allowedTools, pack.tools),
-    mcpServers: { ...(base.mcpServers ?? {}), ...(pack.mcpServers as Options["mcpServers"]) },
-  };
-  if (pack.confinement) {
-    merged.permissionMode = pack.confinement.permissionMode;
-    delete (merged as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
-    const g = guardOptions(pack.confinement.guard, pack.confinement.fallback);
-    merged.canUseTool = g.canUseTool;
-    merged.hooks = { ...(merged.hooks ?? {}), ...(g.hooks ?? {}) };
-  }
-  return merged;
-}
 
 export interface SpecialistResult {
   text: string;
@@ -123,20 +88,6 @@ export type SpecialistRunFn = (
   opts: RunOptions,
 ) => Promise<SpecialistResult>;
 
-/**
- * LEGACY pure option assembly (pre-capability kernel) — kept only for the org-golden
- * fixture generator/pin and the not-yet-cut-over direct seam; dies in the deletion sweep.
- */
-export function specialistOptions(
-  role: RoleDef,
-  canonical: string,
-  opts: { cwd: string; model?: string; pack?: ResolvedPack },
-  store: Store,
-): Options {
-  const baseOptions = roleQueryOptions(role, { cwd: opts.cwd, model: opts.model });
-  const withPack = opts.pack ? packRunOptions(baseOptions, opts.pack) : baseOptions;
-  return withEffectiveTools(withPack, canonical, store);
-}
 
 /** Merge the aios-mail server into run options: server + allowlist entry + unread-mail prompt
  *  block. Pure. MUST be applied BEFORE withDenialObserver wraps (the observer denies from the
