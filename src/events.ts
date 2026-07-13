@@ -32,7 +32,22 @@ export interface StoredEvent {
   id: number;
   ts: string;
   event: AiosEvent;
+  /** Info-flow confidentiality labels stamped by source at emit (spec §6). */
+  labels?: string[];
+  /** Info-flow integrity origin — untrusted for inbound email/calendar text. */
+  origin?: "trusted" | "untrusted";
 }
+
+/** Per-type source-label stamp (spec §6). Inbound gmail/calendar carry untrusted external text;
+ *  everything else is internal org traffic from a trusted origin. The single emit choke point
+ *  stamps every event so senses don't each have to. */
+const EVENT_LABELS: Record<string, { labels: string[]; origin: "trusted" | "untrusted" }> = {
+  "mail.received": { labels: ["personal.email"], origin: "untrusted" },
+  "calendar.changed": { labels: ["personal.calendar"], origin: "untrusted" },
+  "calendar.reminder": { labels: ["personal.calendar"], origin: "untrusted" },
+};
+const DEFAULT_STAMP = { labels: ["org.internal"], origin: "trusted" as const };
+const stampFor = (type: string) => EVENT_LABELS[type] ?? DEFAULT_STAMP;
 
 /** In-process event bus; every event is also persisted for history/replay/dashboards. */
 export class EventBus {
@@ -44,7 +59,8 @@ export class EventBus {
 
   emit(event: AiosEvent): void {
     const id = this.store.addEvent(JSON.stringify(event));
-    const stored: StoredEvent = { id, ts: new Date().toISOString(), event };
+    const s = stampFor(event.type);
+    const stored: StoredEvent = { id, ts: new Date().toISOString(), event, labels: s.labels, origin: s.origin };
     for (const l of this.emitter.listeners("event")) {
       try {
         (l as (e: StoredEvent) => void)(stored);
@@ -60,10 +76,10 @@ export class EventBus {
   }
 
   history(sinceId = 0, limit = 500): StoredEvent[] {
-    return this.store.listEvents(sinceId, limit).map((row) => ({
-      id: row.id,
-      ts: row.ts,
-      event: JSON.parse(row.payload) as AiosEvent,
-    }));
+    return this.store.listEvents(sinceId, limit).map((row) => {
+      const event = JSON.parse(row.payload) as AiosEvent;
+      const s = stampFor(event.type);
+      return { id: row.id, ts: row.ts, event, labels: s.labels, origin: s.origin };
+    });
   }
 }
