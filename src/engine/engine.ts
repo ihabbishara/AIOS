@@ -116,6 +116,8 @@ export class GoalEngine {
           this.emit({ type: "node.status", goalId, nodeKey: String(p.node), status: "failed", agent: agentOf(String(p.node)), error: String(p.error ?? "") }); break;
         case "node.skipped":
           this.emit({ type: "node.status", goalId, nodeKey: String(p.node), status: "skipped", agent: agentOf(String(p.node)) }); break;
+        case "review.requested":
+          this.emit({ type: "node.status", goalId, nodeKey: String(p.node), status: "needs-review", agent: agentOf(String(p.node)) }); break;
         default: break; // attempt.started emits node.status from the worker; the rest are internal
       }
     }
@@ -463,6 +465,45 @@ export class GoalEngine {
       this.mailReport(this.deps.store.getGoal(g.id)!, false, "abandoned by user", files);
     }
     return `Goal ${g.slug} abandoned; unfinished nodes skipped.`;
+  }
+
+  /** Apply a human verdict to a needs-review node (verification-hardening §4).
+   *  accept → completes with a waiver in the artifact frontmatter; retry → one
+   *  human-granted attempt with guidance as producer feedback; abandon → node fails
+   *  into the normal onNodeFailure path. */
+  resolveReview(idOrSlug: string, nodeKey: string, verdict: "accept" | "retry" | "abandon",
+    opts: { by: string; guidance?: string }): string {
+    const g = this.findGoal(idOrSlug);
+    if (!g) return `No goal "${idOrSlug}".`;
+    if (g.legacy) return `Goal ${g.slug} is a frozen legacy goal — read-only.`;
+    const state = this.fold(g.id);
+    const n = state.nodes.get(nodeKey);
+    if (!n || n.status !== "needs-review") return `Node ${nodeKey} of ${g.slug} is not awaiting review.`;
+    const resolved: EventInput = { type: "review.resolved", payload: {
+      node: nodeKey, verdict, by: opts.by, ...(opts.guidance ? { guidance: opts.guidance } : {}),
+    } };
+    if (verdict === "accept") {
+      // Waiver is recorded in the FINAL artifact's frontmatter — "done with waiver"
+      // is queryable, never silent (spec §4).
+      const src = n.lastArtifactRef ? this.deps.vault.readGoalArtifact(g.goal_dir!, n.lastArtifactRef) : undefined;
+      const body = src ? src.replace(/^---\n[\s\S]*?\n---\n\n?/, "") : `(missing artifact ${n.lastArtifactRef ?? "?"})`;
+      const file = `${nodeKey}.md`;
+      this.deps.vault.writeGoalArtifact(g.goal_dir!, file, body, {
+        goal: g.id, node: nodeKey, role: n.spec.agent,
+        "approved-with-waiver": true,
+        objections: (n.reviewObjections ?? []).join("; "),
+        "waived-by": opts.by,
+      });
+      this.journal(g.id, [resolved,
+        { type: "node.completed", payload: { node: nodeKey, artifactRef: file, roundsUsed: n.currentRound } }]);
+    } else if (verdict === "abandon") {
+      this.journal(g.id, [resolved,
+        { type: "node.failed", payload: { node: nodeKey, error: "review: abandoned by user" } }]);
+    } else {
+      this.journal(g.id, [resolved]);
+    }
+    this.tick();
+    return `Node ${nodeKey} of ${g.slug}: ${verdict}.`;
   }
 
   resumeBudgetPaused(): number {
