@@ -61,6 +61,10 @@ function harness(planOutputs: unknown[]) {
     if (role === "athena" && planCalls < planOutputs.length) {
       return { text: "plan", structured: planOutputs[planCalls++], costUsd: 0.02, numTurns: 1 };
     }
+    if (role === "minos-eng") {
+      // Loop critics must approve — cap-without-approval now parks needs-review (spec §4).
+      return { text: "ok", structured: { verdict: "approve", summary: "ok", reasons: [] }, costUsd: 0.01, numTurns: 1 };
+    }
     return { text: "node out", costUsd: 0.01, numTurns: 1 };
   };
   const planner = makePlanner({

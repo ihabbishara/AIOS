@@ -63,6 +63,18 @@ export function validateGraph(nodes: GraphNodeSpec[], ctx: ValidateCtx): Validat
         return { ok: false, error: `node ${n.key}: verify runner "${n.agent}" must carry outputSchema: test-report` };
       }
     }
+    // No self-approval (verification-hardening §5): a loop's producer may not be its own
+    // critic; a verify's runner may not be its own fixer. Compare canonically — aliases
+    // must not smuggle the same agent into both seats. Cross-department planning means a
+    // foreign critic is always available, so this never makes a plan unsatisfiable.
+    if ((n.type === "loop" || n.type === "verify") && n.critic) {
+      const canon = (name: string) => ctx.registry.agentOf.get(name) ?? name;
+      if (canon(n.agent) === canon(n.critic)) {
+        return n.type === "loop"
+          ? { ok: false, error: `node ${n.key}: producer and critic must be different agents (no self-approval) — pick a critic from another team` }
+          : { ok: false, error: `node ${n.key}: runner and fixer must be different agents (no self-verification) — pick a fixer from another team` };
+      }
+    }
   }
 
   // Kahn topological sort — preserves input order among ready nodes for stable output.
