@@ -1,0 +1,292 @@
+// src/engine/workers.ts — attempt runner + abort registry. A worker executes one
+// StartAttempt command: claims it via attempt.started (a lost optimistic-gseq claim
+// means another context owns it — drop silently), runs the node kind with per-round
+// journal events, and closes with attempt.finished. Crash mid-loop resumes at round N
+// with the critic's last feedback, not round 1.
+import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
+import type { VaultWriter } from "../vault/writer.js";
+import type { SpecialistRunFn } from "../agents/runner.js";
+import type { ResolvedPack } from "../packs/resolve.js";
+import type { AiosEvent } from "../events.js";
+import {
+  appendEvents, attemptClaimed, readJournal,
+  type NodeSpec, type AttemptOutcome, type EventInput,
+  type AttemptStartedPayload, type RoundRecordedPayload,
+} from "./journal.js";
+import { reduce } from "./reduce.js";
+
+const ARTIFACT_CHAR_LIMIT = 12_000;
+
+export class SessionLimitError extends Error {
+  readonly name = "SessionLimitError";
+}
+
+const SESSION_LIMIT_PATTERNS = ["you've hit your session limit", "hit your session limit"] as const;
+function isSessionLimitOutput(text: string): boolean {
+  const lower = text.toLowerCase().trimStart();
+  return SESSION_LIMIT_PATTERNS.some((p) => lower.includes(p));
+}
+
+export interface Verdict { verdict: "approve" | "revise"; summary: string; reasons: string[] }
+export interface TestReport { passed: boolean; summary: string; failures: string[] }
+
+function truncate(text: string, limit = ARTIFACT_CHAR_LIMIT): string {
+  return text.length <= limit ? text : `${text.slice(0, limit)}\n\n[...truncated]`;
+}
+
+/** Transitive dependency closure of `key`, restricted to done nodes with an artifact. */
+export function ancestorArtifacts(nodes: TaskNodeRow[], key: string): TaskNodeRow[] {
+  const byKey = new Map(nodes.map((n) => [n.node_key, n]));
+  const seen = new Set<string>();
+  const walk = (k: string) => {
+    for (const dep of JSON.parse(byKey.get(k)?.depends_on ?? "[]") as string[]) {
+      if (seen.has(dep)) continue;
+      seen.add(dep);
+      walk(dep);
+    }
+  };
+  walk(key);
+  return nodes.filter((n) => seen.has(n.node_key) && n.status === "done" && n.artifact);
+}
+
+function contextBlock(goal: GoalRow, ancestors: TaskNodeRow[], vault: VaultWriter): string {
+  const parts = [
+    `# Task\n${goal.request}`,
+    goal.project_dir ? `# Working directory\n${goal.project_dir}` : "",
+  ];
+  for (const a of ancestors) {
+    const content = vault.readGoalArtifact(goal.goal_dir!, a.artifact!) ?? "";
+    parts.push(`# Prior artifact: ${a.artifact} (by ${a.agent})\n${truncate(content)}`);
+  }
+  return parts.filter(Boolean).join("\n\n---\n\n");
+}
+
+/** One AbortController per in-flight attempt, keyed goalId:node:attempt. The engine's
+ *  clock tick aborts past-deadline attempts; crossing the budget cap aborts everything. */
+export class AbortRegistry {
+  private controllers = new Map<string, AbortController>();
+  private reasons = new Map<string, "timeout" | "budget" | "abandoned">();
+
+  key(goalId: string, node: string, attempt: number): string {
+    return `${goalId}:${node}:${attempt}`;
+  }
+  register(key: string): AbortController {
+    const c = new AbortController();
+    this.controllers.set(key, c);
+    return c;
+  }
+  abort(key: string, reason: "timeout" | "budget" | "abandoned"): void {
+    const c = this.controllers.get(key);
+    if (!c) return;
+    this.reasons.set(key, reason);
+    c.abort();
+  }
+  abortAll(reason: "timeout" | "budget" | "abandoned"): void {
+    for (const key of [...this.controllers.keys()]) this.abort(key, reason);
+  }
+  reason(key: string): "timeout" | "budget" | "abandoned" | undefined {
+    return this.reasons.get(key);
+  }
+  finish(key: string): void {
+    this.controllers.delete(key);
+    this.reasons.delete(key);
+  }
+  size(): number { return this.controllers.size; }
+}
+
+export interface WorkerDeps {
+  store: Store;
+  vault: VaultWriter;
+  run: SpecialistRunFn;
+  model?: string;
+  log?: (l: string) => void;
+  onEvent?: (e: AiosEvent) => void;
+  resolvePack: (goal: GoalRow, spec: NodeSpec, attempt: number) => ResolvedPack | undefined;
+  registry: AbortRegistry;
+  nodeTimeoutMs: number;
+}
+
+export interface AttemptResult {
+  claimed: boolean;
+  outcome: AttemptOutcome | null;
+  sessionLimit: boolean;
+}
+
+export async function runAttempt(
+  goal: GoalRow, spec: NodeSpec, attempt: number, deps: WorkerDeps,
+): Promise<AttemptResult> {
+  const { store, vault } = deps;
+  const regKey = deps.registry.key(goal.id, spec.key, attempt);
+  const deadlineTs = Date.now() + (spec.kind === "run" ? 1 : 2) * deps.nodeTimeoutMs;
+  const startedPayload: AttemptStartedPayload = {
+    node: spec.key, attempt, agent: spec.agent, deadlineTs,
+    idempotencyKey: `${goal.id}:${spec.key}:${attempt}`,
+  };
+  const claimed = appendEvents(store, goal.id,
+    [{ type: "attempt.started", payload: startedPayload as unknown as Record<string, unknown> }],
+    { claimLost: attemptClaimed(spec.key, attempt) });
+  if (!claimed) return { claimed: false, outcome: null, sessionLimit: false };
+  deps.onEvent?.({ type: "node.status", goalId: goal.id, nodeKey: spec.key, status: "running", agent: spec.agent });
+
+  const controller = deps.registry.register(regKey);
+  let costCents = 0;
+  let turns = 0;
+
+  const runAgent = async (role: string, brief: string) => {
+    const context = `goal:${goal.slug}/${spec.key}`;
+    deps.onEvent?.({ type: "agent.start", agent: role, context });
+    try {
+      const res = await deps.run(role, brief, {
+        cwd: goal.project_dir ?? process.cwd(),
+        model: deps.model,
+        signal: controller.signal,
+        pack: deps.resolvePack(goal, spec, attempt),
+        mailCtx: {
+          origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
+          goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: spec.key,
+        },
+      });
+      if (isSessionLimitOutput(res.text)) {
+        deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
+        throw new SessionLimitError("Agent hit session limit — re-run after quota resets");
+      }
+      deps.onEvent?.({ type: "agent.end", agent: role, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
+      costCents += Math.round((res.costUsd ?? 0) * 100);
+      turns += res.numTurns ?? 0;
+      return res;
+    } catch (err) {
+      if (!(err instanceof SessionLimitError)) {
+        deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
+      }
+      throw err;
+    }
+  };
+
+  const save = (file: string, content: string, role: string): void => {
+    vault.writeGoalArtifact(goal.goal_dir!, file, content, { goal: goal.id, node: spec.key, role });
+  };
+  const recordRound = (payload: RoundRecordedPayload): void => {
+    appendEvents(store, goal.id, [{ type: "round.recorded", payload: payload as unknown as Record<string, unknown> }]);
+  };
+  const finish = (outcome: AttemptOutcome, error?: string, final?: { artifactRef: string; roundsUsed: number }): void => {
+    const events: EventInput[] = [{
+      type: "attempt.finished",
+      payload: { node: spec.key, attempt, outcome, costCents, turns, ...(error ? { error } : {}) },
+    }];
+    if (final) {
+      // A node parked via ask_mail is already done — never re-complete it.
+      const st = reduce(readJournal(store, goal.id)).nodes.get(spec.key);
+      if (st?.status !== "done") {
+        events.push({ type: "node.completed", payload: { node: spec.key, artifactRef: final.artifactRef, roundsUsed: final.roundsUsed } });
+      }
+    }
+    appendEvents(store, goal.id, events);
+  };
+  /** Fresh fold — resume data (rounds, feedback, last artifact) survives crashes/retries. */
+  const nodeState = () => reduce(readJournal(store, goal.id)).nodes.get(spec.key);
+
+  try {
+    const ctx = contextBlock(goal, ancestorArtifacts(store.listNodes(goal.id), spec.key), vault);
+    switch (spec.kind) {
+      case "run": {
+        const brief = [spec.brief, ctx].filter(Boolean).join("\n\n");
+        const res = await runAgent(spec.agent, brief);
+        const file = `${spec.key}.md`;
+        save(file, res.text, spec.agent);
+        finish("ok", undefined, { artifactRef: file, roundsUsed: 0 });
+        break;
+      }
+      case "loop": {
+        const st = nodeState();
+        let feedback = st?.lastFeedback ?? "";
+        let lastOutput = st?.lastArtifactRef ? (vault.readGoalArtifact(goal.goal_dir!, st.lastArtifactRef) ?? "") : "";
+        let approved = st?.lastVerdict?.verdict === "approve";
+        let round = st?.currentRound ?? 0;
+        while (!approved && round < spec.maxRounds) {
+          round++;
+          const producerBrief = [
+            spec.brief, ctx,
+            feedback ? `# Reviewer feedback (round ${round - 1}) — address every point\n${feedback}` : "",
+            lastOutput ? `# Your previous version\n${truncate(lastOutput)}` : "",
+          ].filter(Boolean).join("\n\n");
+          const produced = await runAgent(spec.agent, producerBrief);
+          lastOutput = produced.text;
+          save(`${spec.key}-v${round}.md`, produced.text, spec.agent);
+
+          const criticBrief = [
+            `Review the following ${spec.agent} output against the original task.`,
+            ctx,
+            `# Output under review (round ${round})\n${truncate(produced.text)}`,
+          ].join("\n\n");
+          const review = await runAgent(spec.critic!, criticBrief);
+          const verdict = review.structured as Verdict | undefined;
+          save(`${spec.key}-review-${round}.md`,
+            verdict ? `**Verdict:** ${verdict.verdict}\n\n${verdict.summary}\n\n${verdict.reasons.map((r) => `- ${r}`).join("\n")}` : review.text,
+            spec.critic!);
+          feedback = verdict ? [verdict.summary, ...verdict.reasons].join("\n- ") : review.text;
+          recordRound({ node: spec.key, attempt, round, role: "critic", verdict, feedback, artifactRef: `${spec.key}-v${round}.md` });
+          if (verdict?.verdict === "approve") approved = true;
+        }
+        const note = approved ? "" : `\n\n> [!warning] Loop cap reached (${spec.maxRounds} rounds) without approval — proceeding with last version.\n`;
+        const file = `${spec.key}.md`;
+        save(file, lastOutput + note, spec.agent);
+        finish("ok", undefined, { artifactRef: file, roundsUsed: round });
+        break;
+      }
+      case "verify": {
+        const st = nodeState();
+        let report: TestReport | undefined = st?.lastReport ?? undefined;
+        let round = st?.runnerRounds ?? 0;
+        let fixedThrough = st?.fixerRounds ?? 0;
+        while (round < spec.maxRounds && (round === 0 || (report && !report.passed))) {
+          if (round > 0 && report && !report.passed && fixedThrough < round) {
+            const fixBrief = [
+              ctx,
+              `# Failing verification (round ${round}) — fix these\n${report.summary}\n${report.failures.map((f) => `- ${f}`).join("\n")}`,
+            ].join("\n\n");
+            const fix = await runAgent(spec.critic!, fixBrief);
+            save(`${spec.key}-fix-${round}.md`, fix.text, spec.critic!);
+            recordRound({ node: spec.key, attempt, round, role: "fixer", feedback: report.summary, artifactRef: `${spec.key}-fix-${round}.md` });
+            fixedThrough = round;
+          }
+          round++;
+          const runnerBrief = [spec.brief, ctx, "Run the verification now."].filter(Boolean).join("\n\n");
+          const res = await runAgent(spec.agent, runnerBrief);
+          report = res.structured as TestReport | undefined;
+          save(`${spec.key}-run-${round}.md`,
+            report ? `**Passed:** ${report.passed}\n\n${report.summary}\n\n${report.failures.map((f) => `- ${f}`).join("\n")}` : res.text,
+            spec.agent);
+          recordRound({
+            node: spec.key, attempt, round, role: "runner", report,
+            feedback: report && !report.passed ? [report.summary, ...report.failures].join("\n- ") : "",
+            artifactRef: `${spec.key}-run-${round}.md`,
+          });
+          if (!report) break;
+        }
+        const summary = report
+          ? `**Passed:** ${report.passed}\n\n${report.summary}${report.failures.length ? `\n\nFailures:\n${report.failures.map((f) => `- ${f}`).join("\n")}` : ""}`
+          : "No structured test report produced.";
+        const file = `${spec.key}.md`;
+        save(file, summary, spec.agent);
+        finish("ok", undefined, { artifactRef: file, roundsUsed: round });
+        if (report && !report.passed) {
+          deps.log?.(`node ${spec.key}: verification still failing after ${spec.maxRounds} rounds`);
+        }
+        break;
+      }
+    }
+    return { claimed: true, outcome: "ok", sessionLimit: false };
+  } catch (err) {
+    if (err instanceof SessionLimitError) {
+      finish("error", err.message);
+      return { claimed: true, outcome: "error", sessionLimit: true };
+    }
+    const abortReason = deps.registry.reason(regKey);
+    const outcome: AttemptOutcome =
+      abortReason === "timeout" ? "timeout" : abortReason ? "aborted" : "error";
+    finish(outcome, (err as Error).message);
+    return { claimed: true, outcome, sessionLimit: false };
+  } finally {
+    deps.registry.finish(regKey);
+  }
+}
