@@ -129,6 +129,7 @@ export interface GoalNodeView {
 
 export interface GoalView {
   id: string; slug: string; title: string; department: string; lead: string;
+  originChannel: string;
   status: string; planSummary: string; replansUsed: number; error: string | null;
   createdAt: string; updatedAt: string; projectDir: string | null; goalDir: string | null;
   nodes: GoalNodeView[];
@@ -150,3 +151,27 @@ export interface UserThreadView {
 }
 
 export interface BudgetInfo { date: string; spentCents: number; capCents: number | null }
+
+/** One row of the unified needs-you queue (Ember Cockpit spec §5, §9.1). */
+export interface AttentionItem {
+  kind: "approval" | "ask" | "goal" | "mail" | "sense";
+  id: string;
+  title: string;
+  meta: string;
+  /** 1 approvals · 2 asks · 3 failed/paused goals · 4 unread mail · 5 ambient. */
+  severity: 1 | 2 | 3 | 4 | 5;
+  ts: string;
+  /** Inline verbs the row offers: approve, reject, answer, open, read, resume, abandon. */
+  actions: string[];
+  /** Kind-specific pointers the canvas needs (actionId, mailId, threadId, goalId, slug, status, sense). */
+  ref: Record<string, string>;
+}
+
+/** GET /api/health (already served; typed here so ui2 can consume it). */
+export interface HealthInfo {
+  uptimeMs: number;
+  voice: boolean;
+  senses: Array<{ name: string; ok: boolean; reason?: string }>;
+  sseClients: number;
+  dbBytes: number;
+}

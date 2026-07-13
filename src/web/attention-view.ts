@@ -1,0 +1,80 @@
+// src/web/attention-view.ts — pure builder behind /api/attention (Ember Cockpit spec §5, §9.1).
+// Assembles the unified needs-you queue server-side: proposed actions + user asks +
+// failed/paused goals + unread user mail + degraded senses. Graduation offers join
+// here when the verification-hardening spec ships.
+import type { Store } from "../store/db.js";
+import type { AttentionItem } from "./dto.js";
+
+export type { AttentionItem } from "./dto.js";
+export type SensesFn = () => Array<{ name: string; ok: boolean; reason?: string }>;
+
+const FAILED_WINDOW_MS = 48 * 3_600_000;
+
+function firstLine(s: string, max = 140): string {
+  const l = s.split("\n")[0].trim();
+  return l.length > max ? `${l.slice(0, max - 1)}…` : l;
+}
+
+export function buildAttentionView(
+  store: Store,
+  senses?: SensesFn,
+  now: () => Date = () => new Date(),
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  const nowIso = now().toISOString();
+
+  // 1 — approvals (proposed, not yet expired; the sweep is lazy so filter here too)
+  for (const a of store.listActions("proposed", 100)) {
+    if (a.expires_at <= nowIso) continue;
+    items.push({
+      kind: "approval", id: a.id, title: firstLine(a.preview),
+      meta: `${a.type} · expires ${a.expires_at.slice(5, 16).replace("T", " ")}`,
+      severity: 1, ts: a.created_at, actions: ["approve", "reject", "open"],
+      ref: { actionId: a.id },
+    });
+  }
+
+  // 2 — agent asks blocking parked goals
+  for (const m of store.pendingUserAsks()) {
+    items.push({
+      kind: "ask", id: m.id, title: firstLine(m.body),
+      meta: `${m.from_agent} is blocked on your answer`,
+      severity: 2, ts: m.created_at, actions: ["answer", "open"],
+      ref: { mailId: m.id, threadId: m.thread_id ?? m.id, ...(m.goal_id ? { goalId: m.goal_id } : {}) },
+    });
+  }
+
+  // 3 — failed (48h window on updated_at) + paused goals (any age)
+  const cutoff = new Date(now().getTime() - FAILED_WINDOW_MS).toISOString();
+  const failed = store.goalsUpdatedSince(cutoff).filter((g) => g.status === "failed" && g.legacy !== 1);
+  const pausedUser = store.listGoals(200).filter((g) => g.status === "paused-user" && g.legacy !== 1);
+  for (const g of [...failed, ...store.pausedBudgetGoals(), ...pausedUser]) {
+    items.push({
+      kind: "goal", id: g.id, title: g.title,
+      meta: `${g.department} · ${g.status === "failed" ? firstLine(g.error ?? "failed", 80) : g.status}`,
+      severity: 3, ts: g.updated_at,
+      actions: g.status === "failed" ? ["open", "abandon"] : ["open", "resume", "abandon"],
+      ref: { goalId: g.id, slug: g.slug, status: g.status },
+    });
+  }
+
+  // 4 — unread user mail (a thread whose only flag is a pending ask is already ranked 2)
+  for (const t of store.userThreads()) {
+    if (t.unread === 0 || t.pending_ask > 0) continue;
+    items.push({
+      kind: "mail", id: t.thread_id, title: firstLine(t.last_body), meta: `from ${t.last_from}`,
+      severity: 4, ts: t.last_ts, actions: ["open", "read"], ref: { threadId: t.thread_id },
+    });
+  }
+
+  // 5 — ambient: degraded senses
+  for (const s of senses?.() ?? []) {
+    if (s.ok) continue;
+    items.push({
+      kind: "sense", id: s.name, title: `${s.name} needs attention`, meta: s.reason ?? "degraded",
+      severity: 5, ts: nowIso, actions: ["open"], ref: { sense: s.name },
+    });
+  }
+
+  return items.sort((a, b) => a.severity - b.severity || (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+}

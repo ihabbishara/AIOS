@@ -19,6 +19,7 @@ import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.j
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
 import { buildOrgView, buildAgentProfile } from "./org-view.js";
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
+import { buildAttentionView } from "./attention-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -194,6 +195,10 @@ export function startWebServer(deps: WebDeps, port: number): Server {
             sseClients,
             dbBytes,
           });
+        }
+
+        if (path === "/api/attention" && req.method === "GET") {
+          return json(res, 200, buildAttentionView(store, deps.senses));
         }
 
         if (path === "/api/costs" && req.method === "GET") {

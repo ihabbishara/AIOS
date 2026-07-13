@@ -21,6 +21,7 @@ function nodeView(n: TaskNodeRow): GoalNodeView {
 function goalView(g: GoalRow, store: Store): GoalView {
   return {
     id: g.id, slug: g.slug, title: g.title, department: g.department, lead: g.lead,
+    originChannel: g.origin_channel,
     status: g.status, planSummary: g.plan_summary, replansUsed: g.replans_used, error: g.error,
     createdAt: g.created_at, updatedAt: g.updated_at, projectDir: g.project_dir, goalDir: g.goal_dir,
     nodes: store.listNodes(g.id).map(nodeView),
