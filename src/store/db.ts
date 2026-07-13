@@ -28,6 +28,8 @@ export interface GoalRow {
   spawned_by_mail: string | null;
   /** When parked (status 'awaiting-mail'), the request id whose answer un-parks this goal. */
   awaiting_mail?: string | null;
+  /** 1 = frozen pre-journal goal (readable, never scheduled); 0 = journal-backed projection. */
+  legacy?: number;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -314,6 +316,12 @@ export class Store {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail(thread_id)");
     // Migration (mail-clarification): the request a parked goal is blocked on.
     try { this.db.exec("ALTER TABLE goals ADD COLUMN awaiting_mail TEXT"); } catch { /* exists */ }
+    // Migration (journaled engine): freeze pre-journal goals. Runs exactly once — the
+    // ALTER succeeds only the first time; rows existing at that moment are the legacy set.
+    try {
+      this.db.exec("ALTER TABLE goals ADD COLUMN legacy INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("UPDATE goals SET legacy = 1");
+    } catch { /* column exists — migration already ran */ }
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
     this.db.exec("DROP TABLE IF EXISTS jobs; DROP TABLE IF EXISTS stages;");
     this.db.exec(`
@@ -580,13 +588,18 @@ export class Store {
 
   unfinishedGoals(): GoalRow[] {
     return this.db.prepare(
-      "SELECT * FROM goals WHERE status IN ('planning','running','replanning') ORDER BY created_at ASC",
+      "SELECT * FROM goals WHERE status IN ('planning','running','replanning') AND legacy = 0 ORDER BY created_at ASC",
     ).all() as unknown as GoalRow[];
   }
 
   pausedBudgetGoals(): GoalRow[] {
-    return this.db.prepare("SELECT * FROM goals WHERE status = 'paused-budget' ORDER BY created_at ASC")
+    return this.db.prepare("SELECT * FROM goals WHERE status = 'paused-budget' AND legacy = 0 ORDER BY created_at ASC")
       .all() as unknown as GoalRow[];
+  }
+
+  /** Test/ops helper mirroring the freeze migration: mark all current rows legacy. */
+  freezeLegacyGoals(): void {
+    this.db.exec("UPDATE goals SET legacy = 1");
   }
 
   updateGoalStatus(id: string, status: GoalStatus, error?: string): void {
@@ -919,7 +932,7 @@ export class Store {
   }
 
   awaitingMailGoals(): GoalRow[] {
-    return this.db.prepare("SELECT * FROM goals WHERE status = 'awaiting-mail' ORDER BY created_at ASC")
+    return this.db.prepare("SELECT * FROM goals WHERE status = 'awaiting-mail' AND legacy = 0 ORDER BY created_at ASC")
       .all() as unknown as GoalRow[];
   }
 

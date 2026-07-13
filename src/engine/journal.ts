@@ -3,6 +3,7 @@
 // Append-only; optimistic gseq claims: a failed INSERT on (goal_id, gseq) IS the
 // claim-loss signal. Synchronous node:sqlite makes each append a natural critical section.
 import type { Store, JournalRow } from "../store/db.js";
+import { projectEvent } from "./project.js";
 
 export type JournalEventType =
   | "goal.created" | "plan.recorded" | "replan.recorded"
@@ -116,7 +117,9 @@ export function appendEvents(
         const out: JournalEvent[] = [];
         events.forEach((e, i) => {
           const seq = store.journalInsert(goalId, base + 1 + i, e.type, JSON.stringify(e.payload), now);
-          out.push({ seq, goalId, gseq: base + 1 + i, type: e.type, payload: e.payload, v: 1, ts: now });
+          const ev: JournalEvent = { seq, goalId, gseq: base + 1 + i, type: e.type, payload: e.payload, v: 1, ts: now };
+          projectEvent(store, ev);
+          out.push(ev);
         });
         opts?.also?.();
         return out;
@@ -140,6 +143,7 @@ export function replayInto(store: Store, events: JournalEvent[]): void {
   for (const ev of events) {
     runTx(store, () => {
       store.journalInsert(ev.goalId, ev.gseq, ev.type, JSON.stringify(ev.payload), ev.ts);
+      projectEvent(store, ev);
     });
   }
 }
