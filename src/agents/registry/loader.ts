@@ -3,8 +3,12 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { loadPlaybook, type Playbook } from "../../engine/playbook.js";
 import { agentSchema, departmentSchema, type AgentManifest, type DepartmentManifest } from "./types.js";
+import { capabilitySchema, loadCapabilities, type CapabilityDef } from "./capabilities.js";
 import { VERDICT_SCHEMA, TEST_REPORT_SCHEMA, type RoleDef } from "../roles/index.js";
+import { NAMED_GUARDS } from "../guards/index.js";
 import type { ToolCheck } from "../guards/halalo-readonly.js";
+
+export type AgentKind = "coordinator" | "lead" | "worker" | "critic";
 
 const SCHEMA_BY_NAME: Record<string, Record<string, unknown>> = {
   verdict: VERDICT_SCHEMA as unknown as Record<string, unknown>,
@@ -25,6 +29,10 @@ export interface AgentDef {
   manifest: AgentManifest;
   role: RoleDef;
   department: string;
+  /** v2: org role — explicit in the manifest, or inferred by the migration shim. */
+  kind: AgentKind;
+  /** v2: effective capability names (dept defaults ∪ agent extras), deduped, boot-validated. */
+  capabilities: string[];
 }
 
 export type LoadedDepartment = DepartmentManifest & { toolsUnion: string[] };
@@ -36,6 +44,10 @@ export interface LoadedRegistry {
   agentOf: Map<string, string>;
   ownerOfPlaybook: Map<string, string>;
   playbooks: Map<string, Playbook>;
+  /** v2: capability definitions (agents/_capabilities.yaml + migration-shim synthetics). */
+  capabilities: Map<string, CapabilityDef>;
+  /** v2: canonical name of the single kind: coordinator agent (hermes). */
+  coordinator: string;
 }
 
 export const LEGACY_DISABLE_ALIAS: Record<string, string> = {
@@ -57,6 +69,7 @@ function compile(m: AgentManifest, x: AgentExtras = {}): RoleDef {
     description: `${m.title} — ${m.charter.trim().split(/(?<=\.)\s/)[0]}`,
     systemPrompt: `${m.persona.trim()}\n\n${m.prompt.trim()}${x.promptSuffix ?? ""}`,
     allowedTools: m.tools,
+    ...(m.model ? { model: m.model } : {}),
     permissionMode: m.permissionMode,
     maxTurns: m.maxTurns,
     ...(m.skills.length ? { skills: m.skills } : {}),
@@ -107,6 +120,7 @@ export function loadRegistry(
   const agentOf = new Map<string, string>();
   const ownerOfPlaybook = new Map<string, string>();
   const playbooks = scanPlaybooks(playbooksDir, log);
+  const capabilities = loadCapabilities(join(agentsDir, "_capabilities.yaml"));
 
   for (const dirName of existsSync(agentsDir) ? readdirSync(agentsDir) : []) {
     const dirPath = join(agentsDir, dirName);
@@ -127,20 +141,57 @@ export function loadRegistry(
 
       const members: AgentDef[] = [];
       for (const f of readdirSync(dirPath).sort()) {
-        if (!/\.ya?ml$/.test(f) || f === "department.yaml") continue;
+        if (!/\.ya?ml$/.test(f) || f === "department.yaml" || f.startsWith("_")) continue;
         let m: AgentManifest;
         try { m = agentSchema.parse(parse(readFileSync(join(dirPath, f), "utf8"))); }
         catch (err) { log(`agent ${dirName}/${f} skipped: ${(err as Error).message}`); continue; }
         if (m.department !== dirName) { log(`agent ${dirName}/${f} skipped: department mismatch`); continue; }
         // "user" is the human's mail identity and a security predicate (workspace gate) — reserved.
         if (m.name === "user") { log(`agent ${dirName}/${f} skipped: "user" is a reserved name`); continue; }
-        if (agents.has(m.name) || agentOf.has(m.name)) { log(`agent ${dirName}/${f} skipped: duplicate name "${m.name}"`); continue; }
-        const def: AgentDef = { manifest: m, role: compile(m, extras[m.name]), department: dept.department };
+        if (agents.has(m.name) || agentOf.has(m.name)) {
+          throw new Error(`agent name collision: "${m.name}" (${dirName}/${f}) is already registered`);
+        }
+
+        // ---- v2 kind (shim: infer when absent; deleted with the shims in the cleanup task) ----
+        const kind: AgentKind = m.kind
+          ?? (m.name === "hermes" ? "coordinator"
+            : m.outputSchema ? "critic"
+            : dept.lead === m.name ? "lead"
+            : "worker");
+
+        // ---- v2 capabilities (shim: synthesize from v1 fields when absent) ----
+        let capNames = [...new Set([...dept.capabilities, ...m.capabilities])];
+        if (m.capabilities.length === 0 && dept.capabilities.length === 0) {
+          const legacy = `__legacy:${m.name}`;
+          capabilities.set(legacy, capabilitySchema.parse({
+            tools: m.tools, actions: dept.actions, sandbox: dept.sandbox,
+          }));
+          capNames = [legacy];
+          for (const server of [dept.toolServer, ...dept.toolServers].filter(Boolean) as string[]) {
+            const key = `__legacy-server:${dept.department}:${server}`;
+            if (!capabilities.has(key)) capabilities.set(key, capabilitySchema.parse({ server }));
+            capNames.push(key);
+          }
+        }
+        for (const c of capNames) {
+          const capDef = capabilities.get(c);
+          if (!capDef) throw new Error(`unknown capability "${c}" on agent ${m.name}`);
+          if (capDef.guard && !(capDef.guard in NAMED_GUARDS)) {
+            throw new Error(`unknown guard "${capDef.guard}" in capability "${c}" (agent ${m.name})`);
+          }
+        }
+
+        const def: AgentDef = {
+          manifest: m, role: compile(m, extras[m.name]), department: dept.department,
+          kind, capabilities: capNames,
+        };
         agents.set(m.name, def);
         agentOf.set(m.name, m.name);
         for (const a of m.aliases) {
           if (a === "user") { log(`agent ${m.name}: alias "user" dropped (reserved)`); continue; }
-          if (agentOf.has(a)) { log(`agent ${m.name}: alias "${a}" dropped (already taken)`); continue; }
+          if (agentOf.has(a)) {
+            throw new Error(`alias collision: "${a}" already registered (while loading ${m.name})`);
+          }
           agentOf.set(a, m.name);
         }
         members.push(def);
@@ -152,10 +203,22 @@ export function loadRegistry(
       });
       for (const pb of dept.playbooks) ownerOfPlaybook.set(pb, dept.department);
     } catch (err) {
+      // Boot-check violations must escape (collision/capability/guard errors are fatal by design);
+      // only filesystem/parse trouble is skip-and-log.
+      if (/collision|unknown capability|unknown guard/.test((err as Error).message)) throw err;
       log(`agents entry ${dirName} skipped: ${(err as Error).message}`);
     }
   }
-  return { agents, departments, agentOf, ownerOfPlaybook, playbooks };
+
+  const coordinators = [...agents.values()].filter((a) => a.kind === "coordinator").map((a) => a.manifest.name);
+  // Exactly one coordinator when anything loaded at all; an entirely empty registry (all
+  // departments skipped / bare test trees) has nothing to coordinate and passes through.
+  if (coordinators.length > 1 || (coordinators.length === 0 && agents.size > 0)) {
+    throw new Error(`exactly one kind: coordinator agent required, found ${coordinators.length} [${coordinators.join(", ")}]`);
+  }
+  const coordinator = coordinators[0] ?? "";
+
+  return { agents, departments, agentOf, ownerOfPlaybook, playbooks, capabilities, coordinator };
 }
 
 /** Kill-switch: remove a department, its agents/aliases, and its playbooks. */

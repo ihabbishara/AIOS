@@ -16,7 +16,8 @@ function scaffold() {
   writeFileSync(join(agents, "finance", "department.yaml"),
     "department: finance\nmission: Money specialist.\nmemoDomain: money\nplaybooks: [sub-audit]\n");
   writeFileSync(join(agents, "finance", "faris.yaml"),
-    "name: faris\ntitle: CFO\ndepartment: finance\ncharter: Manages money.\npersona: Precise.\nprompt: You are the CFO.\ntools: [Read]\nmaxTurns: 20\n");
+    // faris doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
+    "name: faris\ntitle: CFO\ndepartment: finance\ncharter: Manages money.\npersona: Precise.\nprompt: You are the CFO.\ntools: [Read]\nmaxTurns: 20\nkind: coordinator\n");
   writeFileSync(join(pbs, "sub-audit.yaml"),
     "name: sub-audit\ndescription: audit subs\nstages:\n  - { type: single, id: s1, role: faris }\n");
   return { root, agents, pbs };

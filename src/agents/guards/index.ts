@@ -1,7 +1,37 @@
+import { join, resolve } from "node:path";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolCheck } from "./halalo-readonly.js";
+import { halaloToolChecks, type ToolCheck } from "./halalo-readonly.js";
+import { ledgerReadCheck } from "./read-confined.js";
+import { atlasMutatingChecks } from "./atlas-mutating.js";
 
 export type { ToolCheck, GuardVerdict } from "./halalo-readonly.js";
+
+export interface GuardConfig {
+  halaloDir: string;
+  vaultPath: string;
+  vaultSubdir: string;
+}
+
+export interface NamedGuard {
+  checks: Record<string, ToolCheck>;
+  fallback?: "deny";
+}
+
+/** Named deterministic guards referenced by capability `guard:` fields (org-model spec §3).
+ *  Unknown names are a boot error (loader validates). Guards AND-compose: every guard must allow. */
+export const NAMED_GUARDS: Record<string, (cfg: GuardConfig) => NamedGuard> = {
+  "halalo-readonly": (cfg) => ({ checks: halaloToolChecks(cfg.halaloDir), fallback: "deny" }),
+  // Mirror of the extras.ts juno readRoots: finance evidence dirs + attachment staging.
+  "ledger-read-confine": (cfg) => ({
+    checks: ledgerReadCheck([
+      join(cfg.vaultPath, cfg.vaultSubdir, "finance"),
+      join(cfg.vaultPath, cfg.vaultSubdir, "attachments"),
+      "/tmp/aios-",
+      resolve("data/downloads"),
+    ]),
+  }),
+  "atlas-mutating": () => ({ checks: atlasMutatingChecks() }),
+};
 
 /**
  * Wires per-tool checks into SDK options with defense in depth:

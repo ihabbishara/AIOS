@@ -28,7 +28,7 @@ describe("pack e2e (via resolvePack with Pack shape)", () => {
     );
     writeFileSync(
       join(agentsDir, "finance", "faris.yaml"),
-      "name: faris\ntitle: CFO\ndepartment: finance\ncharter: Manages money.\npersona: Precise.\nprompt: You are the CFO.\ntools: [Read]\nmaxTurns: 20\n",
+      "name: faris\ntitle: CFO\ndepartment: finance\ncharter: Manages money.\npersona: Precise.\nprompt: You are the CFO.\ntools: [Read]\nmaxTurns: 20\nkind: coordinator\n",
     );
     writeFileSync(
       join(pbDir, "audit.yaml"),

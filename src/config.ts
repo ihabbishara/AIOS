@@ -28,6 +28,8 @@ export interface Config {
   nodeTimeoutMs: number;
   moderatorModel?: string;
   specialistModel?: string;
+  /** Model for kind: critic agents (AIOS_CRITIC_MODEL) — falls back to specialistModel (spec §6). */
+  criticModel?: string;
   /**
    * chatKey ("channel:chatId") -> binding. Bound chats bypass the moderator.
    * "telegram:-100123=finance|halalo": first agent handles every message, rest via @role.
@@ -205,6 +207,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     nodeTimeoutMs: Number(process.env.AIOS_NODE_TIMEOUT_MS ?? 15 * 60 * 1000),
     moderatorModel: process.env.AIOS_MODERATOR_MODEL,
     specialistModel: process.env.AIOS_SPECIALIST_MODEL,
+    criticModel: process.env.AIOS_CRITIC_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     chatBindings: parseBindings(process.env.AIOS_CHAT_BINDINGS),
     financeCompany: process.env.AIOS_FINANCE_COMPANY ?? "IDAMA",
     financeMembers: parseMembers(process.env.AIOS_FINANCE_MEMBERS),

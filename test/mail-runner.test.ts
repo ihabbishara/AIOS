@@ -22,7 +22,7 @@ function fixtureRegistry() {
   writeFileSync(join(eng, "vulcan.yaml"),
     "name: vulcan\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n");
   writeFileSync(join(eng, "athena.yaml"),
-    "name: athena\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n");
+    "name: athena\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\nkind: coordinator\n"); // fixture coordinator (loader v2)
   return loadRegistry(agentsDir, join(root, "playbooks"));
 }
 

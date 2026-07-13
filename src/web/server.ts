@@ -43,6 +43,7 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
   { key: "AIOS_FINANCE_MEMBERS", secret: false },
   { key: "AIOS_MODERATOR_MODEL", secret: false },
   { key: "AIOS_SPECIALIST_MODEL", secret: false },
+  { key: "AIOS_CRITIC_MODEL", secret: false },
   { key: "AIOS_MAX_CONCURRENT_JOBS", secret: false },
   { key: "AIOS_PROJECTS_ROOT", secret: false },
   { key: "AIOS_UI_TOKEN", secret: true },

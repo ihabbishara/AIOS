@@ -27,6 +27,8 @@ export interface RoleDef {
   privateOnly?: boolean;
   /** Extra absolute dirs the attachment server may serve from for this role (e.g. vault receipts). */
   attachDirs?: string[];
+  /** Per-agent model override (manifest `model:`) — wins over kind-tier defaults (org-model spec §6). */
+  model?: string;
   maxTurns: number;
 }
 

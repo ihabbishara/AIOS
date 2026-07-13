@@ -20,8 +20,9 @@ export function fixtureRegistry() {
   writeFileSync(join(eng, "department.yaml"),
     "department: engineering\nmission: Build.\nlead: athena\nmemoDomain: code\nplaybooks: []\n");
   for (const n of ["athena", "vulcan", "odin", "minos", "argus"]) {
+    // athena doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
     writeFileSync(join(eng, `${n}.yaml`),
-      `name: ${n}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n`);
+      `name: ${n}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n${n === "athena" ? "kind: coordinator\n" : ""}`);
   }
   return loadRegistry(join(root, "agents"), join(root, "playbooks"));
 }

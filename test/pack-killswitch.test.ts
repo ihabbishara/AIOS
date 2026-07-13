@@ -6,12 +6,12 @@ import type { LoadedRegistry } from "../src/agents/registry/loader.js";
 function reg(): LoadedRegistry {
   const engineering = {
     department: "engineering", mission: "Build software.", memoDomain: "code",
-    vaultSection: "code", tools: [], sandbox: true, actions: ["vault.write"], playbooks: ["code-build"],
+    vaultSection: "code", tools: [], sandbox: true, actions: ["vault.write"], capabilities: [], playbooks: ["code-build"],
     toolServer: undefined, toolServers: [], toolsUnion: [], privateMemo: false,
   };
   const finance = {
     department: "finance", mission: "Money.", memoDomain: "money",
-    vaultSection: "money", tools: [], sandbox: false, actions: [], playbooks: [],
+    vaultSection: "money", tools: [], sandbox: false, actions: [], capabilities: [], playbooks: [],
     toolServer: undefined, toolServers: [], toolsUnion: [], privateMemo: false,
   };
   const maya = {
@@ -32,6 +32,7 @@ function reg(): LoadedRegistry {
     agentOf: new Map([["maya", "maya"], ["developer", "maya"], ["faris", "faris"], ["cfo", "faris"]]),
     ownerOfPlaybook: new Map([["code-build", "engineering"]]),
     playbooks: new Map([["code-build", {} as any]]),
+    capabilities: new Map(), coordinator: "maya",
   };
 }
 

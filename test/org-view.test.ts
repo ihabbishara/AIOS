@@ -21,7 +21,8 @@ export function fixtureRegistry() {
   writeFileSync(join(eng, "department.yaml"),
     `department: engineering\nmission: Build software safely.\nlead: athena\nmemoDomain: code\nsandbox: true\nactions: [vault.write]\nplaybooks: []\n`);
   writeFileSync(join(eng, "vulcan.yaml"),
-    `name: vulcan\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns implementing code changes.\npersona: Terse.\nprompt: You are vulcan.\ntools: [Read, Edit, Write]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\n`);
+    // vulcan doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
+    `name: vulcan\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns implementing code changes.\npersona: Terse.\nprompt: You are vulcan.\ntools: [Read, Edit, Write]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\nkind: coordinator\n`);
   writeFileSync(join(fin, "department.yaml"),
     `department: finance\nmission: Money visibility.\nmemoDomain: money\nactions: []\nplaybooks: []\nprivateMemo: true\n`);
   writeFileSync(join(fin, "midas.yaml"),

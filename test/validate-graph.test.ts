@@ -19,7 +19,7 @@ function fixtureRegistry() {
     "department: engineering\nmission: Build.\nlead: athena\nmemoDomain: code\nplaybooks: []\n");
   const agent = (name: string, extra = "") =>
     `name: ${name}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n${extra}`;
-  writeFileSync(join(eng, "athena.yaml"), agent("athena"));
+  writeFileSync(join(eng, "athena.yaml"), agent("athena", "kind: coordinator\n")); // fixture coordinator (loader v2)
   writeFileSync(join(eng, "vulcan.yaml"), agent("vulcan", "aliases: [developer]\n"));
   writeFileSync(join(eng, "argus.yaml"), agent("argus", "outputSchema: test-report\n"));
   writeFileSync(join(eng, "themis.yaml"), agent("themis")); // free-text reviewer — NOT a valid loop critic

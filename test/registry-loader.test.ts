@@ -16,8 +16,9 @@ function scaffold() {
     "name: eng-build\ndescription: build\nstages:\n  - type: single\n    id: impl\n    role: maya\n");
   writeFileSync(join(agents, "engineering", "department.yaml"),
     "department: engineering\nmission: Build software.\nmemoDomain: code\nplaybooks: [eng-build]\n");
+  // maya doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
   writeFileSync(join(agents, "engineering", "maya.yaml"),
-    "name: maya\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns code changes.\npersona: Terse.\nprompt: You are an engineer.\ntools: [Read, Edit]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\n");
+    "name: maya\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns code changes.\npersona: Terse.\nprompt: You are an engineer.\ntools: [Read, Edit]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\nkind: coordinator\n");
   writeFileSync(join(agents, "engineering", "ziad.yaml"),
     "name: ziad\ntitle: Eng Researcher\ndepartment: engineering\ncharter: Investigates.\npersona: Fast.\nprompt: You research.\ntools: [Read, Grep]\n");
   return { root, agents, pbs };
@@ -48,15 +49,15 @@ describe("loadRegistry", () => {
     expect(reg.agents.has("imp")).toBe(false);
   });
 
-  it("skips duplicate names and colliding aliases, keeps first", () => {
+  it("duplicate names and colliding aliases are boot errors (org-model spec §2)", () => {
     writeFileSync(join(t.agents, "engineering", "zz-dup.yaml"),
       "name: maya\ntitle: T\ndepartment: engineering\ncharter: c\npersona: p\nprompt: s\n");
-    writeFileSync(join(t.agents, "engineering", "zz-alias.yaml"),
+    expect(() => loadRegistry(t.agents, t.pbs)).toThrow(/collision/i);
+
+    const t2 = scaffold();
+    writeFileSync(join(t2.agents, "engineering", "zz-alias.yaml"),
       "name: newbie\ntitle: T\ndepartment: engineering\ncharter: c\npersona: p\nprompt: s\naliases: [developer]\n");
-    const reg = loadRegistry(t.agents, t.pbs);
-    expect(reg.agents.get("maya")!.manifest.title).toBe("Senior Engineer");
-    expect(reg.agentOf.get("developer")).toBe("maya");
-    expect(reg.agents.has("newbie")).toBe(true);                 // agent loads, alias dropped
+    expect(() => loadRegistry(t2.agents, t2.pbs)).toThrow(/alias collision/i);
   });
 
   it("skips a department referencing a missing playbook", () => {

@@ -16,6 +16,10 @@ export const agentSchema = z.object({
   visibility: z.enum(["shared", "private"]).default("shared"),
   outputSchema: z.enum(["verdict", "test-report"]).optional(),
   aliases: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/)).default([]),
+  /** v2: org role. Optional during migration (inferred by the loader shim); required after cleanup. */
+  kind: z.enum(["coordinator", "lead", "worker", "critic"]).optional(),
+  /** v2: capability names (agents/_capabilities.yaml), merged with the department's defaults. */
+  capabilities: z.array(z.string()).default([]),
 });
 export type AgentManifest = z.infer<typeof agentSchema>;
 
@@ -32,6 +36,8 @@ export const departmentSchema = z.object({
   /** Dept-level tool names prepended to the toolsUnion (e.g. recall/vault_read that are safe dept-wide). */
   tools: z.array(z.string()).default([]),
   actions: z.array(z.string()).default([]),
+  /** v2: capability defaults inherited by every member agent. */
+  capabilities: z.array(z.string()).default([]),
   playbooks: z.array(z.string()).default([]),
   sandbox: z.boolean().default(false),
   /** When true, the department's memo block is injected ONLY for private-visibility agents.

@@ -19,7 +19,8 @@ function fixtureRegistry() {
   mkdirSync(join(root, "playbooks"), { recursive: true });
   writeFileSync(join(eng, "department.yaml"),
     "department: engineering\nmission: Build.\nlead: athena\nmemoDomain: code\nplaybooks: []\n");
-  for (const [n, extra] of [["athena", ""], ["vulcan", ""], ["odin", ""], ["minos-eng", "outputSchema: verdict\n"]] as const) {
+  // athena doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
+  for (const [n, extra] of [["athena", "kind: coordinator\n"], ["vulcan", ""], ["odin", ""], ["minos-eng", "outputSchema: verdict\n"]] as const) {
     writeFileSync(join(eng, `${n}.yaml`),
       `name: ${n}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n${extra}`);
   }

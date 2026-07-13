@@ -22,7 +22,7 @@ function fixtureRegistry() {
     "department: engineering\nmission: Build.\nlead: athena\nmemoDomain: code\nplaybooks: []\n");
   const agent = (name: string, dept: string, extra = "") =>
     `name: ${name}\ntitle: T\ndepartment: ${dept}\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n${extra}`;
-  writeFileSync(join(eng, "athena.yaml"), agent("athena", "engineering"));
+  writeFileSync(join(eng, "athena.yaml"), agent("athena", "engineering", "kind: coordinator\n")); // fixture coordinator (loader v2)
   writeFileSync(join(eng, "vulcan.yaml"), agent("vulcan", "engineering"));
   writeFileSync(join(fin, "department.yaml"),
     "department: finance\nmission: Money.\nlead: midas\nmemoDomain: money\nplaybooks: []\nprivateMemo: true\n");

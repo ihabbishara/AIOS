@@ -23,9 +23,9 @@ function fixtureRegistry() {
   mkdirSync(join(root, "playbooks"), { recursive: true });
   writeFileSync(join(eng, "department.yaml"),
     "department: engineering\nmission: Build.\nlead: athena\nmemoDomain: code\nplaybooks: []\n");
-  const agent = (name: string) =>
-    `name: ${name}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n`;
-  writeFileSync(join(eng, "athena.yaml"), agent("athena"));
+  const agent = (name: string, extra = "") =>
+    `name: ${name}\ntitle: T\ndepartment: engineering\ncharter: c.\npersona: p.\nprompt: x.\ntools: [Read]\n${extra}`;
+  writeFileSync(join(eng, "athena.yaml"), agent("athena", "kind: coordinator\n")); // fixture coordinator (loader v2)
   writeFileSync(join(eng, "vulcan.yaml"), agent("vulcan"));
   writeFileSync(join(fin, "department.yaml"),
     "department: finance\nmission: Money.\nlead: midas\nmemoDomain: money\nplaybooks: []\nprivateMemo: true\n");

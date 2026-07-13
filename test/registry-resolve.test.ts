@@ -27,7 +27,7 @@ function scaffold() {
     "department: engineering\nmission: Build software.\nmemoDomain: code\nplaybooks: [eng-build]\n");
   // maya agent (alias: developer)
   writeFileSync(join(agents, "engineering", "maya.yaml"),
-    "name: maya\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns code changes.\npersona: Terse.\nprompt: You are an engineer.\ntools: [Read, Edit]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\n");
+    "name: maya\ntitle: Senior Engineer\ndepartment: engineering\ncharter: Owns code changes.\npersona: Terse.\nprompt: You are an engineer.\ntools: [Read, Edit]\npermissionMode: bypassPermissions\nmaxTurns: 80\naliases: [developer]\nkind: coordinator\n");
   // finance department (toolServer: money, empty playbooks)
   writeFileSync(join(agents, "finance", "department.yaml"),
     "department: finance\nmission: Money visibility.\nmemoDomain: money\ntoolServer: money\nplaybooks: []\n");
