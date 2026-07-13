@@ -50,9 +50,13 @@ export interface TrustInfo {
   approvals: number;
   rejections: number;
   streak: number;
+  shadowMatches: number;
   firstSeen: string;
   lastRejection: string | null;
   graduatedAt: string | null;
+  /** Shadow scoring across all resolved graduating-era actions (matches = approved, mismatches = rejected). */
+  matches?: number;
+  mismatches?: number;
 }
 
 export interface OrgAgentCard {
@@ -154,16 +158,16 @@ export interface BudgetInfo { date: string; spentCents: number; capCents: number
 
 /** One row of the unified needs-you queue (Ember Cockpit spec §5, §9.1). */
 export interface AttentionItem {
-  kind: "approval" | "ask" | "goal" | "mail" | "sense";
+  kind: "approval" | "review" | "ask" | "goal" | "mail" | "sense";
   id: string;
   title: string;
   meta: string;
-  /** 1 approvals · 2 asks · 3 failed/paused goals · 4 unread mail · 5 ambient. */
+  /** 1 approvals · 2 reviews + asks · 3 failed/paused goals · 4 unread mail · 5 ambient. */
   severity: 1 | 2 | 3 | 4 | 5;
   ts: string;
-  /** Inline verbs the row offers: approve, reject, answer, open, read, resume, abandon. */
+  /** Inline verbs the row offers: approve, reject, accept, retry, answer, open, read, resume, abandon. */
   actions: string[];
-  /** Kind-specific pointers the canvas needs (actionId, mailId, threadId, goalId, slug, status, sense). */
+  /** Kind-specific pointers the canvas needs (actionId, mailId, threadId, goalId, node, slug, status, sense, artifact). */
   ref: Record<string, string>;
 }
 

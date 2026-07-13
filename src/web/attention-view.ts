@@ -1,7 +1,7 @@
 // src/web/attention-view.ts — pure builder behind /api/attention (Ember Cockpit spec §5, §9.1).
-// Assembles the unified needs-you queue server-side: proposed actions + user asks +
-// failed/paused goals + unread user mail + degraded senses. Graduation offers join
-// here when the verification-hardening spec ships.
+// Assembles the unified needs-you queue server-side: proposed actions + nodes parked for
+// review (verification-hardening §4) + user asks + failed/paused goals + unread user mail +
+// degraded senses.
 import type { Store } from "../store/db.js";
 import type { AttentionItem } from "./dto.js";
 
@@ -31,6 +31,21 @@ export function buildAttentionView(
       meta: `${a.type} · expires ${a.expires_at.slice(5, 16).replace("T", " ")}`,
       severity: 1, ts: a.created_at, actions: ["approve", "reject", "open"],
       ref: { actionId: a.id },
+    });
+  }
+
+  // 2 — nodes parked at a quality cap awaiting a verdict (verification-hardening §4)
+  for (const n of store.needsReviewNodes()) {
+    items.push({
+      kind: "review", id: `${n.goal_id}:${n.node_key}`,
+      title: `${n.goal_title} · ${n.node_key} hit its quality cap`,
+      meta: firstLine(n.error ?? "no objections recorded"),
+      severity: 2, ts: n.finished_at ?? nowIso,
+      actions: ["accept", "retry", "abandon", "open"],
+      ref: {
+        goalId: n.goal_id, node: n.node_key, slug: n.goal_slug,
+        ...(n.artifact ? { artifact: n.artifact } : {}),
+      },
     });
   }
 

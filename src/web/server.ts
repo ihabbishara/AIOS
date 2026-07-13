@@ -238,7 +238,13 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         }
 
         if (path === "/api/trust" && req.method === "GET") {
-          return json(res, 200, store.listTrust());
+          // Per-type shadow match rate rides along for the Governance table (spec §6).
+          const stats = new Map(store.shadowStats().map((s) => [s.type, s]));
+          return json(res, 200, store.listTrust().map((t) => ({
+            ...t,
+            matches: stats.get(t.actionType)?.matches ?? 0,
+            mismatches: stats.get(t.actionType)?.mismatches ?? 0,
+          })));
         }
 
         const demoteMatch = /^\/api\/trust\/([\w.-]+)\/demote$/.exec(path);
@@ -457,6 +463,17 @@ export function startWebServer(deps: WebDeps, port: number): Server {
             verb === "pause" ? goals.pauseGoal(ref)
             : verb === "resume" ? goals.resumeGoal(ref)
             : goals.abandonGoal(ref);
+          return json(res, 200, { message });
+        }
+
+        const reviewCtl = /^\/api\/goals\/([\w-]+)\/review\/([\w-]+)$/.exec(path);
+        if (reviewCtl && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { verdict?: string; guidance?: string };
+          if (body.verdict !== "accept" && body.verdict !== "retry" && body.verdict !== "abandon") {
+            return json(res, 400, { error: "verdict must be accept, retry, or abandon" });
+          }
+          const message = goals.resolveReview(reviewCtl[1], reviewCtl[2], body.verdict,
+            { by: "ui", guidance: body.guidance?.trim() || undefined });
           return json(res, 200, { message });
         }
 
