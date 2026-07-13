@@ -1,4 +1,84 @@
-// ui2/src/App.tsx — placeholder; the real shell lands in Task 4.
+// ui2/src/App.tsx — Ember Cockpit shell: 5 sections stay mounted; route picks visibility (old-UI pattern).
+import { useEffect, useRef, useState } from "react";
+import { api } from "./api.js";
+import { useEvents, useFetch, useLiveQuery } from "./hooks.js";
+import { T } from "./lib/topics.js";
+import { useRoute, navigate } from "./lib/router.js";
+import { TopBar } from "./components/TopBar.js";
+import { TokenGate } from "./components/TokenGate.js";
+import { ChatDrawer } from "./components/ChatDrawer.js";
+import { CommandPalette } from "./components/CommandPalette.js";
+import { BottomTabs } from "./components/BottomTabs.js";
+import { Home } from "./views/Home.js";
+import { Goals } from "./views/Goals.js";
+import { Staff } from "./views/Staff.js";
+import { Mail } from "./views/Mail.js";
+import { System } from "./views/System.js";
+
+const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "mail", y: "system" };
+
 export function App() {
-  return <div className="p-6 text-dim">Nothing needs you.</div>;
+  const route = useRoute();
+  const { events, connected } = useEvents();
+  const { data: state, error, reload } = useFetch(() => api.state(), []);
+  const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
+  const { data: attention } = useLiveQuery(() => api.attention(), events, T.attention);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatTarget, setChatTarget] = useState("hermes");
+  const [chatSeed, setChatSeed] = useState<string | undefined>();
+  const [paletteSignal, setPaletteSignal] = useState(0);
+  const pendingG = useRef(false);
+
+  const openChat = (target: string, seed?: string) => {
+    setChatTarget(target);
+    setChatSeed(seed);
+    setChatOpen(true);
+  };
+
+  // ⌘J chat toggle + `g then h/g/s/m/y` section jumps (never while typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setChatOpen((v) => !v);
+        return;
+      }
+      const el = e.target as HTMLElement;
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (pendingG.current && JUMPS[e.key]) {
+        pendingG.current = false;
+        navigate(JUMPS[e.key]);
+        return;
+      }
+      pendingG.current = e.key === "g";
+      if (pendingG.current) setTimeout(() => { pendingG.current = false; }, 800);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (error === "unauthorized") return <TokenGate onSet={reload} />;
+
+  const show = (s: string) => (route.section === s ? "flex-1 min-h-0 flex flex-col pb-14 md:pb-0" : "hidden");
+
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar
+        section={route.section} budget={budget} connected={connected}
+        needsYou={attention?.length ?? 0} onPalette={() => setPaletteSignal((n) => n + 1)}
+      />
+      <div className={show("home")}><Home events={events} attention={attention} onOpenChat={openChat} /></div>
+      <div className={show("goals")}><Goals events={events} route={route} onOpenChat={openChat} /></div>
+      <div className={show("staff")}><Staff events={events} route={route} onOpenChat={openChat} /></div>
+      <div className={show("mail")}><Mail events={events} route={route} /></div>
+      <div className={show("system")}><System events={events} route={route} /></div>
+      <BottomTabs section={route.section} needsYou={attention?.length ?? 0} />
+      <ChatDrawer
+        open={chatOpen} onClose={() => setChatOpen(false)} state={state} events={events}
+        target={chatTarget} setTarget={setChatTarget} seed={chatSeed}
+      />
+      <CommandPalette state={state} onOpenChat={openChat} openSignal={paletteSignal} />
+    </div>
+  );
 }
