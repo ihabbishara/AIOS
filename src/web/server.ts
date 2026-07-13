@@ -191,12 +191,16 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         if (path === "/api/health" && req.method === "GET") {
           let dbBytes = 0;
           try { dbBytes = statSync(config.dbPath).size; } catch { /* :memory: or missing */ }
+          // Info-flow policy posture + violation count (audit-week signal for the enforce flip).
+          const policyViolations = bus.history(0, 5000).filter((e) => e.event.type === "policy.violation").length;
           return json(res, 200, {
             uptimeMs: Date.now() - startedAt,
             voice: deps.voice.available(),
             senses: deps.senses?.() ?? [],
             sseClients,
             dbBytes,
+            policyMode: process.env.AIOS_POLICY_MODE === "enforce" ? "enforce" : "audit",
+            policyViolations,
           });
         }
 

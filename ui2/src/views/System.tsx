@@ -40,6 +40,10 @@ function Health({ events }: { events: StoredEvent[] }) {
         <span className="text-dim">Voice</span><span>{h.voice ? "available" : "off"}</span>
         <span className="text-dim">SSE clients</span><span>{h.sseClients}</span>
         <span className="text-dim">DB size</span><span>{(h.dbBytes / 1_048_576).toFixed(1)} MB</span>
+        <span className="text-dim">Info-flow policy</span>
+        <span className={h.policyMode === "audit" && h.policyViolations > 0 ? "text-accent" : ""}>
+          {h.policyMode} · {h.policyViolations} violation{h.policyViolations === 1 ? "" : "s"}
+        </span>
       </div>
       <div>
         <SectionLabel>Senses</SectionLabel>
@@ -65,6 +69,7 @@ const PRESETS: Record<string, string[]> = {
   actions: ["action.", "trust.", "permission.", "tool.denied"],
   chat: ["chat."],
   mail: ["mail."],
+  policy: ["policy."],
 };
 
 function EventsTail({ live }: { live: StoredEvent[] }) {

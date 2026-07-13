@@ -14,7 +14,7 @@ async function startTestServer(extra: Partial<WebDeps>) {
   const deps = {
     store, goals: {}, vault: {}, registry: { agents: new Map(), departments: new Map(), agentOf: new Map() },
     reloadPacks: () => {}, envPath: "", uiDist: "", log: () => {},
-    bus: {}, config: { dbPath: ":memory:" }, router: {}, gate: {},
+    bus: { history: () => [] }, config: { dbPath: ":memory:" }, router: {}, gate: {},
     voice: { available: () => false }, mailbox: {},
     ...extra,
   } as unknown as WebDeps;
@@ -51,6 +51,24 @@ describe("GET /api/health", () => {
       ]);
       expect(body.sseClients).toBe(0);
       expect(body.dbBytes).toBeGreaterThanOrEqual(0);
+      expect(body.policyMode).toBe("audit");
+      expect(body.policyViolations).toBe(0);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it("counts policy.violation events for the audit-week badge", async () => {
+    const t = await startTestServer({
+      bus: { history: () => [
+        { id: 1, ts: "t", event: { type: "policy.violation", label: "personal.finance", sink: "recall-index", site: "x", hash: "h" } },
+        { id: 2, ts: "t", event: { type: "chat.in", channel: "c", chatId: "1", text: "hi" } },
+        { id: 3, ts: "t", event: { type: "policy.violation", label: "personal.email", sink: "brief", site: "y", hash: "h2" } },
+      ] } as never,
+    });
+    try {
+      const body = await (await fetch(`${t.base}/api/health`, { headers: t.auth })).json();
+      expect(body.policyViolations).toBe(2);
     } finally {
       await t.close();
     }

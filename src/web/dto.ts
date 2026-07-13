@@ -174,4 +174,8 @@ export interface HealthInfo {
   senses: Array<{ name: string; ok: boolean; reason?: string }>;
   sseClients: number;
   dbBytes: number;
+  /** Information-flow policy posture (audit logs, enforce blocks). */
+  policyMode: string;
+  /** Count of policy.violation events observed (the audit-week signal). */
+  policyViolations: number;
 }
