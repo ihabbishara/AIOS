@@ -14,8 +14,9 @@ describe("app shell", () => {
       "/api/attention": [],
     });
     render(<App />);
+    // Sections render in both the top nav and the phone bottom tabs (visibility is CSS-only).
     for (const s of ["home", "goals", "staff", "mail", "system"]) {
-      expect(await screen.findByText(s)).toBeTruthy();
+      expect((await screen.findAllByText(s)).length).toBeGreaterThan(0);
     }
     // The queue renders in both the desktop and phone containers (visibility is CSS-only).
     expect((await screen.findAllByText("Nothing needs you.")).length).toBeGreaterThan(0);
