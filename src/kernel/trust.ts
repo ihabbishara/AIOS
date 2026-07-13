@@ -8,6 +8,9 @@ export interface TrustRecord {
   rejections: number;
   /** Consecutive approvals since the last rejection/demotion. */
   streak: number;
+  /** Consecutive shadow matches while graduating: human verdict agreed with what
+   *  autonomy would have done. Reset by any mismatch/demotion/promotion (spec §6). */
+  shadowMatches: number;
   /** ISO timestamp of the first time this type was proposed. */
   firstSeen: string;
   lastRejection: string | null;
@@ -19,6 +22,8 @@ export interface TrustPolicy {
   graduationStreak: number;
   /** Minimum days since firstSeen before a promotion is proposed. */
   graduationAgeDays: number;
+  /** Consecutive shadow matches required while graduating before a promotion is proposed. */
+  shadowMatches: number;
   /** Hard ceiling: types that can never execute autonomously. */
   alwaysSupervised: Set<string>;
 }
@@ -26,12 +31,13 @@ export interface TrustPolicy {
 export const DEFAULT_POLICY: TrustPolicy = {
   graduationStreak: 10,
   graduationAgeDays: 30,
+  shadowMatches: 10,
   alwaysSupervised: new Set(["trust.promote", "permission.grant", "permission.revoke"]),
 };
 
 export function newRecord(actionType: string, now: string): TrustRecord {
   return {
-    actionType, state: "supervised", approvals: 0, rejections: 0, streak: 0,
+    actionType, state: "supervised", approvals: 0, rejections: 0, streak: 0, shadowMatches: 0,
     firstSeen: now, lastRejection: null, graduatedAt: null,
   };
 }
@@ -67,17 +73,27 @@ export function recordApproval(
   };
 }
 
+/** Score one shadow match: the human approved an action autonomy would have executed.
+ *  Only meaningful while graduating; promotionReady at the policy threshold (spec §6). */
+export function recordShadowMatch(
+  record: TrustRecord, policy: TrustPolicy,
+): { record: TrustRecord; promotionReady: boolean } {
+  if (record.state !== "graduating") return { record, promotionReady: false };
+  const next = { ...record, shadowMatches: record.shadowMatches + 1 };
+  return { record: next, promotionReady: next.shadowMatches >= policy.shadowMatches };
+}
+
 export function recordRejection(record: TrustRecord, now: string): TrustRecord {
   return {
-    ...record, rejections: record.rejections + 1, streak: 0,
+    ...record, rejections: record.rejections + 1, streak: 0, shadowMatches: 0,
     lastRejection: now, state: "supervised", graduatedAt: null,
   };
 }
 
 export function promote(record: TrustRecord, now: string): TrustRecord {
-  return { ...record, state: "autonomous", graduatedAt: now, streak: 0 };
+  return { ...record, state: "autonomous", graduatedAt: now, streak: 0, shadowMatches: 0 };
 }
 
 export function demote(record: TrustRecord): TrustRecord {
-  return { ...record, state: "supervised", streak: 0, graduatedAt: null };
+  return { ...record, state: "supervised", streak: 0, graduatedAt: null, shadowMatches: 0 };
 }

@@ -221,6 +221,8 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     trustPolicy: {
       graduationStreak: Number(process.env.AIOS_GRADUATION_STREAK ?? 10),
       graduationAgeDays: Number(process.env.AIOS_GRADUATION_AGE_DAYS ?? 30),
+      // Consecutive shadow matches required while graduating (verification-hardening §6).
+      shadowMatches: Number(process.env.AIOS_SHADOW_MATCHES ?? 10),
       // trust.promote is ALWAYS in the ceiling set — promotions must always be human-approved.
       alwaysSupervised: new Set([
         "trust.promote",

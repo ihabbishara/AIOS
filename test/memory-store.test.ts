@@ -63,7 +63,7 @@ describe("teachings + decisions", () => {
     const bus = new EventBus(s);
     const registry = new ExecutorRegistry();
     registry.register({ type: "finance.pay", schema: z.object({}), async execute() { return "ok"; } });
-    const gate = new ActionGate({ store: s, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
+    const gate = new ActionGate({ store: s, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, shadowMatches: 99, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
     const a = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay rent" }, { channel: "cli", chatId: "x" });
     await gate.resolve(a.id, "approve", { by: "ihab" });
     const b = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay gym" }, { channel: "cli", chatId: "x" });
@@ -81,7 +81,7 @@ describe("teachings + decisions", () => {
     const bus = new EventBus(s);
     const registry = new ExecutorRegistry();
     registry.register({ type: "finance.pay", schema: z.object({}), async execute() { return "ok"; } });
-    const gate = new ActionGate({ store: s, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
+    const gate = new ActionGate({ store: s, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, shadowMatches: 99, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
     const first = await gate.propose({ type: "finance.pay", payload: {}, preview: "pay first" }, { channel: "cli", chatId: "x" });
     await gate.resolve(first.id, "approve", { by: "ihab" });
     await new Promise((r) => setTimeout(r, 5)); // ensure resolved_at timestamps differ

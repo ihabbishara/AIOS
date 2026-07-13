@@ -34,6 +34,8 @@ export interface ActionRow {
   resolved_at: string | null;
   expires_at: string;
   idempotency_key?: string | null;
+  /** What autonomy would have done, stamped at propose time for graduating types ("execute"); null otherwise. */
+  shadow_decision?: string | null;
 }
 
 /** Context handed to an executor at run time. `by` is the approver (verdict_by); null for autonomous runs. */

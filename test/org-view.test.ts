@@ -140,7 +140,7 @@ describe("buildAgentProfile", () => {
   it("trust rows filter to the department's action ceiling", () => {
     const { store, bus, registry } = harness();
     const trustRow = (actionType: string) => ({
-      actionType, state: "supervised" as const, approvals: 1, rejections: 0, streak: 1,
+      actionType, state: "supervised" as const, approvals: 1, rejections: 0, streak: 1, shadowMatches: 0,
       firstSeen: new Date().toISOString(), lastRejection: null, graduatedAt: null,
     });
     store.upsertTrust(trustRow("vault.write"));

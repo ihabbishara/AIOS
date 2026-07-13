@@ -11,6 +11,7 @@ const LATER = "2026-07-13T10:00:00.000Z"; // 31 days after NOW
 const policy: TrustPolicy = {
   graduationStreak: 3,
   graduationAgeDays: 30,
+  shadowMatches: 10,
   alwaysSupervised: new Set(["trust.promote", "purchase.buy"]),
 };
 

@@ -11,7 +11,7 @@ import { ActionGate } from "../src/kernel/gate.js";
 const ORIGIN = { channel: "cli", chatId: "local" };
 const NOW = "2026-06-12T10:00:00.000Z";
 
-function setup(opts: { expiryMs?: number; streak?: number; ageDays?: number } = {}) {
+function setup(opts: { expiryMs?: number; streak?: number; ageDays?: number; shadowMatches?: number } = {}) {
   const store = new Store(":memory:");
   const bus = new EventBus(store);
   const events: StoredEvent[] = [];
@@ -34,6 +34,7 @@ function setup(opts: { expiryMs?: number; streak?: number; ageDays?: number } = 
   const policy: TrustPolicy = {
     graduationStreak: opts.streak ?? 3,
     graduationAgeDays: opts.ageDays ?? 0,
+    shadowMatches: opts.shadowMatches ?? 2,
     alwaysSupervised: new Set(["trust.promote"]),
   };
   const gate = new ActionGate({ store, registry, policy, bus, expiryMs: opts.expiryMs ?? 60_000 });

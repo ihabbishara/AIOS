@@ -21,7 +21,7 @@ function setup() {
     async execute() { executions++; return "added"; },
   };
   registry.register(noteAdd);
-  const policy: TrustPolicy = { graduationStreak: 3, graduationAgeDays: 0, alwaysSupervised: new Set() };
+  const policy: TrustPolicy = { graduationStreak: 3, graduationAgeDays: 0, shadowMatches: 99, alwaysSupervised: new Set() };
   const gate = new ActionGate({ store, registry, policy, bus, expiryMs: 60_000 });
   // autonomous so execute() runs immediately — dedupe must prevent double effects
   store.upsertTrust(promote(newRecord("note.add", NOW), NOW));

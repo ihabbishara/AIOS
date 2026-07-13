@@ -20,7 +20,7 @@ function harness() {
   const registry = new ExecutorRegistry();
   registry.register(vaultWriteExecutor(vault));
   store.upsertTrust(promote(newRecord("vault.write", "2026-01-01T00:00:00.000Z"), "2026-01-01T00:00:00.000Z"));
-  const gate = new ActionGate({ store, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
+  const gate = new ActionGate({ store, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, shadowMatches: 99, alwaysSupervised: new Set() }, bus, expiryMs: 60000 });
   return { root, store, vault, gate };
 }
 
@@ -103,7 +103,7 @@ describe("distill", () => {
     const registry = new ExecutorRegistry();
     registry.register(vaultWriteExecutor(vault));
     // NOTE: vault.write left supervised (no promote) AND forced supervised:
-    const gate = new ActionGate({ store, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, alwaysSupervised: new Set(["vault.write"]) }, bus, expiryMs: 60000 });
+    const gate = new ActionGate({ store, registry, policy: { graduationStreak: 99, graduationAgeDays: 0, shadowMatches: 99, alwaysSupervised: new Set(["vault.write"]) }, bus, expiryMs: 60000 });
     store.addTeaching({ text: "rule", domain: "general", kind: "preference" });
     await distill({ store, vault, gate, curate: async (i) => `# ${i.domain}\nx`, nowIso: NOW, log: () => {} });
     expect(vault.readNote("memos/general.md")).toBeUndefined(); // queued, not executed

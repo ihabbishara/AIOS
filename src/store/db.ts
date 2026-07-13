@@ -385,6 +385,11 @@ export class Store {
     // unique indexes treat NULLs as distinct, so keyless actions are unaffected.
     try { this.db.exec("ALTER TABLE actions ADD COLUMN idempotency_key TEXT"); } catch { /* exists */ }
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_actions_idem ON actions(idempotency_key)");
+    // Migration (verification-hardening §6): shadow-mode graduation. shadow_decision is
+    // stamped on graduating-type actions at propose time ("execute" = what autonomy would
+    // have done); trust.shadow_matches counts consecutive human-verdict matches.
+    try { this.db.exec("ALTER TABLE actions ADD COLUMN shadow_decision TEXT"); } catch { /* exists */ }
+    try { this.db.exec("ALTER TABLE trust ADD COLUMN shadow_matches INTEGER NOT NULL DEFAULT 0"); } catch { /* exists */ }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS reminders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1067,15 +1072,15 @@ export class Store {
   upsertTrust(t: TrustRecord): void {
     this.db
       .prepare(
-        `INSERT INTO trust (action_type, state, approvals, rejections, streak, first_seen, last_rejection, graduated_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO trust (action_type, state, approvals, rejections, streak, shadow_matches, first_seen, last_rejection, graduated_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(action_type) DO UPDATE SET
            state=excluded.state, approvals=excluded.approvals, rejections=excluded.rejections,
-           streak=excluded.streak, last_rejection=excluded.last_rejection,
+           streak=excluded.streak, shadow_matches=excluded.shadow_matches, last_rejection=excluded.last_rejection,
            graduated_at=excluded.graduated_at, updated_at=excluded.updated_at`,
       )
       .run(
-        t.actionType, t.state, t.approvals, t.rejections, t.streak,
+        t.actionType, t.state, t.approvals, t.rejections, t.streak, t.shadowMatches,
         t.firstSeen, t.lastRejection, t.graduatedAt, new Date().toISOString(),
       );
   }
@@ -1108,13 +1113,13 @@ export class Store {
       .prepare(
         `INSERT INTO actions (id, type, payload, preview, status, origin_channel, origin_chat_id,
                               trust_state, verdict_by, reject_reason, result, created_at, resolved_at, expires_at,
-                              idempotency_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              idempotency_key, shadow_decision)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         a.id, a.type, a.payload, a.preview, a.status, a.origin_channel, a.origin_chat_id,
         a.trust_state, a.verdict_by, a.reject_reason, a.result, a.created_at, a.resolved_at, a.expires_at,
-        a.idempotency_key ?? null,
+        a.idempotency_key ?? null, a.shadow_decision ?? null,
       );
   }
 
@@ -1171,6 +1176,17 @@ export class Store {
     );
     for (const r of rows) expire.run(nowIso, r.id);
     return rows.map((r) => r.id);
+  }
+
+  /** Per-type shadow scoring: human verdicts on actions proposed while graduating.
+   *  match = approved (executed/failed with a verdict), mismatch = rejected (spec §6). */
+  shadowStats(): Array<{ type: string; matches: number; mismatches: number }> {
+    return this.db.prepare(
+      `SELECT type,
+              SUM(CASE WHEN status IN ('executed', 'failed') AND verdict_by IS NOT NULL THEN 1 ELSE 0 END) AS matches,
+              SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS mismatches
+       FROM actions WHERE shadow_decision IS NOT NULL GROUP BY type ORDER BY type`,
+    ).all() as unknown as Array<{ type: string; matches: number; mismatches: number }>;
   }
 
   // ---- reminders ----
@@ -1523,6 +1539,7 @@ function toTrustRecord(r: Record<string, unknown>): TrustRecord {
     approvals: r.approvals as number,
     rejections: r.rejections as number,
     streak: r.streak as number,
+    shadowMatches: (r.shadow_matches as number) ?? 0,
     firstSeen: r.first_seen as string,
     lastRejection: (r.last_rejection as string) ?? null,
     graduatedAt: (r.graduated_at as string) ?? null,
