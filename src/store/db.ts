@@ -93,6 +93,16 @@ export interface NewTaskNode {
   max_rounds: number;
 }
 
+export interface JournalRow {
+  seq: number;
+  goal_id: string;
+  gseq: number;
+  type: string;
+  payload: string;
+  v: number;
+  ts: number;
+}
+
 export interface ReminderRow {
   id: number;
   text: string;
@@ -311,6 +321,22 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT NOT NULL,
         payload TEXT NOT NULL
+      );
+    `);
+    // Journaled engine: the goal journal is the source of truth for goal execution;
+    // goals/task_nodes are projections of it. APPEND-ONLY — never UPDATE/DELETE,
+    // never pruned by retention (same rule as budget_ledger). The UNIQUE(goal_id, gseq)
+    // constraint is the optimistic-concurrency claim: a losing INSERT throws.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS goal_journal (
+        seq     INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id TEXT NOT NULL,
+        gseq    INTEGER NOT NULL,
+        type    TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        v       INTEGER NOT NULL DEFAULT 1,
+        ts      INTEGER NOT NULL,
+        UNIQUE (goal_id, gseq)
       );
     `);
     this.db.exec(`
@@ -651,6 +677,20 @@ export class Store {
     return rows.map((r) => r.goal_id);
   }
 
+  /** Raw journal insert. Throws on a (goal_id, gseq) UNIQUE conflict — that throw IS
+   *  the optimistic-claim-loss signal; journal.ts interprets it. */
+  journalInsert(goalId: string, gseq: number, type: string, payloadJson: string, ts: number): number {
+    const r = this.db.prepare(
+      "INSERT INTO goal_journal (goal_id, gseq, type, payload, ts) VALUES (?, ?, ?, ?, ?)",
+    ).run(goalId, gseq, type, payloadJson, ts);
+    return Number(r.lastInsertRowid);
+  }
+
+  journalRead(goalId: string): JournalRow[] {
+    return this.db.prepare("SELECT * FROM goal_journal WHERE goal_id = ? ORDER BY gseq ASC")
+      .all(goalId) as unknown as JournalRow[];
+  }
+
   budgetAdd(date: string, cents: number): void {
     this.db.prepare(
       `INSERT INTO budget_ledger (date, spent_cents) VALUES (?, ?)
@@ -884,6 +924,9 @@ export class Store {
   }
 
   private inTx = false;
+
+  /** True while inside transaction() — journal appends join instead of nesting. */
+  get inTransaction(): boolean { return this.inTx; }
 
   transaction<T>(fn: () => T): T {
     // node:sqlite has no nested transactions/savepoints here — nesting would roll back the
