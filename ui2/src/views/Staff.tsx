@@ -1,12 +1,295 @@
-// ui2/src/views/Staff.tsx — placeholder; the Staff section lands in Task 8.
-import type { StoredEvent } from "../api.js";
-import type { Route } from "../lib/router.js";
-import { Empty } from "../components/ui.js";
+// ui2/src/views/Staff.tsx — org columns + profile + governance + department admin (spec §6 Staff).
+import { useState } from "react";
+import { api, type StoredEvent } from "../api.js";
+import { useFetch, useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
+import { navigate, type Route } from "../lib/router.js";
+import { Button, Dot, Empty, SectionLabel, Tag } from "../components/ui.js";
+import { TwoStepButton } from "../components/TwoStepButton.js";
+import { ts, usdFloat } from "../lib/format.js";
 
-export function Staff(_: {
-  events: StoredEvent[];
-  route: Route;
-  onOpenChat: (target: string, seed?: string) => void;
+export function Staff({ events, route, onOpenChat }: {
+  events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void;
 }) {
-  return <div className="p-6"><Empty>Staff — Task 8</Empty></div>;
+  const sub = route.parts[0];
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto p-4">
+      <div className="flex gap-3 mb-4 items-center">
+        <h1 className="text-[20px] text-strong">Staff</h1>
+        <button onClick={() => navigate("staff")}
+          className={`label hover:text-fg ${!sub ? "text-strong" : ""}`}>org</button>
+        <button onClick={() => navigate("staff/governance")}
+          className={`label hover:text-fg ${sub === "governance" ? "text-strong" : ""}`}>governance</button>
+      </div>
+      {sub === "agents" && route.parts[1]
+        ? <Profile name={route.parts[1]} events={events} onOpenChat={onOpenChat} />
+        : sub === "governance"
+          ? <Governance events={events} />
+          : <OrgColumns events={events} />}
+    </div>
+  );
+}
+
+function OrgColumns({ events }: { events: StoredEvent[] }) {
+  const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
+  const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
+  if (!org) return <Empty>Loading…</Empty>;
+  return (
+    <div className="flex gap-6 overflow-x-auto items-start">
+      {org.map((d) => (
+        <div key={d.department} className="min-w-56 border border-line rounded-lg bg-surface p-3">
+          <div className="flex items-center mb-2">
+            <SectionLabel>{d.department}</SectionLabel>
+            <DeptMenu department={d.department} />
+          </div>
+          <div className="text-[11px] text-dim mb-3">{d.mission}</div>
+          {d.agents.map((a) => (
+            <button key={a.name} onClick={() => navigate(`staff/agents/${a.name}`)}
+              className="w-full text-left rounded-md hover:bg-raised px-2 py-2 flex flex-col gap-0.5 min-h-11">
+              <span className="flex items-center gap-2">
+                <Dot tone={a.status === "working" ? "agent" : a.status === "waiting" ? "accent" : "dim"} breathing={a.status === "working"} />
+                <span className="text-strong">{a.name}</span>
+                <span className="text-[10px] text-dim">{a.title}</span>
+                <span className="ml-auto flex gap-1 text-[10px]">
+                  {a.visibility === "private" && <span title="private">🔒</span>}
+                  {a.guarded && <span title="guarded">🛡</span>}
+                  {(unread?.byAgent[a.name] ?? 0) > 0 && <Tag tone="accent">{unread!.byAgent[a.name]}</Tag>}
+                </span>
+              </span>
+              {a.currentTask && <span className="text-[11px] text-agent truncate">{a.currentTask}</span>}
+              {a.costTodayUsd > 0 && <span className="text-[10px] text-dim">{usdFloat(a.costTodayUsd)} today</span>}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** ⋯ department admin: enable/disable, playbook YAML editor, run playbook (spec §6 — a menu, not a section). */
+function DeptMenu({ department }: { department: string }) {
+  const [open, setOpen] = useState(false);
+  const { data: packs, reload } = useFetch(() => api.packs(), []);
+  const pack = packs?.find((p) => p.pillar === department);
+  const [editing, setEditing] = useState<{ file: string; yaml: string } | null>(null);
+  const [note, setNote] = useState("");
+  if (!pack) return null;
+
+  const run = async (playbook: string) => {
+    setNote("");
+    try {
+      const { id } = await api.runPack(pack.pillar, playbook);
+      setNote(`started ${id.slice(0, 8)}`);
+    } catch (err) { setNote((err as Error).message); }
+  };
+
+  return (
+    <span className="ml-auto relative">
+      <button onClick={() => setOpen((v) => !v)} className="text-dim hover:text-fg px-1">⋯</button>
+      {open && (
+        <div className="absolute right-0 top-6 z-30 w-72 border border-line rounded-lg bg-raised p-3 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px]">{pack.enabled ? "enabled" : "disabled"}</span>
+            <TwoStepButton label={pack.enabled ? "Disable" : "Enable"} className="ml-auto"
+              onConfirm={() => void api.setPackEnabled(pack.pillar, !pack.enabled).then(() => reload())} />
+          </div>
+          <SectionLabel>Playbooks</SectionLabel>
+          {pack.playbooks.map((pb) => (
+            <div key={pb.name} className="flex items-center gap-2 text-[12px]">
+              <span className="truncate">{pb.name}</span>
+              <Button className="ml-auto" onClick={() => void run(pb.name)}>Run</Button>
+            </div>
+          ))}
+          <SectionLabel>Files</SectionLabel>
+          <FileList pillar={pack.pillar} onEdit={setEditing} />
+          {note && <div className="text-[11px] text-dim">{note}</div>}
+        </div>
+      )}
+      {editing && (
+        <YamlEditor pillar={pack.pillar} file={editing.file} initial={editing.yaml} onClose={() => setEditing(null)} />
+      )}
+    </span>
+  );
+}
+
+function FileList({ pillar, onEdit }: { pillar: string; onEdit: (f: { file: string; yaml: string }) => void }) {
+  const { data: files } = useFetch(() => api.packFiles(pillar), [pillar]);
+  return (
+    <>
+      {(files ?? []).map((f) => (
+        <button key={f.file} onClick={() => onEdit(f)} className="text-left text-[12px] font-mono text-dim hover:text-fg truncate">
+          {f.file}
+        </button>
+      ))}
+    </>
+  );
+}
+
+function YamlEditor({ pillar, file, initial, onClose }: {
+  pillar: string; file: string; initial: string; onClose: () => void;
+}) {
+  const [yaml, setYaml] = useState(initial);
+  const [error, setError] = useState("");
+  const save = async () => {
+    setError("");
+    try { await api.savePackFile(pillar, file, yaml); onClose(); }
+    catch (err) { setError((err as Error).message); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6" onClick={onClose}>
+      <div className="w-full max-w-3xl border border-line rounded-lg bg-surface p-4 flex flex-col gap-3"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="font-mono text-[12px] text-dim">{pillar}/{file}</div>
+        <textarea value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false}
+          className="font-mono text-[12px] bg-bg border border-line rounded-md p-3 h-96 outline-none focus:border-dim" />
+        {error && <div className="text-[12px] text-err">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save}>Save</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Profile({ name, events, onOpenChat }: {
+  name: string; events: StoredEvent[]; onOpenChat: (t: string, s?: string) => void;
+}) {
+  const { data: p, error } = useLiveQuery(() => api.agent(name), events, T.agentsActions, [name]);
+  const [note, setNote] = useState("");
+  if (error) return <Empty>{error}</Empty>;
+  if (!p) return <Empty>Loading…</Empty>;
+
+  const propose = async (tool: string, action: "grant" | "revoke") => {
+    setNote("");
+    try { await api.proposePermission(name, tool, action); setNote(`${action} of ${tool} queued for approval`); }
+    catch (err) { setNote((err as Error).message); }
+  };
+
+  return (
+    <div className="max-w-3xl">
+      <button onClick={() => navigate("staff")} className="label hover:text-fg mb-3">← staff</button>
+      <div className="flex items-center gap-3 flex-wrap mb-1">
+        <h2 className="text-[20px] text-strong">{p.name}</h2>
+        <span className="text-dim">{p.title} · {p.department}</span>
+        {p.model && <Tag>{p.model}</Tag>}
+        {p.visibility === "private" && <Tag>🔒 private</Tag>}
+        {p.guarded && <Tag>🛡 guarded</Tag>}
+        <Button className="ml-auto" variant="primary" onClick={() => onOpenChat(p.name)}>Chat ⌘J</Button>
+      </div>
+      {p.aliases.length > 0 && <div className="text-[11px] text-dim mb-2">aka {p.aliases.join(", ")}</div>}
+      <p className="text-fg leading-relaxed mb-5 whitespace-pre-wrap">{p.charter}</p>
+
+      <SectionLabel>Access</SectionLabel>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {p.tools.map((t) => (
+          <button key={t.name} title={`${t.source} — click to queue revoke`} onClick={() => void propose(t.name, "revoke")}>
+            <Tag tone={t.source === "granted" ? "ok" : "dim"}>{t.name}</Tag>
+          </button>
+        ))}
+        {p.revoked.map((t) => (
+          <button key={t.name} title="revoked — click to queue grant" onClick={() => void propose(t.name, "grant")}>
+            <Tag tone="err">{t.name}</Tag>
+          </button>
+        ))}
+      </div>
+      <GrantBox onGrant={(tool) => void propose(tool, "grant")} />
+      {note && <div className="text-[11px] text-accent mb-4">{note}</div>}
+
+      <SectionLabel>Trust — {p.department} action types</SectionLabel>
+      <div className="flex flex-wrap gap-1.5 mb-5">
+        {p.trust.length === 0 && <span className="text-[12px] text-dim">no tracked action types</span>}
+        {p.trust.map((t) => (
+          <Tag key={t.actionType} tone={t.state === "autonomous" ? "ok" : t.state === "graduating" ? "agent" : "dim"}>
+            {t.actionType} · {t.state} · streak {t.streak}
+          </Tag>
+        ))}
+      </div>
+
+      <SectionLabel>Recent runs</SectionLabel>
+      <div className="mb-5">
+        {p.recentRuns.slice(0, 10).map((r, i) => (
+          <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
+            <Dot tone={r.ok ? "ok" : "err"} />
+            <span className="text-dim">{ts(r.ts)}</span>
+            <span className="truncate">{r.context}</span>
+            {r.costUsd != null && <span className="text-dim ml-auto">{usdFloat(r.costUsd)}</span>}
+          </div>
+        ))}
+        {p.recentRuns.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
+      </div>
+
+      <SectionLabel>Cost by day</SectionLabel>
+      <Sparkline data={p.costByDay} />
+    </div>
+  );
+}
+
+function GrantBox({ onGrant }: { onGrant: (tool: string) => void }) {
+  const [tool, setTool] = useState("");
+  return (
+    <div className="flex gap-2 mb-2">
+      <input value={tool} onChange={(e) => setTool(e.target.value)} placeholder="grant a tool (queues approval)…"
+        onKeyDown={(e) => { if (e.key === "Enter" && tool.trim()) { onGrant(tool.trim()); setTool(""); } }}
+        className="bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim w-64" />
+    </div>
+  );
+}
+
+function Sparkline({ data }: { data: Record<string, number> }) {
+  const days = Object.entries(data).sort(([a], [b]) => (a < b ? -1 : 1)).slice(-14);
+  const max = Math.max(0.01, ...days.map(([, v]) => v));
+  return (
+    <div className="flex items-end gap-1 h-12">
+      {days.map(([d, v]) => (
+        <div key={d} title={`${d} · ${usdFloat(v)}`} className="w-4 bg-line rounded-sm"
+          style={{ height: `${Math.max(4, (v / max) * 100)}%` }} />
+      ))}
+      {days.length === 0 && <span className="text-[12px] text-dim">no spend</span>}
+    </div>
+  );
+}
+
+function Governance({ events }: { events: StoredEvent[] }) {
+  const { data: trust } = useLiveQuery(() => api.trust(), events, T.trust);
+  const { data: perms } = useLiveQuery(() => api.permissions(), events, T.permissions);
+  return (
+    <div className="max-w-4xl">
+      <SectionLabel>Trust ledger</SectionLabel>
+      <table className="w-full text-[12px] mb-6">
+        <thead><tr className="label text-left"><th className="py-1">action type</th><th>state</th><th>✓</th><th>✗</th><th>streak</th><th>last rejection</th><th /></tr></thead>
+        <tbody>
+          {(trust ?? []).map((t) => (
+            <tr key={t.actionType} className="border-t border-line">
+              <td className="py-1.5">{t.actionType}</td>
+              <td><Tag tone={t.state === "autonomous" ? "ok" : t.state === "graduating" ? "agent" : "dim"}>{t.state}</Tag></td>
+              <td>{t.approvals}</td><td>{t.rejections}</td><td>{t.streak}</td>
+              <td className="text-dim">{t.lastRejection ? ts(t.lastRejection) : "—"}</td>
+              <td className="text-right">
+                {t.state !== "supervised" && (
+                  <TwoStepButton label="Demote" onConfirm={() => void api.demoteTrust(t.actionType)} />
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <SectionLabel>Permission matrix</SectionLabel>
+      {(perms ?? []).map((r) => (
+        <div key={r.role} className="mb-4">
+          <div className="text-[13px] text-strong mb-1">{r.role} <span className="text-dim text-[11px]">{r.permissionMode}</span></div>
+          <div className="flex flex-wrap gap-1.5">
+            {r.tools.map((t) => <Tag key={t.name} tone={t.source === "granted" ? "ok" : "dim"}>{t.name}</Tag>)}
+            {r.revoked.map((t) => <Tag key={t.name} tone="err">{t.name}</Tag>)}
+          </div>
+          {r.denials.length > 0 && (
+            <div className="text-[11px] text-dim mt-1">
+              denials: {r.denials.map((d) => `${d.tool}×${d.count}`).join(" · ")}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
