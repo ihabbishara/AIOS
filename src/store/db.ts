@@ -465,6 +465,10 @@ export class Store {
         entity_id INTEGER NOT NULL,
         PRIMARY KEY (doc_id, entity_id)
       );
+      CREATE TABLE IF NOT EXISTS memory_vec (
+        doc_id INTEGER PRIMARY KEY,
+        vec BLOB NOT NULL
+      );
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS personal_transactions (
@@ -1302,6 +1306,7 @@ export class Store {
       if (existing) {
         this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(existing.id);
         this.db.prepare("DELETE FROM entity_link WHERE doc_id = ?").run(existing.id);
+        this.db.prepare("DELETE FROM memory_vec WHERE doc_id = ?").run(existing.id);
         this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
       }
       const res = this.db
@@ -1326,6 +1331,7 @@ export class Store {
     try {
       this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(row.id);
       this.db.prepare("DELETE FROM entity_link WHERE doc_id = ?").run(row.id);
+      this.db.prepare("DELETE FROM memory_vec WHERE doc_id = ?").run(row.id);
       this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(row.id);
       this.db.exec("COMMIT");
     } catch (err) {
@@ -1387,6 +1393,27 @@ export class Store {
   /** Test helper: backdate indexed_at to exercise the stale-penalty window. */
   backdateMemoryDocForTest(source: string, ref: string, indexedAtIso: string): void {
     this.db.prepare("UPDATE memory_doc SET indexed_at = ? WHERE source = ? AND ref = ?").run(indexedAtIso, source, ref);
+  }
+
+  // ---- vectors (memory-v2 §3) ----
+
+  upsertMemoryVec(docId: number, vec: Float32Array): void {
+    this.db.prepare("INSERT INTO memory_vec (doc_id, vec) VALUES (?, ?) ON CONFLICT(doc_id) DO UPDATE SET vec = excluded.vec")
+      .run(docId, Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength));
+  }
+
+  memoryVecs(domain?: string): Array<{ doc_id: number; vec: Float32Array }> {
+    const rows = (domain
+      ? this.db.prepare("SELECT v.doc_id, v.vec FROM memory_vec v JOIN memory_doc d ON d.id = v.doc_id WHERE d.domain = ?").all(domain)
+      : this.db.prepare("SELECT doc_id, vec FROM memory_vec").all()) as Array<{ doc_id: number; vec: Uint8Array }>;
+    return rows.map((r) => ({ doc_id: r.doc_id, vec: new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4) }));
+  }
+
+  missingVecDocs(cap: number): Array<{ id: number; title: string; body: string }> {
+    return this.db.prepare(
+      `SELECT d.id, d.title, d.body FROM memory_doc d LEFT JOIN memory_vec v ON v.doc_id = d.id
+       WHERE v.doc_id IS NULL ORDER BY d.id LIMIT ?`,
+    ).all(cap) as never;
   }
 
   // ---- entities (memory-v2 §3) ----

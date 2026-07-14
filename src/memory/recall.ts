@@ -1,7 +1,8 @@
 import type { Store } from "../store/db.js";
 import type { Label, Policy } from "../kernel/policy.js";
 import { tokenize } from "./tokenize.js";
-import { matchEntities, expandTokens, linkedEntityIds } from "./entities.js";
+import { matchEntities, expandTokens, linkedEntityIds, type EntityRow } from "./entities.js";
+import { cosine, type Embedder } from "./embeddings.js";
 
 export type MemorySource = "vault" | "event" | "decision" | "memo" | "mail";
 export type Domain = "inbox" | "money" | "code" | "research" | "lifeops" | "general" | "profile";
@@ -80,15 +81,17 @@ function visibleTo(labels: string[], clearance: string[]): boolean {
   return labels.every((l) => l === "shared" || clearance.includes(l));
 }
 
-export function recall(store: Store, query: string, opts: RecallOpts = {}): RecallHit[] {
-  const rawTokens = [...new Set(tokenize(query))];
-  if (!rawTokens.length) return [];
-  // Entity expansion (spec §3): "bunq" also searches the tokens of its aliases ("the bank").
-  const entities = store.listEntities();
-  const matched = matchEntities(entities, rawTokens);
-  const qTokens = expandTokens(rawTokens, matched);
+interface CandidateSet {
+  scores: Map<number, number>;
+  meta: Map<number, { source: MemorySource; ref: string; domain: Domain; ts: string }>;
+  labelsById: Map<number, string[]>;
+}
+
+/** Lexical core: BM25 over expanded tokens + entity link boost + decay×penalty adjustment. */
+function lexicalScores(store: Store, qTokens: string[], matched: EntityRow[], opts: RecallOpts, nowMs: number): CandidateSet {
+  const empty: CandidateSet = { scores: new Map(), meta: new Map(), labelsById: new Map() };
   const rows = store.memoryPostings(qTokens, opts.domain);
-  if (!rows.length) return [];
+  if (!rows.length) return empty;
 
   const { count: N, avgLen } = store.memoryStats(opts.domain);
   const avgdl = avgLen || 1;
@@ -123,7 +126,6 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
     for (const [id, score] of scores) if (linked.has(id)) scores.set(id, score + ENTITY_BOOST);
   }
 
-  const nowMs = opts.nowMs ?? Date.now();
   const halfLife = opts.halfLifeDays ?? DEFAULT_HALFLIFE_DAYS;
   const penalty = opts.stalePenalty ?? 0.7;
   const useMeta = new Map(store.memoryDocsMeta([...scores.keys()]).map((m) => [m.id, m]));
@@ -132,11 +134,17 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
     if (!m) continue;
     scores.set(id, score * decayFactor(m.ts, nowMs, halfLife) * usageFactor(m, nowMs, penalty));
   }
+  return { scores, meta, labelsById };
+}
 
+/** Shared tail: clearance filter → limit slice → snippets → usage log/touch (spec §6, §7.8). */
+function finalize(store: Store, cand: CandidateSet, qTokens: string[], query: string, opts: RecallOpts, nowMs: number): RecallHit[] {
+  const { scores, meta, labelsById } = cand;
   // Clearance filter (spec §7.8): drop docs the caller isn't cleared for BEFORE ranking, so a
   // denied doc never occupies a result slot. Audit logs but keeps the hole open; enforce drops.
   if (opts.clearance) {
     for (const [id, docLbls] of labelsById) {
+      if (!scores.has(id)) continue;
       if (docLbls.length === 0 || visibleTo(docLbls, opts.clearance)) continue;
       const decision = opts.policy?.check(
         { labels: docLbls as Label[], sink: "recall-index", agent: { labels: opts.clearance } },
@@ -159,6 +167,66 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
     const m = meta.get(id)!;
     return { ...m, score, snippet: snippet(bodies.get(id) ?? "", qTokens) };
   });
+}
+
+export function recall(store: Store, query: string, opts: RecallOpts = {}): RecallHit[] {
+  const rawTokens = [...new Set(tokenize(query))];
+  if (!rawTokens.length) return [];
+  // Entity expansion (spec §3): "bunq" also searches the tokens of its aliases ("the bank").
+  const matched = matchEntities(store.listEntities(), rawTokens);
+  const qTokens = expandTokens(rawTokens, matched);
+  const nowMs = opts.nowMs ?? Date.now();
+  return finalize(store, lexicalScores(store, qTokens, matched, opts, nowMs), qTokens, query, opts, nowMs);
+}
+
+const RRF_K = 60;   // spec §3
+const VEC_TOPK = 50;
+
+/** Hybrid retrieval (spec §3): lexical rank + cosine top-k over memory_vec, fused via
+ *  reciprocal-rank fusion. No/latched embedder or an embed failure → pure lexical path. */
+export async function hybridRecall(
+  store: Store, query: string, opts: RecallOpts & { embedder?: Embedder } = {},
+): Promise<RecallHit[]> {
+  const embedder = opts.embedder;
+  if (!embedder || !embedder.available()) return recall(store, query, opts);
+  const rawTokens = [...new Set(tokenize(query))];
+  const matched = matchEntities(store.listEntities(), rawTokens);
+  const qTokens = expandTokens(rawTokens, matched);
+  const nowMs = opts.nowMs ?? Date.now();
+
+  const lex = lexicalScores(store, qTokens, matched, opts, nowMs);
+
+  let vecRanked: number[] = [];
+  try {
+    const [qVec] = await embedder.embed([query]);
+    const halfLife = opts.halfLifeDays ?? DEFAULT_HALFLIFE_DAYS;
+    const penaltyMul = opts.stalePenalty ?? 0.7;
+    const sims = store.memoryVecs(opts.domain)
+      .map((r) => ({ id: r.doc_id, sim: cosine(qVec, r.vec) }))
+      .filter((r) => r.sim > 0);
+    const vmeta = new Map(store.memoryDocsMeta(sims.map((r) => r.id)).map((m) => [m.id, m]));
+    for (const r of sims) {
+      const m = vmeta.get(r.id);
+      if (m) r.sim *= decayFactor(m.ts, nowMs, halfLife) * usageFactor(m, nowMs, penaltyMul);
+    }
+    vecRanked = sims.sort((a, b) => b.sim - a.sim || a.id - b.id).slice(0, VEC_TOPK).map((r) => r.id);
+  } catch {
+    return recall(store, query, opts); // embed failed → latch tripped inside embedder; lexical-only
+  }
+
+  // Reciprocal-rank fusion (k=60, spec §3) over the two ranked lists.
+  const lexRanked = [...lex.scores.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([id]) => id);
+  const fused = new Map<number, number>();
+  for (const [rank, id] of lexRanked.entries()) fused.set(id, (fused.get(id) ?? 0) + 1 / (RRF_K + rank + 1));
+  for (const [rank, id] of vecRanked.entries()) fused.set(id, (fused.get(id) ?? 0) + 1 / (RRF_K + rank + 1));
+
+  // Vector-only docs need meta/labels for the clearance filter + hit shape.
+  const missingMeta = [...fused.keys()].filter((id) => !lex.meta.has(id));
+  for (const m of store.memoryDocsMeta(missingMeta)) {
+    lex.meta.set(m.id, { source: m.source as MemorySource, ref: m.ref, domain: m.domain as Domain, ts: m.ts });
+    try { lex.labelsById.set(m.id, JSON.parse(m.labels) as string[]); } catch { lex.labelsById.set(m.id, []); }
+  }
+  return finalize(store, { scores: fused, meta: lex.meta, labelsById: lex.labelsById }, qTokens, query, opts, nowMs);
 }
 
 function snippet(body: string, qTokens: string[]): string {

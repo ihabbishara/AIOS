@@ -98,6 +98,8 @@ export interface Config {
   gmailSkipCategories: string[];
   /** Vault reindex sweep interval (seconds). */
   memoReindexSeconds: number;
+  /** Hybrid semantic recall via local ONNX embeddings (memory-v2 §3). AIOS_EMBEDDINGS=0 disables. */
+  embeddings: boolean;
   /** Recency half-life in days for recall scoring (memory-v2 §3). */
   memoryHalfLifeDays: number;
   /** Ranking multiplier for docs not retrieved in 180 days (memory-v2 §6). */
@@ -265,6 +267,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     gmailSkipCategories: (process.env.AIOS_GMAIL_SKIP_CATEGORIES ?? "promotions,social")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     memoReindexSeconds: Number(process.env.AIOS_MEMO_REINDEX_SECONDS ?? 300),
+    embeddings: process.env.AIOS_EMBEDDINGS !== "0",
     memoryHalfLifeDays: Number(process.env.AIOS_MEMORY_HALFLIFE_DAYS ?? 90),
     memoryStalePenalty: Number(process.env.AIOS_MEMORY_STALE_PENALTY ?? 0.7),
     eventRetentionDays: Number(process.env.AIOS_EVENT_RETENTION_DAYS ?? 90),
