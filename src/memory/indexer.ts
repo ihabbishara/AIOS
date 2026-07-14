@@ -46,7 +46,7 @@ export function indexEvent(store: Store, e: StoredEvent, policy?: Policy): void 
   // Audit the flow to the recall-index sink (calendar text is untrusted origin).
   policy?.check({ labels, origin: "untrusted", sink: "recall-index" }, "indexer:event", body);
   indexDoc(store, {
-    source: "event", ref: `event:${e.id}`, domain: "inbox", labels,
+    source: "event", ref: `event:${e.id}`, domain: "inbox", labels, origin: "untrusted",
     title: ev.summary, body, ts: e.ts, fingerprint: String(e.id),
   });
 }
@@ -62,7 +62,7 @@ export function indexDecision(store: Store, actionId: string, policy?: Policy): 
   const labels = docLabels({ source: "decision", domain });
   policy?.check({ labels, sink: "recall-index" }, "indexer:decision", body);
   indexDoc(store, {
-    source: "decision", ref: a.id, domain, labels,
+    source: "decision", ref: a.id, domain, labels, origin: "trusted",
     title: a.type, body, ts: a.resolved_at ?? a.created_at, fingerprint: a.resolved_at ?? a.status,
   });
 }
@@ -84,7 +84,7 @@ export function reindexVault(store: Store, vault: VaultWriter): void {
     if (content === undefined) continue;
     const domain = domainForVaultPath(rel);
     indexDoc(store, {
-      source, ref: rel, domain, labels: docLabels({ source, domain }),
+      source, ref: rel, domain, labels: docLabels({ source, domain }), origin: "trusted",
       title: rel.split("/").pop()!.replace(/\.md$/, ""), body: content, ts: isoTs, fingerprint: mtime,
     });
   }
@@ -161,7 +161,7 @@ export function indexMailThread(store: Store, registry: LoadedRegistry, threadId
   policy?.check({ labels, sink: "recall-index" }, "indexer:mail",
     included.map((m) => m.body).join("\n"));
   indexDoc(store, {
-    source: "mail", ref, domain, labels,
+    source: "mail", ref, domain, labels, origin: "untrusted",
     title: `mail ${root.from_agent} ↔ ${root.to_agent} (${root.kind})`,
     body: included.map((m) => `${m.from_agent} → ${m.to_agent}: ${m.body}`).join("\n"),
     ts: included[included.length - 1].created_at,

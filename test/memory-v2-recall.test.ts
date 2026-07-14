@@ -33,3 +33,34 @@ describe("recency decay (spec §3)", () => {
     expect(recall(s, "alpha", { nowMs: NOW })).toHaveLength(1);
   });
 });
+
+describe("usage feedback (spec §6)", () => {
+  it("recall logs the query + returned doc ids and touches last_retrieved_at", () => {
+    const s = new Store(":memory:");
+    indexDoc(s, { source: "vault", ref: "a.md", domain: "general", title: "t", body: "alpha", ts: iso(DAY), fingerprint: "1" });
+    recall(s, "alpha", { nowMs: NOW });
+    const metaRows = s.memoryDocsMeta([1]);
+    expect(metaRows[0].last_retrieved_at).toBeTruthy();
+    expect(s.pruneMemoryUse(new Date(NOW + DAY).toISOString())).toBe(1); // one use row existed
+  });
+
+  it("a doc never retrieved in 180d ranks below an equal fresh-retrieved doc", () => {
+    const s = new Store(":memory:");
+    // Same ts (no decay difference); stale.md indexed long ago and never retrieved.
+    indexDoc(s, { source: "vault", ref: "stale.md", domain: "general", title: "t", body: "alpha beta", ts: iso(DAY), fingerprint: "1" });
+    indexDoc(s, { source: "vault", ref: "fresh.md", domain: "general", title: "t", body: "alpha beta", ts: iso(DAY), fingerprint: "1" });
+    s.backdateMemoryDocForTest("vault", "stale.md", new Date(NOW - 200 * DAY).toISOString());
+    s.touchMemoryDocs([2], new Date(NOW - DAY).toISOString()); // fresh.md retrieved yesterday
+    const hits = recall(s, "alpha", { nowMs: NOW });
+    expect(hits.map((h) => h.ref)).toEqual(["fresh.md", "stale.md"]);
+  });
+
+  it("a freshly indexed doc is NOT penalized just because it was never retrieved", () => {
+    const s = new Store(":memory:");
+    indexDoc(s, { source: "vault", ref: "old-station.md", domain: "general", title: "t", body: "alpha beta", ts: iso(DAY), fingerprint: "1" });
+    indexDoc(s, { source: "vault", ref: "brand-new.md", domain: "general", title: "t", body: "alpha beta", ts: iso(DAY), fingerprint: "1" });
+    s.backdateMemoryDocForTest("vault", "old-station.md", new Date(NOW - 200 * DAY).toISOString());
+    const hits = recall(s, "alpha", { nowMs: NOW });
+    expect(hits[0].ref).toBe("brand-new.md"); // only the 200d-indexed never-retrieved doc is penalized
+  });
+});

@@ -324,6 +324,10 @@ export class Store {
     } catch { /* column exists — migration already ran */ }
     // Migration (info-flow policy): memory docs carry confidentiality labels (JSON array).
     try { this.db.exec("ALTER TABLE memory_doc ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'"); } catch { /* exists */ }
+    // Migration (memory-v2 §6/§7): usage feedback + provenance.
+    try { this.db.exec("ALTER TABLE memory_doc ADD COLUMN last_retrieved_at TEXT"); } catch { /* exists */ }
+    try { this.db.exec("ALTER TABLE memory_doc ADD COLUMN origin TEXT NOT NULL DEFAULT 'trusted'"); } catch { /* exists */ }
+    try { this.db.exec("ALTER TABLE teachings ADD COLUMN origin TEXT NOT NULL DEFAULT 'user-stated'"); } catch { /* exists */ }
     // Migration (Phase 3a): the linear job engine is gone — goals/task_nodes replace jobs/stages.
     this.db.exec("DROP TABLE IF EXISTS jobs; DROP TABLE IF EXISTS stages;");
     this.db.exec(`
@@ -416,6 +420,8 @@ export class Store {
         ref TEXT NOT NULL,
         domain TEXT NOT NULL,
         labels TEXT NOT NULL DEFAULT '[]',
+        origin TEXT NOT NULL DEFAULT 'trusted',
+        last_retrieved_at TEXT,
         title TEXT NOT NULL,
         body TEXT NOT NULL,
         ts TEXT NOT NULL,
@@ -437,8 +443,15 @@ export class Store {
         text TEXT NOT NULL,
         domain TEXT,
         kind TEXT NOT NULL,
+        origin TEXT NOT NULL DEFAULT 'user-stated',
         created_at TEXT NOT NULL,
         consolidated_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS memory_use (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        query TEXT NOT NULL,
+        doc_ids TEXT NOT NULL,
+        ts TEXT NOT NULL
       );
     `);
     this.db.exec(`
@@ -1267,9 +1280,9 @@ export class Store {
   }
 
   upsertMemoryDoc(
-    doc: { source: string; ref: string; domain: string; labels?: string[]; title: string; body: string; ts: string; len: number; fingerprint: string },
+    doc: { source: string; ref: string; domain: string; labels?: string[]; origin?: string; title: string; body: string; ts: string; len: number; fingerprint: string },
     postings: Array<[string, number]>,
-  ): void {
+  ): number {
     const now = new Date().toISOString();
     this.db.exec("BEGIN");
     try {
@@ -1279,13 +1292,14 @@ export class Store {
         this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
       }
       const res = this.db
-        .prepare(`INSERT INTO memory_doc (source, ref, domain, labels, title, body, ts, len, fingerprint, indexed_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(doc.source, doc.ref, doc.domain, JSON.stringify(doc.labels ?? []), doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
+        .prepare(`INSERT INTO memory_doc (source, ref, domain, labels, origin, title, body, ts, len, fingerprint, indexed_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(doc.source, doc.ref, doc.domain, JSON.stringify(doc.labels ?? []), doc.origin ?? "trusted", doc.title, doc.body, doc.ts, doc.len, doc.fingerprint, now);
       const docId = Number(res.lastInsertRowid);
       const ins = this.db.prepare("INSERT INTO memory_token (token, doc_id, tf) VALUES (?, ?, ?)");
       for (const [token, tf] of postings) ins.run(token, docId, tf);
       this.db.exec("COMMIT");
+      return docId;
     } catch (err) {
       this.db.exec("ROLLBACK");
       throw err;
@@ -1331,6 +1345,34 @@ export class Store {
     if (!ids.length) return [];
     const ph = ids.map(() => "?").join(", ");
     return this.db.prepare(`SELECT id, title, body FROM memory_doc WHERE id IN (${ph})`).all(...ids) as never;
+  }
+
+  memoryDocsMeta(ids: number[]): Array<{ id: number; source: string; ref: string; domain: string; ts: string; labels: string; indexed_at: string; last_retrieved_at: string | null }> {
+    if (!ids.length) return [];
+    const ph = ids.map(() => "?").join(", ");
+    return this.db.prepare(
+      `SELECT id, source, ref, domain, ts, labels, indexed_at, last_retrieved_at FROM memory_doc WHERE id IN (${ph})`,
+    ).all(...ids) as never;
+  }
+
+  logMemoryUse(query: string, docIds: number[]): void {
+    this.db.prepare("INSERT INTO memory_use (query, doc_ids, ts) VALUES (?, ?, ?)")
+      .run(query, JSON.stringify(docIds), new Date().toISOString());
+  }
+
+  pruneMemoryUse(beforeIso: string): number {
+    return Number(this.db.prepare("DELETE FROM memory_use WHERE ts < ?").run(beforeIso).changes);
+  }
+
+  touchMemoryDocs(ids: number[], nowIso: string): void {
+    if (!ids.length) return;
+    const stmt = this.db.prepare("UPDATE memory_doc SET last_retrieved_at = ? WHERE id = ?");
+    for (const id of ids) stmt.run(nowIso, id);
+  }
+
+  /** Test helper: backdate indexed_at to exercise the stale-penalty window. */
+  backdateMemoryDocForTest(source: string, ref: string, indexedAtIso: string): void {
+    this.db.prepare("UPDATE memory_doc SET indexed_at = ? WHERE source = ? AND ref = ?").run(indexedAtIso, source, ref);
   }
 
   // ---- teachings ----

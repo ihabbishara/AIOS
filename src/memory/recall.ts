@@ -10,6 +10,8 @@ export interface MemoryDocInput {
   source: MemorySource; ref: string; domain: Domain;
   /** Confidentiality labels (info-flow policy §6). Defaults to [] when a caller omits them. */
   labels?: Label[];
+  /** Provenance (memory-v2 §7): untrusted for attacker-influenceable text (calendar, mail). */
+  origin?: "trusted" | "untrusted";
   title: string; body: string; ts: string; fingerprint: string;
 }
 export interface RecallHit {
@@ -32,6 +34,17 @@ function decayFactor(ts: string, nowMs: number, halfLifeDays: number): number {
   return Math.exp(-Math.max(0, ageMs) / (halfLifeDays * DAY_MS));
 }
 
+const STALE_WINDOW_MS = 180 * DAY_MS;
+
+/** Usage penalty (spec §6): a doc with no retrieval activity for 180d gets a small multiplier.
+ *  "Activity" = last retrieval, or (for never-retrieved docs) index time — a fresh doc is
+ *  never penalized for not having been queried yet. Never deletion. */
+function usageFactor(m: { indexed_at: string; last_retrieved_at: string | null }, nowMs: number, penalty: number): number {
+  const lastActivity = Date.parse(m.last_retrieved_at ?? m.indexed_at);
+  if (Number.isNaN(lastActivity)) return 1;
+  return nowMs - lastActivity > STALE_WINDOW_MS ? penalty : 1;
+}
+
 /** Index (or re-index) a document. No-op when the fingerprint is unchanged. */
 export function indexDoc(store: Store, doc: MemoryDocInput): void {
   if (store.memoryFingerprint(doc.source, doc.ref) === doc.fingerprint) return;
@@ -39,7 +52,7 @@ export function indexDoc(store: Store, doc: MemoryDocInput): void {
   for (const t of tokenize(doc.title)) tf.set(t, (tf.get(t) ?? 0) + TITLE_BOOST);
   for (const t of tokenize(doc.body)) tf.set(t, (tf.get(t) ?? 0) + 1);
   const len = [...tf.values()].reduce((a, b) => a + b, 0);
-  store.upsertMemoryDoc({ ...doc, labels: doc.labels ?? [], len }, [...tf.entries()]);
+  store.upsertMemoryDoc({ ...doc, labels: doc.labels ?? [], origin: doc.origin ?? "trusted", len }, [...tf.entries()]);
 }
 
 export interface RecallOpts {
@@ -96,8 +109,12 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
 
   const nowMs = opts.nowMs ?? Date.now();
   const halfLife = opts.halfLifeDays ?? DEFAULT_HALFLIFE_DAYS;
+  const penalty = opts.stalePenalty ?? 0.7;
+  const useMeta = new Map(store.memoryDocsMeta([...scores.keys()]).map((m) => [m.id, m]));
   for (const [id, score] of scores) {
-    scores.set(id, score * decayFactor(meta.get(id)!.ts, nowMs, halfLife));
+    const m = useMeta.get(id);
+    if (!m) continue;
+    scores.set(id, score * decayFactor(m.ts, nowMs, halfLife) * usageFactor(m, nowMs, penalty));
   }
 
   // Clearance filter (spec §7.8): drop docs the caller isn't cleared for BEFORE ranking, so a
@@ -116,6 +133,11 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
   const limit = Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, limit);
   const bodies = new Map(store.memoryDocsByIds(ranked.map(([id]) => id)).map((d) => [d.id, d.body]));
+
+  // Usage feedback (spec §6): every recall logs its query + hits and refreshes retrieval stamps.
+  const returnedIds = ranked.map(([id]) => id);
+  store.logMemoryUse(query, returnedIds);
+  store.touchMemoryDocs(returnedIds, new Date(nowMs).toISOString());
 
   return ranked.map(([id, score]) => {
     const m = meta.get(id)!;
