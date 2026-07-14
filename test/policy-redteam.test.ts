@@ -30,7 +30,11 @@ describe("red-team: inbox.md untrusted-injection vector (spec §6)", () => {
     await distill({
       store, vault,
       gate: { propose: async () => ({ status: "executed" }) } as never,
-      curate: async ({ domain, signals }) => { if (domain === "inbox") inboxSignals = signals; return "note"; },
+      factDiff: async ({ domain, signals }) => {
+        if (domain === "inbox") inboxSignals = signals.map((s) => s.text).join("\n");
+        return [];
+      },
+      ground: async (b) => b.map(() => true),
       policy,
       signalOrigin: (source, ref) => (source === "teaching" && ref === String(tid) ? "untrusted" : "trusted"),
     });
@@ -47,7 +51,11 @@ describe("red-team: inbox.md untrusted-injection vector (spec §6)", () => {
     await distill({
       store, vault,
       gate: { propose: async () => ({ status: "executed" }) } as never,
-      curate: async ({ domain, signals }) => { if (domain === "inbox") inboxSignals = signals; return "note"; },
+      factDiff: async ({ domain, signals }) => {
+        if (domain === "inbox") inboxSignals = signals.map((s) => s.text).join("\n");
+        return [];
+      },
+      ground: async (b) => b.map(() => true),
       policy: new Policy({ mode: "audit", report: () => {} }),
     });
     expect(inboxSignals).toContain("prefer morning meetings");

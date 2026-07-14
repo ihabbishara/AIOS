@@ -26,7 +26,8 @@ export type AiosEvent =
   | { type: "mail.spawned"; mailId: string; goalId: string }
   | { type: "mail.read"; ids: string[] }
   | { type: "mail.asked_user"; id: string; from: string; question: string; goalId: string }
-  | { type: "policy.violation"; label: string; sink: string; site: string; hash: string };
+  | { type: "policy.violation"; label: string; sink: string; site: string; hash: string }
+  | { type: "memory.ungrounded"; domain: string; hash: string };
 
 export interface StoredEvent {
   id: number;

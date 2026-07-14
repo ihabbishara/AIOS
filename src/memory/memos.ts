@@ -17,27 +17,6 @@ export function memoRelPath(domain: Domain): string {
   return `memos/${domain}.md`;
 }
 
-export const CURATOR_SYSTEM =
-  "You are the AI-OS memory curator. You maintain concise, durable markdown memos capturing the " +
-  "user's preferences and stable facts. Merge new signals into the existing memo: dedup, keep it tight, " +
-  "attach brief evidence (counts/dates) where useful, remove anything a 'forget' signal asks to drop, and " +
-  "on contradictions keep the newer fact noting the old in parentheses. " +
-  "Output ONLY the updated memo markdown — no preamble, no code fences, no commentary.";
-
-export function buildCuratePrompt(domain: string, existing: string, signals: string): string {
-  return [
-    `Domain: ${domain}`,
-    "",
-    "## Current memo (may be empty)",
-    existing.trim() || "(empty)",
-    "",
-    "## New signals since last update",
-    signals.trim() || "(none)",
-    "",
-    "Produce the UPDATED memo. Output ONLY the memo markdown.",
-  ].join("\n");
-}
-
 /** Compact preferences/profile block injected into the moderator system prompt each turn.
  *  Reads files fresh every turn so edits to vault memos take effect immediately (no restart). */
 export function memoContext(store: Store, vault: VaultWriter): string {

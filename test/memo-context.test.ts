@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
-import { memoContext, buildCuratePrompt } from "../src/memory/memos.js";
+import { memoContext } from "../src/memory/memos.js";
 
 function freshVault() {
   const root = mkdtempSync(join(tmpdir(), "vault-"));
@@ -53,12 +53,5 @@ describe("memoContext", () => {
   });
 });
 
-describe("buildCuratePrompt", () => {
-  it("embeds domain, existing memo, and signals", () => {
-    const p = buildCuratePrompt("money", "# Money\nold rule", "- decision[rejected] pay gym — reason: cancel");
-    expect(p).toContain("money");
-    expect(p).toContain("old rule");
-    expect(p).toContain("cancel");
-    expect(p).toContain("Output ONLY the memo");
-  });
-});
+// buildCuratePrompt died with the prose-merge distiller (memory-v2 §4) — the fact-diff
+// prompts are pinned via test/distiller.test.ts behavior instead.

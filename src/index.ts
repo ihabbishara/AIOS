@@ -45,7 +45,7 @@ import { emailExecutors } from "./senses/google/executors.js";
 import { BunqSense } from "./senses/bunq/index.js";
 import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision, indexMailThread } from "./memory/indexer.js";
-import { distill, curateLLM } from "./memory/distiller.js";
+import { distill, factDiffLLM, groundLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
 import { runSpeculateEmail, scanInboxFor, readMessageFor, triageLLM, composeLLM } from "./heartbeat/speculate-email.js";
@@ -619,9 +619,13 @@ async function main(): Promise<void> {
       );
       if (name === "evening") {
         reindexVault(store, vault); // sync, cheap — catch direct vault edits before distilling
-        // fire-and-forget: distill's up-to-7 LLM calls must not block the clock tick / reminders.
-        void distill({ store, vault, gate, curate: curateLLM(config.curatorModel, log), policy: infoPolicy, log })
-          .catch((err) => log(`distill failed: ${(err as Error).message}`));
+        // fire-and-forget: distill's LLM calls must not block the clock tick / reminders.
+        void distill({
+          store, vault, gate, bus,
+          factDiff: factDiffLLM(config.curatorModel, log),
+          ground: groundLLM(config.curatorModel, log),
+          policy: infoPolicy, log,
+        }).catch((err) => log(`distill failed: ${(err as Error).message}`));
       }
     },
     onTick: () => goals.resumeBudgetPaused(),

@@ -1,23 +1,36 @@
-import type { Store } from "../store/db.js";
+import { createHash } from "node:crypto";
+import type { Store, MemoFactRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
+import type { EventBus } from "../events.js";
 import type { Origin, Policy } from "../kernel/policy.js";
 import { domainLabel } from "../kernel/labels.js";
 import { DOMAINS, type Domain } from "./recall.js";
 import { domainForType } from "./indexer.js";
-import { memoRelPath, CURATOR_SYSTEM, buildCuratePrompt, ALWAYS_LOADED } from "./memos.js";
+import { memoRelPath, ALWAYS_LOADED } from "./memos.js";
+import { renderMemo } from "./facts.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const ORIGIN = { channel: "system", chatId: "distill" };
 
-export interface CurateInput { domain: string; existing: string; signals: string }
-export type CurateFn = (input: CurateInput) => Promise<string>;
+export interface FactCandidate { subject: string; fact: string; source_ref: string; supersedes?: number }
+export type FactDiffFn = (input: {
+  domain: string; active: MemoFactRow[]; signals: Array<{ ref: string; text: string }>;
+}) => Promise<FactCandidate[]>;
+/** Grounding verifier (spec §4): per candidate, does sourceText actually support the claim?
+ *  Fail-closed: a thrown error means NOTHING lands this run. */
+export type GroundFn = (batch: Array<{ subject: string; fact: string; sourceText: string }>) => Promise<boolean[]>;
 
 export interface DistillDeps {
   store: Store;
   vault: VaultWriter;
   gate: ActionGate;
-  curate: CurateFn;
+  /** Fact-diff extractor (memory-v2 §4): signals + active facts → new/supersede candidates. */
+  factDiff: FactDiffFn;
+  /** Grounding verifier — ungrounded candidates are dropped + memory.ungrounded emitted. */
+  ground: GroundFn;
+  /** memory.ungrounded emitter (optional — tests may omit). */
+  bus?: EventBus;
   /** Info-flow checkpoint — memos bound for the SYSTEM prompt (ALWAYS_LOADED domains) may only
    *  derive from trusted-origin signals; untrusted signals are excluded + logged (spec §6). */
   policy?: Policy;
@@ -39,7 +52,7 @@ export async function distill(deps: DistillDeps): Promise<void> {
 }
 
 async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
-  const { store, vault, gate, curate } = deps;
+  const { store, vault, gate } = deps;
   const since = store.kvGet(`distill:last:${domain}`) ?? undefined;
 
   const decisions = domain === "profile"
@@ -61,12 +74,13 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
 
   const existing = vault.readNote(memoRelPath(domain)) ?? "";
   const originOf = deps.signalOrigin ?? (() => "trusted" as Origin);
-  const typed: Array<{ text: string; origin: Origin }> = [
+  const typed: Array<{ text: string; origin: Origin; ref: string }> = [
     ...decisions.map((d) => ({
       text: `- decision[${d.verdict}] ${d.preview}${d.reason ? ` — reason: ${d.reason}` : ""}`,
       origin: originOf("decision", d.id),
+      ref: `decision:${d.id}`,
     })),
-    ...teachings.map((t) => ({ text: `- ${t.kind}: ${t.text}`, origin: originOf("teaching", String(t.id)) })),
+    ...teachings.map((t) => ({ text: `- ${t.kind}: ${t.text}`, origin: originOf("teaching", String(t.id)), ref: `teaching:${t.id}` })),
   ];
 
   // Memos in ALWAYS_LOADED domains flow into the moderator SYSTEM prompt — an untrusted-origin
@@ -84,19 +98,63 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
       return false;
     });
   }
-  const signals = kept.map((s) => s.text).join("\n");
+  const signals = kept.map((s) => ({ ref: s.ref, text: s.text }));
+  const active = store.activeMemoFacts(domain);
+  // Bootstrap (first fact-diff run): fold the existing prose memo in as a signal; its facts
+  // ground against the vault memo itself (source_ref memo:<domain>).
+  if (!active.length && existing.trim()) signals.push({ ref: `memo:${domain}`, text: existing });
+  if (!signals.length) return;
 
-  const updated = (await curate({ domain, existing, signals })).trim();
-  if (!updated) {
-    deps.log?.(`distill ${domain}: empty curator output — keeping prior memo`);
-    return;
+  const candidates = await deps.factDiff({ domain, active, signals });
+  if (!candidates.length) return;
+
+  // Resolve + ground (spec §4, fail-closed): unresolvable refs never reach the verifier.
+  const resolved = candidates
+    .map((c) => ({ c, sourceText: resolveSourceRef(store, vault, domain, c.source_ref) }))
+    .filter((r): r is { c: FactCandidate; sourceText: string } => {
+      if (r.sourceText !== undefined) return true;
+      emitUngrounded(deps, domain, r.c.fact);
+      return false;
+    });
+  let verdicts: boolean[];
+  try {
+    verdicts = await deps.ground(resolved.map((r) => ({ subject: r.c.subject, fact: r.c.fact, sourceText: r.sourceText })));
+  } catch (err) {
+    deps.log?.(`distill ${domain}: grounding verifier failed (${(err as Error).message}) — dropping all candidates`);
+    verdicts = resolved.map(() => false);
   }
 
+  const nowIso = deps.nowIso ?? new Date().toISOString();
+  const accepted: Array<{ c: FactCandidate; origin: MemoFactRow["origin"] }> = [];
+  resolved.forEach((r, i) => {
+    if (!verdicts[i]) { emitUngrounded(deps, domain, r.c.fact); return; }
+    accepted.push({ c: r.c, origin: originOfRef(store, r.c.source_ref) });
+  });
+  if (!accepted.length) return;
+
+  // Render PROSPECTIVELY and persist facts only when the gate write executes — otherwise a
+  // queued (non-autonomous) write would re-insert the same facts on every retry run.
+  const supersededIds = new Set(accepted.map((a) => a.c.supersedes).filter((x): x is number => !!x));
+  const prospective: MemoFactRow[] = [
+    ...active.filter((f) => !supersededIds.has(f.id)),
+    ...accepted.map((a, i) => ({
+      id: -(i + 1), domain, subject: a.c.subject, fact: a.c.fact, ts: nowIso,
+      source_ref: a.c.source_ref, status: "active" as const, origin: a.origin, superseded_by: null,
+    })),
+  ];
+  const rendered = renderMemo(domain, prospective);
+  if (!rendered) return;
   const row = await gate.propose(
-    { type: "vault.write", payload: { path: memoRelPath(domain), content: updated }, preview: `Update ${domain} memo` },
+    { type: "vault.write", payload: { path: memoRelPath(domain), content: rendered }, preview: `Update ${domain} memo (${accepted.length} fact${accepted.length === 1 ? "" : "s"})` },
     ORIGIN,
   );
   if (row.status === "executed") {
+    for (const a of accepted) {
+      const newId = store.addMemoFact({
+        domain, subject: a.c.subject, fact: a.c.fact, sourceRef: a.c.source_ref, origin: a.origin, ts: nowIso,
+      });
+      if (a.c.supersedes) store.supersedeMemoFact(a.c.supersedes, newId);
+    }
     if (teachings.length) store.markTeachingsConsolidated(teachings.map((t) => t.id));
     if (decisions.length) {
       // Stamp the cursor with the MAX consumed decision ts (not "now") so a decision resolved
@@ -109,35 +167,105 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   }
 }
 
-/**
- * Production curator: a single-turn, tool-less LLM call that rewrites a domain memo.
- * Returns "" on ANY failure so the distiller's empty-output guard keeps the prior memo.
- * Uses the Claude subscription via the SDK (CLAUDE_CODE_OAUTH_TOKEN) — never an API key.
- */
-export function curateLLM(model?: string, log?: (line: string) => void): CurateFn {
-  return async ({ domain, existing, signals }) => {
+function emitUngrounded(deps: DistillDeps, domain: string, fact: string): void {
+  const hash = createHash("sha256").update(fact).digest("hex").slice(0, 12);
+  deps.log?.(`distill ${domain}: ungrounded fact dropped (${hash})`);
+  deps.bus?.emit({ type: "memory.ungrounded", domain, hash });
+}
+
+/** source_ref grammar: teaching:<id> | decision:<id> | memo:<domain> | doc:<source>:<ref>.
+ *  Returns the supporting text, or undefined when the ref does not resolve (→ fact dropped). */
+function resolveSourceRef(store: Store, vault: VaultWriter, domain: string, ref: string): string | undefined {
+  if (ref.startsWith("teaching:")) return store.getTeaching(Number(ref.slice(9)))?.text;
+  if (ref.startsWith("decision:")) {
+    const a = store.getAction(ref.slice(9));
+    return a ? `${a.preview}${a.reject_reason ? ` — ${a.reject_reason}` : ""}` : undefined;
+  }
+  if (ref === `memo:${domain}`) return vault.readNote(memoRelPath(domain as Domain));
+  if (ref.startsWith("doc:")) {
+    const [, source, ...rest] = ref.split(":");
+    return store.memoryDocBody(source, rest.join(":"));
+  }
+  return undefined;
+}
+
+function originOfRef(store: Store, ref: string): MemoFactRow["origin"] {
+  if (ref.startsWith("teaching:")) {
+    const t = store.getTeaching(Number(ref.slice(9)));
+    const o = t?.origin;
+    return o === "agent-inferred" || o === "untrusted" ? o : "user-stated";
+  }
+  if (ref.startsWith("decision:")) return "user-stated"; // human verdicts are the user's own acts
+  return "agent-inferred"; // memo bootstrap / doc-derived
+}
+
+const FACT_DIFF_SYSTEM =
+  "You maintain a fact-granular memory. Given ACTIVE facts and NEW signals, output ONLY a JSON " +
+  "array of candidate changes: {\"subject\", \"fact\", \"source_ref\", \"supersedes\"?}. subject is a " +
+  "short stable topic key; fact is one concise sentence; source_ref MUST be copied verbatim from a " +
+  "signal's ref. Use supersedes:<id> when a new fact contradicts/replaces an active fact (newer wins). " +
+  "Emit nothing for signals that add no durable fact. Empty array if no changes.";
+
+/** Production fact-diff: single-turn, tool-less; [] on ANY failure (no-diff is always safe).
+ *  Uses the Claude subscription via the SDK (CLAUDE_CODE_OAUTH_TOKEN) — never an API key. */
+export function factDiffLLM(model?: string, log?: (line: string) => void): FactDiffFn {
+  return async ({ domain, active, signals }) => {
     try {
-      const q = query({
-        prompt: buildCuratePrompt(domain, existing, signals),
-        options: {
-          systemPrompt: CURATOR_SYSTEM,
-          allowedTools: [],
-          permissionMode: "dontAsk",
-          settingSources: [],
-          persistSession: false,
-          maxTurns: 1,
-          ...(model ? { model } : {}),
-        },
-      });
+      const prompt = [
+        `Domain: ${domain}`,
+        "## Active facts (id: subject: fact)",
+        active.map((f) => `${f.id}: ${f.subject}: ${f.fact}`).join("\n") || "(none)",
+        "## New signals (ref: text)",
+        signals.map((s) => `${s.ref}: ${s.text}`).join("\n"),
+        "JSON array only.",
+      ].join("\n\n");
+      const q = query({ prompt, options: {
+        systemPrompt: FACT_DIFF_SYSTEM, allowedTools: [], permissionMode: "dontAsk",
+        settingSources: [], persistSession: false, maxTurns: 1, ...(model ? { model } : {}),
+      } });
       for await (const msg of q) {
         if (msg.type === "result") {
-          return msg.subtype === "success" ? msg.result : "";
+          if (msg.subtype !== "success") return [];
+          const m = /\[[\s\S]*\]/.exec(msg.result);
+          return m ? (JSON.parse(m[0]) as FactCandidate[]) : [];
         }
       }
-      return "";
+      return [];
     } catch (err) {
-      log?.(`curateLLM ${domain} failed: ${(err as Error).message}`);
-      return "";
+      log?.(`factDiffLLM ${domain} failed: ${(err as Error).message}`);
+      return [];
     }
+  };
+}
+
+const GROUND_SYSTEM =
+  "You are a strict fact-checker. For each numbered candidate, answer whether the SOURCE text " +
+  "genuinely supports the FACT (not merely mentions related words). Output ONLY a JSON array of " +
+  "booleans, one per candidate, in order.";
+
+/** Production grounding verifier. THROWS on failure — the distiller drops everything that run
+ *  (fail-closed for writes, spec §4). */
+export function groundLLM(model?: string, log?: (line: string) => void): GroundFn {
+  return async (batch) => {
+    if (!batch.length) return [];
+    const prompt = batch
+      .map((b, i) => `${i + 1}. FACT: ${b.subject}: ${b.fact}\n   SOURCE: ${b.sourceText.slice(0, 1500)}`)
+      .join("\n\n") + "\n\nJSON array of booleans only.";
+    log?.(`groundLLM: verifying ${batch.length} candidate(s)`);
+    const q = query({ prompt, options: {
+      systemPrompt: GROUND_SYSTEM, allowedTools: [], permissionMode: "dontAsk",
+      settingSources: [], persistSession: false, maxTurns: 1, ...(model ? { model } : {}),
+    } });
+    for await (const msg of q) {
+      if (msg.type === "result") {
+        if (msg.subtype !== "success") throw new Error("grounding verifier returned no result");
+        const m = /\[[\s\S]*\]/.exec(msg.result);
+        if (!m) throw new Error("grounding verifier output unparseable");
+        const arr = JSON.parse(m[0]) as boolean[];
+        if (arr.length !== batch.length) throw new Error("grounding verdict count mismatch");
+        return arr;
+      }
+    }
+    throw new Error("grounding verifier stream ended without result");
   };
 }
