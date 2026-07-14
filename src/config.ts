@@ -98,6 +98,10 @@ export interface Config {
   gmailSkipCategories: string[];
   /** Vault reindex sweep interval (seconds). */
   memoReindexSeconds: number;
+  /** Recency half-life in days for recall scoring (memory-v2 §3). */
+  memoryHalfLifeDays: number;
+  /** Ranking multiplier for docs not retrieved in 180 days (memory-v2 §6). */
+  memoryStalePenalty: number;
   eventRetentionDays: number;
   /** Model for the memory curator one-shot (defaults to specialistModel). */
   curatorModel?: string;
@@ -261,6 +265,8 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     gmailSkipCategories: (process.env.AIOS_GMAIL_SKIP_CATEGORIES ?? "promotions,social")
       .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
     memoReindexSeconds: Number(process.env.AIOS_MEMO_REINDEX_SECONDS ?? 300),
+    memoryHalfLifeDays: Number(process.env.AIOS_MEMORY_HALFLIFE_DAYS ?? 90),
+    memoryStalePenalty: Number(process.env.AIOS_MEMORY_STALE_PENALTY ?? 0.7),
     eventRetentionDays: Number(process.env.AIOS_EVENT_RETENTION_DAYS ?? 90),
     curatorModel: process.env.AIOS_CURATOR_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     bunqEnv: process.env.AIOS_BUNQ_ENV ?? "sandbox",

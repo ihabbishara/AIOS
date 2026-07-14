@@ -22,6 +22,15 @@ const K1 = 1.2;
 const B = 0.75;
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 20;
+export const DEFAULT_HALFLIFE_DAYS = 90;
+const DAY_MS = 86_400_000;
+
+/** Recency decay (spec §3): score × exp(-age/halfLife). Unparseable ts → 1 (no decay). */
+function decayFactor(ts: string, nowMs: number, halfLifeDays: number): number {
+  const ageMs = nowMs - Date.parse(ts);
+  if (Number.isNaN(ageMs)) return 1;
+  return Math.exp(-Math.max(0, ageMs) / (halfLifeDays * DAY_MS));
+}
 
 /** Index (or re-index) a document. No-op when the fingerprint is unchanged. */
 export function indexDoc(store: Store, doc: MemoryDocInput): void {
@@ -41,6 +50,12 @@ export interface RecallOpts {
    *  hole. `shared` docs are always visible. Absent → no filter (moderator/legacy full clearance). */
   clearance?: string[];
   policy?: Policy;
+  /** Injectable clock for decay/penalty tests. Default Date.now(). */
+  nowMs?: number;
+  /** Recency half-life in days (spec §3). Default 90 (AIOS_MEMORY_HALFLIFE_DAYS). */
+  halfLifeDays?: number;
+  /** Multiplier for docs not retrieved in 180d (spec §6). Default 0.7 (AIOS_MEMORY_STALE_PENALTY). */
+  stalePenalty?: number;
 }
 
 /** A doc is visible to a caller iff every label is `shared` or in the caller's clearance. */
@@ -77,6 +92,12 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
       meta.set(r.doc_id, { source: r.source as MemorySource, ref: r.ref, domain: r.domain as Domain, ts: r.ts });
       try { labelsById.set(r.doc_id, JSON.parse(r.labels) as string[]); } catch { labelsById.set(r.doc_id, []); }
     }
+  }
+
+  const nowMs = opts.nowMs ?? Date.now();
+  const halfLife = opts.halfLifeDays ?? DEFAULT_HALFLIFE_DAYS;
+  for (const [id, score] of scores) {
+    scores.set(id, score * decayFactor(meta.get(id)!.ts, nowMs, halfLife));
   }
 
   // Clearance filter (spec §7.8): drop docs the caller isn't cleared for BEFORE ranking, so a
