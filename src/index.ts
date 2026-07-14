@@ -46,6 +46,8 @@ import { BunqSense } from "./senses/bunq/index.js";
 import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision, indexMailThread } from "./memory/indexer.js";
 import { captureTurn, extractLLM } from "./memory/capture.js";
+import { seedEntities, extractNewEntities, extractEntitiesLLM } from "./memory/entities.js";
+import { LocalEmbedder, embedMissing } from "./memory/embeddings.js";
 import { distill, factDiffLLM, groundLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
@@ -123,6 +125,10 @@ async function main(): Promise<void> {
         const m = store.getMail(e.event.id);
         if (m) indexMailThread(store, registry, m.thread_id ?? m.id, infoPolicy);
       }
+      // Write-time embedding seam (memory-v2 §3/§7): debounced sweep picks up any doc the
+      // branches above just indexed. scheduleEmbed is a forward-ref like infoPolicy — this
+      // closure only fires at runtime, long after the binding below is initialized.
+      scheduleEmbed();
     } catch (err) {
       log(`memory index (write-time) failed: ${(err as Error).message}`);
     }
@@ -225,7 +231,24 @@ async function main(): Promise<void> {
     halfLifeDays: config.memoryHalfLifeDays,
     stalePenalty: config.memoryStalePenalty,
   };
-  const resolveDeps = { registry, store, vault, gate, config, categorize, policy: infoPolicy } as ResolveAgentDeps;
+  // Local embedder (memory-v2 §3): lazy model load, fail-latch to lexical-only. The debounced
+  // single-flight sweep is the write-time seam — indexDoc stays sync, vectors follow within ~5s.
+  const embedder = config.embeddings
+    ? new LocalEmbedder({ cacheDir: join(config.dataDir, "models"), log })
+    : undefined;
+  memoryDeps.embedder = embedder;
+  let embedTimer: NodeJS.Timeout | undefined;
+  const scheduleEmbed = (delayMs = 5_000) => {
+    if (!embedder?.available()) return;
+    clearTimeout(embedTimer);
+    embedTimer = setTimeout(() => {
+      void embedMissing(store, embedder, 64)
+        .then((n) => { if (n === 64) scheduleEmbed(1_000); }) // keep draining a big backlog
+        .catch((err) => log(`embed sweep failed: ${(err as Error).message}`));
+    }, delayMs);
+    embedTimer.unref?.();
+  };
+  const resolveDeps: ResolveAgentDeps = { registry, store, vault, gate, config, categorize, policy: infoPolicy, embedder };
   // Post-turn conversational capture (memory-v2 §5): one cheap fail-silent one-shot per
   // coordinator/direct turn; candidates ride the teachings pipeline as agent-inferred.
   const captureFn = config.captureEnabled
@@ -483,6 +506,9 @@ async function main(): Promise<void> {
   } catch (err) {
     log(`memory reconcile failed: ${(err as Error).message}`);
   }
+  // memory-v2 boot: deterministic entity seeding (idempotent) + lazy vector backfill.
+  try { seedEntities(store, registry); } catch (err) { log(`entity seeding failed: ${(err as Error).message}`); }
+  scheduleEmbed(1_000);
   const reindexTimer = setInterval(() => {
     try { reindexVault(store, vault); } catch (err) { log(`memory reindex failed: ${(err as Error).message}`); }
   }, config.memoReindexSeconds * 1000);
@@ -637,6 +663,11 @@ async function main(): Promise<void> {
           ground: groundLLM(config.curatorModel, log),
           policy: infoPolicy, log,
         }).catch((err) => log(`distill failed: ${(err as Error).message}`));
+        // memory-v2 housekeeping: entity extraction over new titles, vector sweep, usage-log prune.
+        void extractNewEntities({ store, extract: extractEntitiesLLM(config.curatorModel, log), log })
+          .catch((err) => log(`entity extraction failed: ${(err as Error).message}`));
+        scheduleEmbed(0);
+        try { store.pruneMemoryUse(new Date(Date.now() - 90 * 86_400_000).toISOString()); } catch { /* best-effort */ }
       }
     },
     onTick: () => goals.resumeBudgetPaused(),
