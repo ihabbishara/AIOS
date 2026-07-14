@@ -140,8 +140,23 @@ export interface TeachingRow {
   text: string;
   domain: string | null;
   kind: string;
+  /** Provenance (memory-v2 §4/§5): user-stated (remember tool) vs agent-inferred (capture). */
+  origin: string;
   created_at: string;
   consolidated_at: string | null;
+}
+
+/** A single durable memory fact (memory-v2 §4). Facts are the truth; memo markdown is a projection. */
+export interface MemoFactRow {
+  id: number;
+  domain: string;
+  subject: string;
+  fact: string;
+  ts: string;
+  source_ref: string | null;
+  status: "active" | "superseded";
+  origin: "user-stated" | "agent-inferred" | "untrusted";
+  superseded_by: number | null;
 }
 
 export interface DecisionRow {
@@ -469,6 +484,18 @@ export class Store {
         doc_id INTEGER PRIMARY KEY,
         vec BLOB NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS memo_facts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        fact TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        source_ref TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        origin TEXT NOT NULL DEFAULT 'user-stated',
+        superseded_by INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_memo_facts_active ON memo_facts(domain, status);
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS personal_transactions (
@@ -1460,11 +1487,15 @@ export class Store {
 
   // ---- teachings ----
 
-  addTeaching(t: { text: string; domain: string | null; kind: string }): number {
+  addTeaching(t: { text: string; domain: string | null; kind: string; origin?: string }): number {
     const res = this.db
-      .prepare("INSERT INTO teachings (text, domain, kind, created_at) VALUES (?, ?, ?, ?)")
-      .run(t.text, t.domain, t.kind, new Date().toISOString());
+      .prepare("INSERT INTO teachings (text, domain, kind, origin, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(t.text, t.domain, t.kind, t.origin ?? "user-stated", new Date().toISOString());
     return Number(res.lastInsertRowid);
+  }
+
+  getTeaching(id: number): TeachingRow | undefined {
+    return this.db.prepare("SELECT * FROM teachings WHERE id = ?").get(id) as TeachingRow | undefined;
   }
 
   listUnconsolidatedTeachings(domain?: string | null): TeachingRow[] {
@@ -1478,6 +1509,31 @@ export class Store {
     }
     sql += " ORDER BY id";
     return this.db.prepare(sql).all(...args) as unknown as TeachingRow[];
+  }
+
+  // ---- memo facts (memory-v2 §4) ----
+
+  addMemoFact(f: { domain: string; subject: string; fact: string; sourceRef?: string; origin: string; ts?: string }): number {
+    const res = this.db
+      .prepare("INSERT INTO memo_facts (domain, subject, fact, ts, source_ref, origin) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(f.domain, f.subject, f.fact, f.ts ?? new Date().toISOString(), f.sourceRef ?? null, f.origin);
+    return Number(res.lastInsertRowid);
+  }
+
+  activeMemoFacts(domain?: string): MemoFactRow[] {
+    const rows = domain
+      ? this.db.prepare("SELECT * FROM memo_facts WHERE status = 'active' AND domain = ? ORDER BY subject, id").all(domain)
+      : this.db.prepare("SELECT * FROM memo_facts WHERE status = 'active' ORDER BY domain, subject, id").all();
+    return rows as unknown as MemoFactRow[];
+  }
+
+  supersedeMemoFact(id: number, byId: number | null): void {
+    this.db.prepare("UPDATE memo_facts SET status = 'superseded', superseded_by = ? WHERE id = ?").run(byId, id);
+  }
+
+  memoryDocBody(source: string, ref: string): string | undefined {
+    const r = this.db.prepare("SELECT body FROM memory_doc WHERE source = ? AND ref = ?").get(source, ref) as { body: string } | undefined;
+    return r?.body;
   }
 
   markTeachingsConsolidated(ids: number[]): void {
