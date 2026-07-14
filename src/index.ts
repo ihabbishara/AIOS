@@ -45,6 +45,7 @@ import { emailExecutors } from "./senses/google/executors.js";
 import { BunqSense } from "./senses/bunq/index.js";
 import { BunqSync } from "./senses/bunq/sync.js";
 import { reconcile, reindexVault, indexEvent, indexDecision, indexMailThread } from "./memory/indexer.js";
+import { captureTurn, extractLLM } from "./memory/capture.js";
 import { distill, factDiffLLM, groundLLM } from "./memory/distiller.js";
 import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
@@ -225,6 +226,14 @@ async function main(): Promise<void> {
     stalePenalty: config.memoryStalePenalty,
   };
   const resolveDeps = { registry, store, vault, gate, config, categorize, policy: infoPolicy } as ResolveAgentDeps;
+  // Post-turn conversational capture (memory-v2 §5): one cheap fail-silent one-shot per
+  // coordinator/direct turn; candidates ride the teachings pipeline as agent-inferred.
+  const captureFn = config.captureEnabled
+    ? (u: string, r: string) => {
+        void captureTurn({ store, extract: extractLLM(config.captureModel, log), log }, u, r)
+          .catch((err) => log(`capture failed: ${(err as Error).message}`));
+      }
+    : undefined;
   // The ONE resolution path (org-model spec §7) — runner/engine/handoff resolve through this;
   // resolveDeptFor coexists for the direct seam until its cutover, then dies with the Pack struct.
   const resolveAgent = makeResolveAgent(resolveDeps);
@@ -329,6 +338,7 @@ async function main(): Promise<void> {
     // memory-v2 retrieval knobs; the embedder is attached later at the memory boot block
     // (same object, mutated once constructed) — recall degrades to lexical until then.
     memory: memoryDeps,
+    capture: captureFn,
   });
 
   const directChats = new DirectChats({
@@ -340,6 +350,7 @@ async function main(): Promise<void> {
     log,
     primaryChat: config.primaryChat,
     mailbox,
+    capture: captureFn,
   });
 
   const router = new MessageRouter({

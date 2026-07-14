@@ -104,6 +104,10 @@ export interface Config {
   memoryHalfLifeDays: number;
   /** Ranking multiplier for docs not retrieved in 180 days (memory-v2 §6). */
   memoryStalePenalty: number;
+  /** Post-turn conversational capture (memory-v2 §5). AIOS_CAPTURE=0 disables. */
+  captureEnabled: boolean;
+  /** Model for the capture extractor — cheap one-shot; falls back to the triage model. */
+  captureModel: string;
   eventRetentionDays: number;
   /** Model for the memory curator one-shot (defaults to specialistModel). */
   curatorModel?: string;
@@ -270,6 +274,8 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     embeddings: process.env.AIOS_EMBEDDINGS !== "0",
     memoryHalfLifeDays: Number(process.env.AIOS_MEMORY_HALFLIFE_DAYS ?? 90),
     memoryStalePenalty: Number(process.env.AIOS_MEMORY_STALE_PENALTY ?? 0.7),
+    captureEnabled: process.env.AIOS_CAPTURE !== "0",
+    captureModel: process.env.AIOS_CAPTURE_MODEL ?? process.env.AIOS_TRIAGE_MODEL ?? "claude-haiku-4-5-20251001",
     eventRetentionDays: Number(process.env.AIOS_EVENT_RETENTION_DAYS ?? 90),
     curatorModel: process.env.AIOS_CURATOR_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     bunqEnv: process.env.AIOS_BUNQ_ENV ?? "sandbox",

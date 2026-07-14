@@ -38,6 +38,8 @@ export interface ModeratorDeps {
   mailbox?: Mailbox;
   /** memory-v2 retrieval knobs, threaded into the recall tool. */
   memory: ModeratorToolsDeps["memory"];
+  /** Post-turn conversational capture hook (memory-v2 §5) — fire-and-forget, fail-silent. */
+  capture?: (userText: string, replyText: string) => void;
 }
 
 /**
@@ -64,7 +66,9 @@ export class Moderator {
     this.locks.set(chatKey, new Promise((r) => (release = r)));
     await prev;
     try {
-      return await this.turn(chatKey, channel, chatId, userText, attachments);
+      const reply = await this.turn(chatKey, channel, chatId, userText, attachments);
+      this.deps.capture?.(userText, reply); // post-turn capture (memory-v2 §5), fire-and-forget
+      return reply;
     } finally {
       release();
     }

@@ -30,6 +30,8 @@ export interface DirectChatsDeps {
   primaryChat?: { channel: string; chatId: string };
   /** Agent mailbox — when set, @mention turns get send_mail + their unread-mail block. */
   mailbox?: Mailbox;
+  /** Post-turn conversational capture hook (memory-v2 §5) — fire-and-forget, fail-silent. */
+  capture?: (userText: string, replyText: string) => void;
 }
 
 export function isPrivateOrigin(primary: { channel: string; chatId: string } | undefined, channel: string, chatId: string): boolean {
@@ -138,6 +140,7 @@ export class DirectChats {
         },
       });
 
+      this.deps.capture?.(userText, text); // post-turn capture (memory-v2 §5), fire-and-forget
       return { text, attachments: collected };
     } finally {
       release();
