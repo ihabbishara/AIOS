@@ -98,6 +98,7 @@ function buildServer(overrides: Partial<ModeratorToolsDeps> = {}) {
     gate: null as unknown as ActionGate,
     actionTypes: [],
     google: null as unknown as GoogleAccounts,
+    memory: { halfLifeDays: 90, stalePenalty: 0.7 },
     ...overrides,
   };
   return buildModeratorServer(deps);

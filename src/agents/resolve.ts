@@ -9,6 +9,7 @@ import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import { Policy } from "../kernel/policy.js";
 import { deptLabel } from "../kernel/labels.js";
+import type { Embedder } from "../memory/embeddings.js";
 import type { Config } from "../config.js";
 import type { AgentDef, AgentKind, LoadedRegistry, LoadedDepartment } from "./registry/loader.js";
 import { AIOS_PACK_BARE, fqPackTool, type CapabilityDef } from "./registry/capabilities.js";
@@ -68,6 +69,8 @@ export interface ResolveAgentDeps {
   categorize?: MoneyServerDeps["categorize"];
   /** Info-flow checkpoint — the pack recall tool filters results by the agent's clearance. */
   policy?: Policy;
+  /** memory-v2: local embedder for hybrid recall (undefined = lexical-only). */
+  embedder?: Embedder;
 }
 
 type ServerCtx = {
@@ -91,6 +94,11 @@ const SERVER_BUILDERS: Record<string, (c: ServerCtx) => Record<string, unknown>>
       origin: c.origin, idempotencyKey: c.idempotencyKey,
       labels: c.labels,
       policy: c.deps.policy ?? new Policy({ mode: "audit", report: () => {} }),
+      memory: {
+        embedder: c.deps.embedder,
+        halfLifeDays: c.deps.config.memoryHalfLifeDays,
+        stalePenalty: c.deps.config.memoryStalePenalty,
+      },
     }),
   }),
   money: (c) => ({ money: buildMoneyServer({ store: c.deps.store, categorize: c.deps.categorize! }) }),

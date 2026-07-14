@@ -9,7 +9,8 @@ import type { ActionGate } from "../kernel/gate.js";
 import { listInbox, readEmail } from "../senses/google/read.js";
 import type { GoogleAccounts } from "../senses/google/auth.js";
 import type { Mailbox } from "../mail/mailbox.js";
-import { recall, formatHits, DOMAINS, type Domain } from "../memory/recall.js";
+import { hybridRecall, formatHits, DOMAINS, type Domain } from "../memory/recall.js";
+import type { Embedder } from "../memory/embeddings.js";
 
 // ---------------------------------------------------------------------------
 // code_task helpers (pure, exported for tests)
@@ -67,6 +68,8 @@ export interface ModeratorToolsDeps {
   /** Registered executor types, for the tool description. */
   actionTypes: string[];
   google: GoogleAccounts;
+  /** memory-v2 retrieval knobs — embedder is undefined when AIOS_EMBEDDINGS=0 or latched. */
+  memory: { embedder?: Embedder; halfLifeDays: number; stalePenalty: number };
   /** Agent mailbox — hermes can send work mail to staff (undefined = disabled). */
   mailbox?: Mailbox;
   /** Optional structured log sink (same as ModeratorDeps.log). */
@@ -392,7 +395,10 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       limit: z.number().int().positive().optional(),
     },
     async (args) => {
-      const hits = recall(deps.store, args.query, { domain: args.domain as Domain | undefined, limit: args.limit });
+      const hits = await hybridRecall(deps.store, args.query, {
+        domain: args.domain as Domain | undefined, limit: args.limit,
+        embedder: deps.memory.embedder, halfLifeDays: deps.memory.halfLifeDays, stalePenalty: deps.memory.stalePenalty,
+      });
       return text(hits.length ? formatHits(hits) : "No matching memory found.");
     },
   );

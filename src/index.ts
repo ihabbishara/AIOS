@@ -3,7 +3,8 @@ import { existsSync, statSync, unlinkSync } from "node:fs";
 import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
-import { makeResolveAgent } from "./agents/resolve.js";
+import { makeResolveAgent, type ResolveAgentDeps } from "./agents/resolve.js";
+import type { Embedder } from "./memory/embeddings.js";
 import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
 import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
@@ -216,9 +217,17 @@ async function main(): Promise<void> {
   else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
 
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
+  // memory-v2 retrieval knobs, shared by the moderator + every pack agent's recall tool.
+  // `embedder` is attached at the memory boot block below (single mutable seam) — until
+  // then (and whenever the model latches off) recall is lexical-only.
+  const memoryDeps: { embedder?: Embedder; halfLifeDays: number; stalePenalty: number } = {
+    halfLifeDays: config.memoryHalfLifeDays,
+    stalePenalty: config.memoryStalePenalty,
+  };
+  const resolveDeps = { registry, store, vault, gate, config, categorize, policy: infoPolicy } as ResolveAgentDeps;
   // The ONE resolution path (org-model spec §7) — runner/engine/handoff resolve through this;
   // resolveDeptFor coexists for the direct seam until its cutover, then dies with the Pack struct.
-  const resolveAgent = makeResolveAgent({ registry, store, vault, gate, config, categorize, policy: infoPolicy });
+  const resolveAgent = makeResolveAgent(resolveDeps);
   const runSpecialist = makeRunSpecialist({ store, bus, registry, mailbox, resolveAgent });
 
   const channels = new Map<string, ChannelAdapter>();
@@ -317,6 +326,9 @@ async function main(): Promise<void> {
     actionTypes: executors.types(),
     google,
     mailbox,
+    // memory-v2 retrieval knobs; the embedder is attached later at the memory boot block
+    // (same object, mutated once constructed) — recall degrades to lexical until then.
+    memory: memoryDeps,
   });
 
   const directChats = new DirectChats({

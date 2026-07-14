@@ -4,7 +4,8 @@ import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
 import type { Policy } from "../kernel/policy.js";
-import { recall, formatHits, type Domain } from "../memory/recall.js";
+import { hybridRecall, formatHits, type Domain } from "../memory/recall.js";
+import type { Embedder } from "../memory/embeddings.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -33,6 +34,8 @@ export interface PackServerDeps {
   labels: string[];
   /** Info-flow checkpoint (audit logs, enforce filters). */
   policy: Policy;
+  /** memory-v2 retrieval knobs — embedder is undefined when AIOS_EMBEDDINGS=0 or latched. */
+  memory: { embedder?: Embedder; halfLifeDays: number; stalePenalty: number };
 }
 
 /** Ceiling-checked gate proposal shared by vault_write + propose_action.
@@ -67,9 +70,10 @@ export function buildPackServer(deps: PackServerDeps) {
     async (args) => {
       // `domain` narrows the SEARCH only; confidentiality is gated by the agent's clearance,
       // not by the requested domain string (closes the domain:"money" broadening hole, spec §7.8).
-      const hits = recall(deps.store, args.query, {
+      const hits = await hybridRecall(deps.store, args.query, {
         domain: (args.domain ?? deps.memoDomain) as Domain | undefined,
         limit: args.limit, clearance: deps.labels, policy: deps.policy,
+        embedder: deps.memory.embedder, halfLifeDays: deps.memory.halfLifeDays, stalePenalty: deps.memory.stalePenalty,
       });
       return text(hits.length ? formatHits(hits) : "No matching memory found.");
     },

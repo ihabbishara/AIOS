@@ -36,6 +36,8 @@ export interface ModeratorDeps {
   actionTypes: string[];
   google: GoogleAccounts;
   mailbox?: Mailbox;
+  /** memory-v2 retrieval knobs, threaded into the recall tool. */
+  memory: ModeratorToolsDeps["memory"];
 }
 
 /**
@@ -133,6 +135,7 @@ export class Moderator {
       actionTypes: this.deps.actionTypes,
       google: this.deps.google,
       mailbox: this.deps.mailbox,
+      memory: this.deps.memory,
       log: this.deps.log,
     });
 
