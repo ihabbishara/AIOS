@@ -453,6 +453,18 @@ export class Store {
         doc_ids TEXT NOT NULL,
         ts TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        aliases TEXT NOT NULL DEFAULT '[]',
+        UNIQUE(name, kind)
+      );
+      CREATE TABLE IF NOT EXISTS entity_link (
+        doc_id INTEGER NOT NULL,
+        entity_id INTEGER NOT NULL,
+        PRIMARY KEY (doc_id, entity_id)
+      );
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS personal_transactions (
@@ -1289,6 +1301,7 @@ export class Store {
       const existing = this.db.prepare("SELECT id FROM memory_doc WHERE source = ? AND ref = ?").get(doc.source, doc.ref) as { id: number } | undefined;
       if (existing) {
         this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(existing.id);
+        this.db.prepare("DELETE FROM entity_link WHERE doc_id = ?").run(existing.id);
         this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(existing.id);
       }
       const res = this.db
@@ -1312,6 +1325,7 @@ export class Store {
     this.db.exec("BEGIN");
     try {
       this.db.prepare("DELETE FROM memory_token WHERE doc_id = ?").run(row.id);
+      this.db.prepare("DELETE FROM entity_link WHERE doc_id = ?").run(row.id);
       this.db.prepare("DELETE FROM memory_doc WHERE id = ?").run(row.id);
       this.db.exec("COMMIT");
     } catch (err) {
@@ -1373,6 +1387,48 @@ export class Store {
   /** Test helper: backdate indexed_at to exercise the stale-penalty window. */
   backdateMemoryDocForTest(source: string, ref: string, indexedAtIso: string): void {
     this.db.prepare("UPDATE memory_doc SET indexed_at = ? WHERE source = ? AND ref = ?").run(indexedAtIso, source, ref);
+  }
+
+  // ---- entities (memory-v2 §3) ----
+
+  upsertEntity(e: { name: string; kind: string; aliases: string[] }): number {
+    const existing = this.db.prepare("SELECT id, aliases FROM entities WHERE name = ? AND kind = ?").get(e.name, e.kind) as { id: number; aliases: string } | undefined;
+    if (existing) {
+      const merged = [...new Set([...(JSON.parse(existing.aliases) as string[]), ...e.aliases])];
+      this.db.prepare("UPDATE entities SET aliases = ? WHERE id = ?").run(JSON.stringify(merged), existing.id);
+      return existing.id;
+    }
+    const res = this.db.prepare("INSERT INTO entities (name, kind, aliases) VALUES (?, ?, ?)").run(e.name, e.kind, JSON.stringify(e.aliases));
+    return Number(res.lastInsertRowid);
+  }
+
+  listEntities(): Array<{ id: number; name: string; kind: string; aliases: string[] }> {
+    return (this.db.prepare("SELECT * FROM entities").all() as Array<{ id: number; name: string; kind: string; aliases: string }>)
+      .map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] }));
+  }
+
+  replaceEntityLinks(docId: number, entityIds: number[]): void {
+    this.db.prepare("DELETE FROM entity_link WHERE doc_id = ?").run(docId);
+    const ins = this.db.prepare("INSERT OR IGNORE INTO entity_link (doc_id, entity_id) VALUES (?, ?)");
+    for (const id of entityIds) ins.run(docId, id);
+  }
+
+  docsLinkedToEntities(entityIds: number[]): number[] {
+    if (!entityIds.length) return [];
+    const ph = entityIds.map(() => "?").join(", ");
+    return (this.db.prepare(`SELECT DISTINCT doc_id FROM entity_link WHERE entity_id IN (${ph})`).all(...entityIds) as Array<{ doc_id: number }>).map((r) => r.doc_id);
+  }
+
+  /** Entity seeding source: distinct bank counterparties. NAMES ONLY — used purely for query
+   *  expansion; transaction data itself stays out of memory (pinned exclusion). */
+  distinctCounterparties(): string[] {
+    return (this.db.prepare("SELECT DISTINCT counterparty FROM personal_transactions WHERE counterparty IS NOT NULL AND counterparty != ''").all() as Array<{ counterparty: string }>).map((r) => r.counterparty);
+  }
+
+  memoryTitlesSince(sinceIndexedAt: string, cap: number): Array<{ title: string; indexed_at: string }> {
+    return this.db.prepare(
+      "SELECT title, indexed_at FROM memory_doc WHERE indexed_at > ? ORDER BY indexed_at ASC LIMIT ?",
+    ).all(sinceIndexedAt, cap) as never;
   }
 
   // ---- teachings ----

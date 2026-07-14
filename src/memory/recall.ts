@@ -1,6 +1,7 @@
 import type { Store } from "../store/db.js";
 import type { Label, Policy } from "../kernel/policy.js";
 import { tokenize } from "./tokenize.js";
+import { matchEntities, expandTokens, linkedEntityIds } from "./entities.js";
 
 export type MemorySource = "vault" | "event" | "decision" | "memo" | "mail";
 export type Domain = "inbox" | "money" | "code" | "research" | "lifeops" | "general" | "profile";
@@ -52,7 +53,10 @@ export function indexDoc(store: Store, doc: MemoryDocInput): void {
   for (const t of tokenize(doc.title)) tf.set(t, (tf.get(t) ?? 0) + TITLE_BOOST);
   for (const t of tokenize(doc.body)) tf.set(t, (tf.get(t) ?? 0) + 1);
   const len = [...tf.values()].reduce((a, b) => a + b, 0);
-  store.upsertMemoryDoc({ ...doc, labels: doc.labels ?? [], origin: doc.origin ?? "trusted", len }, [...tf.entries()]);
+  const docId = store.upsertMemoryDoc({ ...doc, labels: doc.labels ?? [], origin: doc.origin ?? "trusted", len }, [...tf.entries()]);
+  // Entity linking (spec §3): a doc mentioning an entity's name/alias links to it at index time.
+  const ents = store.listEntities();
+  if (ents.length) store.replaceEntityLinks(docId, linkedEntityIds(ents, new Set(tf.keys())));
 }
 
 export interface RecallOpts {
@@ -77,8 +81,12 @@ function visibleTo(labels: string[], clearance: string[]): boolean {
 }
 
 export function recall(store: Store, query: string, opts: RecallOpts = {}): RecallHit[] {
-  const qTokens = [...new Set(tokenize(query))];
-  if (!qTokens.length) return [];
+  const rawTokens = [...new Set(tokenize(query))];
+  if (!rawTokens.length) return [];
+  // Entity expansion (spec §3): "bunq" also searches the tokens of its aliases ("the bank").
+  const entities = store.listEntities();
+  const matched = matchEntities(entities, rawTokens);
+  const qTokens = expandTokens(rawTokens, matched);
   const rows = store.memoryPostings(qTokens, opts.domain);
   if (!rows.length) return [];
 
@@ -105,6 +113,14 @@ export function recall(store: Store, query: string, opts: RecallOpts = {}): Reca
       meta.set(r.doc_id, { source: r.source as MemorySource, ref: r.ref, domain: r.domain as Domain, ts: r.ts });
       try { labelsById.set(r.doc_id, JSON.parse(r.labels) as string[]); } catch { labelsById.set(r.doc_id, []); }
     }
+  }
+
+  // Entity link boost (spec §3): docs linked to a query-matched entity outrank textual
+  // coincidences. Additive — comparable to one strong BM25 term contribution.
+  const ENTITY_BOOST = 2;
+  if (matched.length) {
+    const linked = new Set(store.docsLinkedToEntities(matched.map((e) => e.id)));
+    for (const [id, score] of scores) if (linked.has(id)) scores.set(id, score + ENTITY_BOOST);
   }
 
   const nowMs = opts.nowMs ?? Date.now();
