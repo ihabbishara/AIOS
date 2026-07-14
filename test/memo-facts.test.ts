@@ -43,3 +43,47 @@ describe("renderMemo (spec §4: prose is a projection of active facts)", () => {
     expect(renderMemo("general", [])).toBe("");
   });
 });
+
+describe("forgetNow — immediate user-correction supersede (spec §4)", () => {
+  it("supersedes matching facts NOW and refreshes the rendered memo on the spot", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const { VaultWriter } = await import("../src/vault/writer.js");
+    const { EventBus } = await import("../src/events.js");
+    const { ExecutorRegistry } = await import("../src/kernel/actions.js");
+    const { vaultWriteExecutor } = await import("../src/kernel/executors.js");
+    const { ActionGate } = await import("../src/kernel/gate.js");
+    const { newRecord, promote } = await import("../src/kernel/trust.js");
+    const { forgetNow } = await import("../src/memory/facts.js");
+
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ff-vault-")), "AIOS");
+    vault.init();
+    const bus = new EventBus(store);
+    const registry = new ExecutorRegistry();
+    registry.register(vaultWriteExecutor(vault));
+    const NOW = "2026-07-14T00:00:00.000Z";
+    store.upsertTrust(promote(newRecord("vault.write", NOW), NOW)); // autonomous — writes land immediately
+    const gate = new ActionGate({ store, registry, bus,
+      policy: { graduationStreak: 99, graduationAgeDays: 0, shadowMatches: 99, alwaysSupervised: new Set() },
+      expiryMs: 60_000 });
+
+    store.addMemoFact({ domain: "general", subject: "meetings", fact: "prefers morning meetings", origin: "user-stated" });
+    store.addMemoFact({ domain: "general", subject: "coffee", fact: "prefers oat milk", origin: "user-stated" });
+
+    const n = await forgetNow({ store, vault, gate }, "forget that I prefer morning meetings");
+    expect(n).toBe(1);
+    expect(store.activeMemoFacts("general").map((f) => f.subject)).toEqual(["coffee"]);
+    expect(vault.readNote("memos/general.md")).not.toContain("morning meetings");
+    expect(vault.readNote("memos/general.md")).toContain("oat milk");
+  });
+
+  it("no match → 0, nothing written", async () => {
+    const { forgetNow } = await import("../src/memory/facts.js");
+    const store = new Store(":memory:");
+    store.addMemoFact({ domain: "general", subject: "coffee", fact: "prefers oat milk", origin: "user-stated" });
+    const n = await forgetNow({ store, vault: undefined as never, gate: undefined as never }, "quantum blockchain nonsense");
+    expect(n).toBe(0);
+  });
+});
