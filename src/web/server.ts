@@ -20,6 +20,7 @@ import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, r
 import { buildOrgView, buildAgentProfile } from "./org-view.js";
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 import { buildAttentionView } from "./attention-view.js";
+import { buildScheduleView, validateRoutineBody, isValidHHMM, anchorOverrideKey, ANCHOR_NAMES } from "./schedule-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -479,6 +480,59 @@ export function startWebServer(deps: WebDeps, port: number): Server {
 
         if (path === "/api/budget" && req.method === "GET") {
           return json(res, 200, buildBudgetView(deps.spendGuard));
+        }
+
+        // ---- schedule: anchors + routines + reminders (spec 2026-07-15) ----
+        if (path === "/api/schedule" && req.method === "GET") {
+          return json(res, 200, buildScheduleView(store, config, new Date()));
+        }
+
+        if (path === "/api/routines" && req.method === "POST") {
+          const v = validateRoutineBody(JSON.parse(await readBody(req)), false);
+          if (!v.ok) return json(res, 400, { error: v.error });
+          const id = store.addRoutine({ name: v.fields.name!, prompt: v.fields.prompt!, recurrence: v.fields.recurrence! });
+          return json(res, 200, { id });
+        }
+
+        const routineMatch = /^\/api\/routines\/(\d+)$/.exec(path);
+        if (routineMatch && req.method === "PATCH") {
+          const v = validateRoutineBody(JSON.parse(await readBody(req)), true);
+          if (!v.ok) return json(res, 400, { error: v.error });
+          if (!store.updateRoutine(Number(routineMatch[1]), v.fields)) return json(res, 404, { error: "unknown routine" });
+          return json(res, 200, { ok: true });
+        }
+        if (routineMatch && req.method === "DELETE") {
+          if (!store.deleteRoutine(Number(routineMatch[1]))) return json(res, 404, { error: "unknown routine" });
+          return json(res, 200, { ok: true });
+        }
+
+        const routineRun = /^\/api\/routines\/(\d+)\/run$/.exec(path);
+        if (routineRun && req.method === "POST") {
+          const r = store.getRoutine(Number(routineRun[1]));
+          if (!r) return json(res, 404, { error: "unknown routine" });
+          // Manual fire: same bus event as the clock, no stamping — scheduled cadence unaffected.
+          bus.emit({
+            type: "routine.due", id: r.id, name: r.name, prompt: r.prompt,
+            channel: r.origin_channel ?? "", chatId: r.origin_chat_id ?? "",
+          });
+          return json(res, 200, { ok: true });
+        }
+
+        const anchorPatch = /^\/api\/anchors\/([a-z]+)$/.exec(path);
+        if (anchorPatch && req.method === "PATCH") {
+          if (!(ANCHOR_NAMES as readonly string[]).includes(anchorPatch[1])) {
+            return json(res, 404, { error: "unknown anchor" });
+          }
+          const body = JSON.parse(await readBody(req)) as { hhmm?: unknown };
+          if (!isValidHHMM(body.hhmm)) return json(res, 400, { error: "hhmm must be HH:MM (24h, zero-padded)" });
+          store.kvSet(anchorOverrideKey(anchorPatch[1]), body.hhmm);
+          return json(res, 200, { ok: true });
+        }
+
+        const reminderDel = /^\/api\/reminders\/(\d+)$/.exec(path);
+        if (reminderDel && req.method === "DELETE") {
+          if (!store.cancelReminder(Number(reminderDel[1]))) return json(res, 404, { error: "unknown or non-pending reminder" });
+          return json(res, 200, { ok: true });
         }
 
         if (path === "/api/mail/unread" && req.method === "GET") {
