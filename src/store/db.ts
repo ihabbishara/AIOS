@@ -1402,9 +1402,9 @@ export class Store {
     ).all(...ids) as never;
   }
 
-  logMemoryUse(query: string, docIds: number[]): void {
+  logMemoryUse(query: string, docIds: number[], tsIso?: string): void {
     this.db.prepare("INSERT INTO memory_use (query, doc_ids, ts) VALUES (?, ?, ?)")
-      .run(query, JSON.stringify(docIds), new Date().toISOString());
+      .run(query, JSON.stringify(docIds), tsIso ?? new Date().toISOString());
   }
 
   pruneMemoryUse(beforeIso: string): number {

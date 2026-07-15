@@ -160,7 +160,7 @@ function finalize(store: Store, cand: CandidateSet, qTokens: string[], query: st
 
   // Usage feedback (spec §6): every recall logs its query + hits and refreshes retrieval stamps.
   const returnedIds = ranked.map(([id]) => id);
-  store.logMemoryUse(query, returnedIds);
+  store.logMemoryUse(query, returnedIds, new Date(nowMs).toISOString());
   store.touchMemoryDocs(returnedIds, new Date(nowMs).toISOString());
 
   return ranked.map(([id, score]) => {

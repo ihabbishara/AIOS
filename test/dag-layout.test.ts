@@ -1,6 +1,6 @@
 // test/dag-layout.test.ts — pure layout math for the goals DAG canvas.
 import { describe, it, expect } from "vitest";
-import { layoutDag, BOX_W, BOX_H, GAP_X, GAP_Y, PAD } from "../ui/src/views/dag-layout.js";
+import { layoutDag, BOX_W, BOX_H, GAP_X, GAP_Y, PAD } from "../ui2/src/views/dag-layout.js";
 
 describe("layoutDag", () => {
   it("lays a linear chain into consecutive layers, one row each", () => {

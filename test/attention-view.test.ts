@@ -114,7 +114,8 @@ describe("GET /api/attention", () => {
     const prev = process.env.AIOS_UI_TOKEN;
     process.env.AIOS_UI_TOKEN = "att-token";
     const store = new Store(":memory:");
-    store.insertAction(action("a9"));
+    // The endpoint uses the real clock, so the fixture must expire in the future, not on a fixed date.
+    store.insertAction(action("a9", { expires_at: new Date(Date.now() + 86_400_000).toISOString() }));
     const deps = {
       store, goals: {}, vault: {}, registry: { agents: new Map(), departments: new Map(), agentOf: new Map() },
       reloadPacks: () => {}, envPath: "", uiDist: "", log: () => {},
