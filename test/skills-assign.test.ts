@@ -56,4 +56,40 @@ describe("rewriteSkillsField", () => {
     expect(rewriteSkillsField("name: odin\n", ["a-skill"])).toContain("a-skill");
     expect(rewriteSkillsField(SRC, [])).not.toContain("skills");
   });
+
+  // A doc.toString() round-trip reformats the WHOLE file (flow padding, re-wrapped
+  // folded scalars). Only the skills line may move — assert the rest byte-for-byte.
+  const REAL = `name: janus
+title: Market Researcher
+charter: >
+  Market research: competitors, pricing, audience, TAM/SAM/SOM. Produces a
+  fully sourced markdown report with a concrete recommendation.
+tools: [Read, Grep, Glob, WebSearch, WebFetch, recall, vault_read, vault_write]
+maxTurns: 40
+skills: [market-sizing]
+aliases: [market-researcher, sami]
+kind: worker
+`;
+  it("touches ONLY the skills line — every other line survives byte-for-byte", () => {
+    const out = rewriteSkillsField(REAL, ["market-sizing", "design-tokens"]);
+    const before = REAL.split("\n");
+    const after = out.split("\n");
+    expect(after.length).toBe(before.length);
+    const differing = before.map((l, i) => (l === after[i] ? null : i)).filter((i) => i !== null);
+    expect(differing).toEqual([7]); // the skills line, and nothing else
+    expect(after[7]).toBe("skills: [market-sizing, design-tokens]");
+  });
+
+  it("emits the repo's flow style and converts a block sequence in place", () => {
+    const block = `name: odin\nskills:\n  - a-skill\n  - b-skill\nkind: worker\n`;
+    expect(rewriteSkillsField(block, ["a-skill"])).toBe("name: odin\nskills: [a-skill]\nkind: worker\n");
+  });
+
+  it("drops the whole pair when empty, leaving neighbours intact", () => {
+    expect(rewriteSkillsField(SRC, [])).toBe("name: janus\n# keep this comment\ntools: [Read]\nkind: worker\n");
+  });
+
+  it("rejects names that would need quoting rather than emitting broken flow yaml", () => {
+    expect(() => rewriteSkillsField(SRC, ["not valid"])).toThrow(/invalid skill name/);
+  });
 });

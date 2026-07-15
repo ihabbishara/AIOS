@@ -2,7 +2,7 @@
 // (spec docs/superpowers/specs/2026-07-15-skills-manager-design.md). Mirrors packs-view.ts.
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { parse as parseYaml, parseDocument } from "yaml";
+import { parse as parseYaml, parseDocument, isMap, isNode, isScalar } from "yaml";
 import type { SkillView } from "./dto.js";
 
 /** Must agree with SKILLS_PLUGIN_PATH in src/agents/runner.ts. */
@@ -131,10 +131,30 @@ export function agentYamlPath(
   return null;
 }
 
-/** Comment-preserving rewrite of the `skills:` field (yaml Document API, not parse+restringify). */
+/**
+ * Rewrite the `skills:` field, leaving every other byte of the file untouched.
+ *
+ * Parse to LOCATE, splice to EDIT. A full `parseDocument(text).toString()`
+ * round-trip re-emits the whole document in the serializer's own style — flow
+ * padding (`[a]` → `[ a ]`), folded scalars re-wrapped at a different column —
+ * which rewrites ~85% of a hand-authored role file on every skill toggle. No
+ * toString option avoids it (a no-op round-trip churns the file by itself), so
+ * we take the field's parsed source range and splice the original string.
+ */
 export function rewriteSkillsField(text: string, skills: string[]): string {
+  for (const s of skills) {
+    if (!NAME.test(s)) throw new Error(`invalid skill name: ${s}`);
+  }
+  const line = `skills: [${skills.join(", ")}]\n`;
   const doc = parseDocument(text);
-  if (skills.length === 0) doc.delete("skills");
-  else doc.set("skills", skills);
-  return doc.toString();
+  const items = isMap(doc.contents) ? doc.contents.items : [];
+  const pair = items.find((p) => isScalar(p.key) && p.key.value === "skills");
+  // Field absent: nothing to strip, otherwise append in the repo's flow style.
+  if (!pair || !isNode(pair.key) || !isNode(pair.value)) {
+    if (skills.length === 0) return text;
+    return text === "" || text.endsWith("\n") ? text + line : `${text}\n${line}`;
+  }
+  const start = pair.key.range![0];
+  const end = pair.value.range![2];
+  return text.slice(0, start) + (skills.length === 0 ? "" : line) + text.slice(end);
 }
