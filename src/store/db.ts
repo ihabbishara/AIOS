@@ -115,6 +115,20 @@ export interface ReminderRow {
   created_at: string;
 }
 
+export interface RoutineRow {
+  id: number;
+  name: string;
+  prompt: string;
+  /** JSON — parse with parseRecurrence (heartbeat/routines.ts). */
+  recurrence: string;
+  enabled: number;
+  last_fired_at: string | null;
+  last_fired_date: string | null;
+  origin_channel: string | null;
+  origin_chat_id: string | null;
+  created_at: string;
+}
+
 export interface TriageRuleRow {
   id: number;
   /** Exact event type ("reminder.due") or glob prefix ("action.*"). */
@@ -420,6 +434,18 @@ export class Store {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, due_at);
+      CREATE TABLE IF NOT EXISTS routines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        recurrence TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_fired_at TEXT,
+        last_fired_date TEXT,
+        origin_channel TEXT,
+        origin_chat_id TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS triage_rules (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         event_type TEXT NOT NULL UNIQUE,
@@ -1278,6 +1304,57 @@ export class Store {
       .all(nowIso) as unknown as ReminderRow[];
     const fire = this.db.prepare("UPDATE reminders SET status = 'fired' WHERE id = ? AND status = 'pending'");
     return rows.filter((r) => fire.run(r.id).changes === 1);
+  }
+
+  // ---- routines (spec 2026-07-15) ----
+
+  addRoutine(r: { name: string; prompt: string; recurrence: string; originChannel?: string; originChatId?: string }): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO routines (name, prompt, recurrence, origin_channel, origin_chat_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(r.name, r.prompt, r.recurrence, r.originChannel ?? null, r.originChatId ?? null, new Date().toISOString());
+    return Number(res.lastInsertRowid);
+  }
+
+  getRoutine(id: number): RoutineRow | undefined {
+    return this.db.prepare("SELECT * FROM routines WHERE id = ?").get(id) as RoutineRow | undefined;
+  }
+
+  listRoutines(): RoutineRow[] {
+    return this.db.prepare("SELECT * FROM routines ORDER BY id").all() as unknown as RoutineRow[];
+  }
+
+  updateRoutine(id: number, patch: { name?: string; prompt?: string; recurrence?: string; enabled?: boolean }): boolean {
+    const row = this.getRoutine(id);
+    if (!row) return false;
+    const res = this.db
+      .prepare("UPDATE routines SET name = ?, prompt = ?, recurrence = ?, enabled = ? WHERE id = ?")
+      .run(
+        patch.name ?? row.name,
+        patch.prompt ?? row.prompt,
+        patch.recurrence ?? row.recurrence,
+        patch.enabled === undefined ? row.enabled : patch.enabled ? 1 : 0,
+        id,
+      );
+    return res.changes > 0;
+  }
+
+  deleteRoutine(id: number): boolean {
+    return this.db.prepare("DELETE FROM routines WHERE id = ?").run(id).changes > 0;
+  }
+
+  /**
+   * CAS stamp before fire (at-most-once, mirrors claimDueReminders): guards on
+   * the exact last_fired_at the due-test saw, so a stale read can never
+   * double-fire. `IS ?` handles the NULL initial state.
+   */
+  stampRoutineFired(id: number, expectLastFiredAt: string | null, dateLocal: string, atIso: string): boolean {
+    const res = this.db
+      .prepare("UPDATE routines SET last_fired_date = ?, last_fired_at = ? WHERE id = ? AND last_fired_at IS ?")
+      .run(dateLocal, atIso, id, expectLastFiredAt);
+    return res.changes > 0;
   }
 
   // ---- triage rules ----
