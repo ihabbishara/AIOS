@@ -12,6 +12,15 @@ const ACTION_LABEL: Record<string, string> = {
   accept: "Accept", retry: "Retry",
 };
 
+const KICKER: Record<string, { label: string; cls: string }> = {
+  approval: { label: "approval", cls: "text-accent" },
+  ask: { label: "question", cls: "text-accent" },
+  review: { label: "review", cls: "text-accent" },
+  goal: { label: "goal", cls: "text-err" },
+  mail: { label: "mail", cls: "text-info" },
+  sense: { label: "sense", cls: "text-err" },
+};
+
 export function Queue({ groups, selected, onSelect, onAct, rowErrors, busy }: {
   groups: QueueGroup[];
   selected: AttentionItem | null;
@@ -37,16 +46,17 @@ export function Queue({ groups, selected, onSelect, onAct, rowErrors, busy }: {
             <div
               key={i.id}
               onClick={() => onSelect(i)}
-              className={`group px-3 py-2.5 border-l-2 cursor-pointer transition-colors min-h-11 ${
-                selected?.id === i.id
-                  ? "border-accent bg-raised"
-                  : "border-transparent hover:bg-raised"
+              className={`card card-hover mx-3 mb-2 px-3 py-2.5 cursor-pointer ${
+                selected?.id === i.id ? "!border-accent" : ""
               } ${isNew(i.id) ? "arrive" : ""}`}
             >
               <div className="flex items-baseline gap-2">
-                <span className="text-[13px] text-strong truncate">{i.title}</span>
-                <span className="text-[10px] text-dim ml-auto shrink-0">{ts(i.ts)}</span>
+                <span className={`font-mono text-[9.5px] uppercase tracking-wide ${KICKER[i.kind]?.cls ?? "text-dim"}`}>
+                  {KICKER[i.kind]?.label ?? i.kind}
+                </span>
+                <span className="text-[10px] text-dim ml-auto shrink-0 font-mono">{ts(i.ts)}</span>
               </div>
+              <div className="text-[13px] text-bright font-semibold truncate mt-0.5">{i.title}</div>
               <div className="text-[11px] text-dim truncate">{i.meta}</div>
               {rowErrors[i.id] && <div className="text-[11px] text-err mt-1">{rowErrors[i.id]}</div>}
               <div className="flex gap-1.5 mt-1.5" onClick={(e) => e.stopPropagation()}>

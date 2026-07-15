@@ -20,7 +20,7 @@ export function TodayStrip({ events, onOpenBrief }: {
           latest brief
         </button>
       )}
-      {budget && <span className="ml-auto">{usd(budget.spentCents)} today{budget.capCents != null ? ` / ${usd(budget.capCents)}` : ""}</span>}
+      {budget && <span className="ml-auto font-mono">{usd(budget.spentCents)} today{budget.capCents != null ? ` / ${usd(budget.capCents)}` : ""}</span>}
     </div>
   );
 }
