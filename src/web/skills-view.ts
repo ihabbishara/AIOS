@@ -2,7 +2,7 @@
 // (spec docs/superpowers/specs/2026-07-15-skills-manager-design.md). Mirrors packs-view.ts.
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, parseDocument } from "yaml";
 import type { SkillView } from "./dto.js";
 
 /** Must agree with SKILLS_PLUGIN_PATH in src/agents/runner.ts. */
@@ -78,4 +78,63 @@ export function deleteSkill(root: string, name: string): boolean {
   if (!existsSync(dir)) return false;
   rmSync(dir, { recursive: true });
   return true;
+}
+
+const FETCH_CAP = 262_144; // 256 KB
+const FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * Server-side fetch for the import prefill. Returns text for the editor —
+ * NEVER writes to disk: imported skills become agent system-prompt content,
+ * so a human reviews before save. https only, no redirects, text only, capped.
+ */
+export async function fetchSkillMd(
+  url: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<{ ok: true; md: string } | { ok: false; error: string }> {
+  let u: URL;
+  try { u = new URL(url); } catch { return { ok: false, error: "invalid url" }; }
+  if (u.protocol !== "https:") return { ok: false, error: "https only" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetchFn(u, { signal: ctrl.signal, redirect: "error" });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.startsWith("text/")) return { ok: false, error: `content-type "${ct || "unknown"}" is not text` };
+    const text = await res.text();
+    if (text.length > FETCH_CAP) return { ok: false, error: "response exceeds 256 KB" };
+    return { ok: true, md: text };
+  } catch (err) {
+    return { ok: false, error: (err as Error).name === "AbortError" ? "timeout" : (err as Error).message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** `<agentsDir>/<dept>/<name>.yaml`, falling back to a department-dir scan for renamed files. */
+export function agentYamlPath(
+  agentsDir: string,
+  def: { department: string; manifest: { name: string } },
+): string | null {
+  const direct = join(agentsDir, def.department, `${def.manifest.name}.yaml`);
+  if (existsSync(direct)) return direct;
+  const deptDir = join(agentsDir, def.department);
+  if (!existsSync(deptDir)) return null;
+  for (const f of readdirSync(deptDir)) {
+    if (!f.endsWith(".yaml") || f === "department.yaml") continue;
+    try {
+      const parsed = parseYaml(readFileSync(join(deptDir, f), "utf8")) as { name?: string } | null;
+      if (parsed?.name === def.manifest.name) return join(deptDir, f);
+    } catch { /* unparseable file — not ours to fix here */ }
+  }
+  return null;
+}
+
+/** Comment-preserving rewrite of the `skills:` field (yaml Document API, not parse+restringify). */
+export function rewriteSkillsField(text: string, skills: string[]): string {
+  const doc = parseDocument(text);
+  if (skills.length === 0) doc.delete("skills");
+  else doc.set("skills", skills);
+  return doc.toString();
 }
