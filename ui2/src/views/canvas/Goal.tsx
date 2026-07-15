@@ -25,7 +25,7 @@ export function GoalCanvas({ item, events, onAct, onOpenChat }: {
         <span className="text-[11px] text-dim ml-auto">{usd(cost)} so far</span>
       </div>
       <div className="text-[15px] text-strong">{goal.title}</div>
-      {goal.error && <div className="border border-err/40 rounded-lg bg-surface p-3 text-err text-[12px] whitespace-pre-wrap">{goal.error}</div>}
+      {goal.error && <div className="panel !border-err/40 p-3 text-err text-[12px] whitespace-pre-wrap">{goal.error}</div>}
       <MiniDag nodes={goal.nodes} failedKey={failedNode?.key} />
       <div className="flex gap-2 flex-wrap">
         <Button variant="primary" onClick={() => navigate(`goals/${goal.slug}`)}>Open in Goals</Button>

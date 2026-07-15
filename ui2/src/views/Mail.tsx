@@ -23,13 +23,13 @@ function Threads({ events }: { events: StoredEvent[] }) {
   return (
     <div className="max-w-3xl">
       <div className="flex items-center mb-4">
-        <h1 className="text-[20px] text-strong">Mail</h1>
+        <h1 className="text-[17px] font-bold text-bright">Mail</h1>
         <Button variant="primary" className="ml-auto" onClick={() => setComposing(true)}>Compose</Button>
       </div>
       {composing && <Compose onDone={() => setComposing(false)} />}
       {mine.threads.map((t) => (
         <button key={t.threadId} onClick={() => navigate(`mail/${t.threadId}`)}
-          className="w-full text-left px-3 py-2.5 rounded-md hover:bg-raised flex items-baseline gap-2 min-h-11">
+          className="card card-hover w-full text-left px-3 py-2.5 mb-2 flex items-baseline gap-2 min-h-11">
           <span className={t.unread > 0 ? "text-accent font-medium" : "text-strong"}>{t.lastFrom}</span>
           {t.pendingAsk > 0 && <span title="waiting on your answer">🙋</span>}
           {t.refused > 0 && <span title="refused">⚠</span>}
@@ -124,7 +124,7 @@ function Compose({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="border border-line rounded-lg bg-surface p-4 mb-4 flex flex-col gap-2">
+    <div className="panel p-4 mb-4 flex flex-col gap-2">
       <SectionLabel>New mail</SectionLabel>
       <select value={to} onChange={(e) => setTo(e.target.value)}
         className="bg-bg border border-line rounded-md px-2 py-1.5 text-[12px] outline-none w-64">

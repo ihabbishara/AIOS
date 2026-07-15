@@ -40,7 +40,7 @@ export function MailThreadCanvas({ item, events }: { item: AttentionItem; events
       <div className="max-w-2xl">
         <SectionLabel>Brief</SectionLabel>
         {thread.filter((m) => m.from !== "user").map((m) => (
-          <div key={m.id} className="border border-line rounded-lg bg-surface p-5 mb-3 whitespace-pre-wrap leading-relaxed">{m.body}</div>
+          <div key={m.id} className="panel p-5 mb-3 whitespace-pre-wrap leading-relaxed">{m.body}</div>
         ))}
       </div>
     );
@@ -55,7 +55,7 @@ export function MailThreadCanvas({ item, events }: { item: AttentionItem; events
             {m.from} → {m.to} <Tag tone={toneOfStatus(m.status)}>{m.kind}</Tag>
             <span className="ml-auto">{ts(m.createdAt)}</span>
           </div>
-          <div className="border border-line rounded-lg bg-surface px-3 py-2 whitespace-pre-wrap leading-relaxed">{m.body}</div>
+          <div className="panel px-3 py-2 whitespace-pre-wrap leading-relaxed">{m.body}</div>
         </div>
       ))}
       <div className="flex gap-2 mt-2">

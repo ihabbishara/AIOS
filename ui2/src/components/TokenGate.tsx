@@ -8,7 +8,7 @@ export function TokenGate({ onSet }: { onSet: () => void }) {
   const submit = () => { setToken(value); onSet(); };
   return (
     <div className="h-full flex items-center justify-center">
-      <div className="w-80 border border-line rounded-lg bg-surface p-6">
+      <div className="panel w-80 p-6">
         <div className="text-strong text-[15px] mb-1">AIOS</div>
         <div className="label mb-5">Access token required</div>
         <input

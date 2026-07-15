@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type StateInfo, type GoalView } from "../api.js";
 import { navigate } from "../lib/router.js";
+import { toggleTheme } from "../lib/theme.js";
 
 interface Item { label: string; hint: string; run: () => void }
 
@@ -57,6 +58,7 @@ export function CommandPalette({ state, onOpenChat, openSignal = 0 }: {
       { label: "governance", hint: "staff", run: close(() => navigate("staff/governance")) },
       { label: "events", hint: "system", run: close(() => navigate("system/events")) },
       { label: "costs", hint: "system", run: close(() => navigate("system/costs")) },
+      { label: "toggle theme", hint: "dark / light", run: close(() => { toggleTheme(); }) },
     ];
     for (const a of state?.agents ?? []) {
       base.push({ label: `chat ${a.name}`, hint: a.description.slice(0, 40), run: close(() => onOpenChat(a.name)) });
@@ -73,7 +75,7 @@ export function CommandPalette({ state, onOpenChat, openSignal = 0 }: {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-32" onClick={() => setOpen(false)}>
-      <div className="border border-line rounded-lg bg-surface w-[520px] p-3" onClick={(e) => e.stopPropagation()}>
+      <div className="panel w-[520px] p-3" onClick={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
           value={q}

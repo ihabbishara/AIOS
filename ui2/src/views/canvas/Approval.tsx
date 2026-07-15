@@ -33,20 +33,20 @@ export function ApprovalCanvas({ item, events, onAct, onOpenChat }: {
       </div>
 
       {p.form === "email" && (
-        <div className="border border-line rounded-lg bg-surface p-4">
+        <div className="panel p-4">
           <div className="text-[11px] text-dim">To <span className="text-fg">{p.to}</span></div>
           <div className="text-[15px] text-strong mt-1 mb-3">{p.subject}</div>
           <div className="whitespace-pre-wrap leading-relaxed">{p.body}</div>
         </div>
       )}
       {p.form === "vault" && (
-        <div className="border border-line rounded-lg bg-surface p-4">
+        <div className="panel p-4">
           <div className="text-[11px] text-dim mb-2 font-mono">{p.path}</div>
           <pre className="font-mono text-[12px] whitespace-pre-wrap text-fg">{p.markdown}</pre>
         </div>
       )}
       {p.form === "permission" && (
-        <div className="border border-line rounded-lg bg-surface p-4 flex items-center gap-3">
+        <div className="panel p-4 flex items-center gap-3">
           <Tag tone={p.op === "grant" ? "ok" : "err"}>{p.op}</Tag>
           <span className="text-strong">{p.tool}</span>
           <span className="text-dim">for role</span>
@@ -54,7 +54,7 @@ export function ApprovalCanvas({ item, events, onAct, onOpenChat }: {
         </div>
       )}
       {p.form === "generic" && (
-        <div className="border border-line rounded-lg bg-surface p-4">
+        <div className="panel p-4">
           <div className="mb-3">{p.preview}</div>
           {p.fields.length > 0 && (
             <table className="text-[12px] w-full">

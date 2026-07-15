@@ -37,7 +37,7 @@ export function AskCanvas({ item, events, onDone }: {
         <SectionLabel>Ask</SectionLabel>
         <Tag tone="accent">{item.meta}</Tag>
       </div>
-      <div className="border border-line rounded-lg bg-surface p-4 whitespace-pre-wrap leading-relaxed">
+      <div className="panel p-4 whitespace-pre-wrap leading-relaxed">
         {item.title}
       </div>
       {goal && (

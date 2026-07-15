@@ -14,7 +14,7 @@ export function System({ events, route }: { events: StoredEvent[]; route: Route 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col">
       <div className="flex gap-3 mb-4 items-center shrink-0">
-        <h1 className="text-[20px] text-strong">System</h1>
+        <h1 className="text-[17px] font-bold text-bright">System</h1>
         {TABS.map((t) => (
           <button key={t} onClick={() => navigate(t === "health" ? "system" : `system/${t}`)}
             className={`label hover:text-fg ${tab === t ? "text-strong" : ""}`}>{t}</button>
@@ -35,7 +35,7 @@ function Health({ events }: { events: StoredEvent[] }) {
   const mins = Math.floor((h.uptimeMs % 3_600_000) / 60_000);
   return (
     <div className="max-w-xl flex flex-col gap-4">
-      <div className="border border-line rounded-lg bg-surface p-4 grid grid-cols-2 gap-3 text-[12px]">
+      <div className="panel p-4 grid grid-cols-2 gap-3 text-[12px]">
         <span className="text-dim">Daemon uptime</span><span>{hours ? `${hours}h ${mins}m` : `${mins}m`}</span>
         <span className="text-dim">Voice</span><span>{h.voice ? "available" : "off"}</span>
         <span className="text-dim">SSE clients</span><span>{h.sseClients}</span>

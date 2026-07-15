@@ -10,7 +10,7 @@ export function BottomTabs({ section, needsYou }: { section: string; needsYou: n
       {SECTIONS.map((s) => (
         <a key={s} href={href(s)}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-h-11 ${
-            section === s ? "text-strong" : "text-dim"
+            section === s ? "text-bright" : "text-dim"
           }`}>
           <span className="relative text-[15px]">
             {ICONS[s]}

@@ -117,7 +117,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
         ))}
       </div>
 
-      <div className="border border-line rounded-lg bg-surface flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-3">
+      <div className="panel flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-3">
         {log.length === 0 && (
           <div className="text-dim text-[12px]">
             Channel open to <span className="text-strong">{target}</span>.

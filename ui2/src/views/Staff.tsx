@@ -15,7 +15,7 @@ export function Staff({ events, route, onOpenChat }: {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
       <div className="flex gap-3 mb-4 items-center">
-        <h1 className="text-[20px] text-strong">Staff</h1>
+        <h1 className="text-[17px] font-bold text-bright">Staff</h1>
         <button onClick={() => navigate("staff")}
           className={`label hover:text-fg ${!sub ? "text-strong" : ""}`}>org</button>
         <button onClick={() => navigate("staff/governance")}
@@ -37,7 +37,7 @@ function OrgColumns({ events }: { events: StoredEvent[] }) {
   return (
     <div className="flex gap-6 overflow-x-auto items-start">
       {org.map((d) => (
-        <div key={d.department} className="min-w-56 border border-line rounded-lg bg-surface p-3">
+        <div key={d.department} className="panel min-w-56 p-3">
           <div className="flex items-center mb-2">
             <SectionLabel>{d.department}</SectionLabel>
             <DeptMenu department={d.department} />
@@ -45,7 +45,7 @@ function OrgColumns({ events }: { events: StoredEvent[] }) {
           <div className="text-[11px] text-dim mb-3">{d.mission}</div>
           {d.agents.map((a) => (
             <button key={a.name} onClick={() => navigate(`staff/agents/${a.name}`)}
-              className="w-full text-left rounded-md hover:bg-raised px-2 py-2 flex flex-col gap-0.5 min-h-11">
+              className="card card-hover w-full text-left px-2 py-2 mb-1.5 flex flex-col gap-0.5 min-h-11">
               <span className="flex items-center gap-2">
                 <Dot tone={a.status === "working" ? "agent" : a.status === "waiting" ? "accent" : "dim"} breathing={a.status === "working"} />
                 <span className="text-strong">{a.name}</span>
@@ -87,7 +87,7 @@ function DeptMenu({ department }: { department: string }) {
     <span className="ml-auto relative">
       <button onClick={() => setOpen((v) => !v)} className="text-dim hover:text-fg px-1">⋯</button>
       {open && (
-        <div className="absolute right-0 top-6 z-30 w-72 border border-line rounded-lg bg-raised p-3 flex flex-col gap-2">
+        <div className="card absolute right-0 top-6 z-30 w-72 p-3 flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <span className="text-[12px]">{pack.enabled ? "enabled" : "disabled"}</span>
             <TwoStepButton label={pack.enabled ? "Disable" : "Enable"} className="ml-auto"
@@ -137,7 +137,7 @@ function YamlEditor({ pillar, file, initial, onClose }: {
   };
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="w-full max-w-3xl border border-line rounded-lg bg-surface p-4 flex flex-col gap-3"
+      <div className="panel w-full max-w-3xl p-4 flex flex-col gap-3"
         onClick={(e) => e.stopPropagation()}>
         <div className="font-mono text-[12px] text-dim">{pillar}/{file}</div>
         <textarea value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false}
@@ -170,7 +170,7 @@ function Profile({ name, events, onOpenChat }: {
     <div className="max-w-3xl">
       <button onClick={() => navigate("staff")} className="label hover:text-fg mb-3">← staff</button>
       <div className="flex items-center gap-3 flex-wrap mb-1">
-        <h2 className="text-[20px] text-strong">{p.name}</h2>
+        <h2 className="text-[17px] font-bold text-bright">{p.name}</h2>
         <span className="text-dim">{p.title} · {p.department}</span>
         {p.model && <Tag>{p.model}</Tag>}
         {p.visibility === "private" && <Tag>🔒 private</Tag>}
