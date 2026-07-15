@@ -219,3 +219,11 @@ export interface ScheduleView {
   routines: RoutineView[];
   reminders: ScheduleReminderView[];
 }
+
+// ---- skills manager (spec 2026-07-15 skills-manager) ----
+export interface SkillView {
+  name: string;
+  description: string;
+  /** Agent (manifest) names whose role declares this skill. */
+  usedBy: string[];
+}
