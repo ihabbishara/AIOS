@@ -22,3 +22,22 @@ export function provenance(originChannel: string): "mail" | "speculate" | "chat"
   if (originChannel === "speculate" || originChannel === "dream") return "speculate";
   return "chat";
 }
+
+/** Kanban lanes (Command Deck spec §3): 5 buckets fold into 3 columns.
+ *  awaiting-mail is the one status-level exception — it waits on the WORLD,
+ *  not the user, so it renders in Running with a chip. */
+export type Lane = "needs" | "running" | "done";
+
+export const LANES: Array<{ key: Lane; label: string }> = [
+  { key: "needs", label: "Needs you" },
+  { key: "running", label: "Running" },
+  { key: "done", label: "Done" },
+];
+
+export function laneOf(status: string): Lane {
+  if (status === "awaiting-mail") return "running";
+  const bucket = bucketOf(status);
+  if (bucket === "needs" || bucket === "waiting") return "needs";
+  if (bucket === "running") return "running";
+  return "done";
+}
