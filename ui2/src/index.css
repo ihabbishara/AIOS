@@ -12,6 +12,12 @@ body {
 /* 10px uppercase section labels (spec §3 typography ramp). */
 .label { @apply text-[10px] uppercase tracking-[0.14em] text-dim; }
 
+/* Command Deck depth: bg page → .panel (surface) → .card (raised). Light theme
+   swaps glow-less borders for a soft shadow via --t-card-shadow. */
+.panel { @apply bg-surface border border-line rounded-xl; box-shadow: var(--t-card-shadow); }
+.card { @apply bg-raised border border-line rounded-lg; box-shadow: var(--t-card-shadow); }
+.card-hover { @apply transition-all hover:-translate-y-px hover:border-dim; }
+
 /* Motion (spec §3) — state change / liveness only. */
 @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .breathe { animation: breathe 2s ease-in-out infinite; }

@@ -1,12 +1,15 @@
-// ui2/src/components/TopBar.tsx — AIOS · Home Goals Staff Mail System ··· budget · connection dot · ⌘K.
+// ui2/src/components/TopBar.tsx — AIOS · Home Goals Staff Mail System ··· budget · theme · connection dot · ⌘K.
+import { useState } from "react";
 import type { BudgetInfo } from "../api.js";
 import { SECTIONS, href } from "../lib/router.js";
 import { usd } from "../lib/format.js";
+import { currentTheme, toggleTheme } from "../lib/theme.js";
 
 export function TopBar({ section, budget, connected, needsYou, onPalette }: {
   section: string; budget: BudgetInfo | undefined; connected: boolean;
   needsYou: number; onPalette: () => void;
 }) {
+  const [theme, setThemeState] = useState(currentTheme());
   return (
     <header className="flex items-center gap-1 px-4 h-12 border-b border-line bg-surface shrink-0">
       <a href={href("home")} className="text-strong font-medium text-[14px] mr-4 tracking-wide">AIOS</a>
@@ -32,6 +35,13 @@ export function TopBar({ section, budget, connected, needsYou, onPalette }: {
             {usd(budget.spentCents)} / {usd(budget.capCents)}
           </span>
         )}
+        <button
+          aria-label="Toggle theme"
+          onClick={() => setThemeState(toggleTheme())}
+          className="text-[13px] text-dim hover:text-strong transition-colors"
+        >
+          {theme === "dark" ? "☀" : "☾"}
+        </button>
         <span
           title={connected ? "live" : "reconnecting"}
           className={`inline-block w-2 h-2 rounded-full ${connected ? "bg-ok breathe" : "bg-err"}`}

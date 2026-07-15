@@ -1,19 +1,66 @@
-/* ui2/src/tokens.css — Ember design tokens (spec §3). Single dark theme; swappable by construction. */
-@theme {
+/* ui2/src/tokens.css — Command Deck tokens (spec 2026-07-15). Two runtime themes
+   on :root[data-theme]; Tailwind v4 reads through @theme inline so utilities like
+   bg-raised/text-strong resolve at runtime and the toggle is pure CSS. */
+:root[data-theme="dark"] {
+  --t-bg: #0b0d12;
+  --t-surface: #0e1117;
+  --t-raised: #12151d;
+  --t-line: #1e2330;
+  --t-line-soft: #1a1f2b;
+  --t-dim: #6b7386;
+  --t-fg: #8b96ad;
+  --t-strong: #e6e9f0;
+  --t-bright: #f0f2f7;
+  --t-accent: #ffb454;
+  --t-accent-bg: #241a10;
+  --t-ok: #4ade80;
+  --t-err: #f87171;
+  --t-err-bg: #141019;
+  --t-err-line: #3d2430;
+  --t-info: #7ea6f4;
+  --t-agent: #9c8cc9;
+  --t-card-shadow: none;
+}
+:root[data-theme="light"] {
+  --t-bg: #f4f4f2;
+  --t-surface: #ffffff;
+  --t-raised: #fafaf9;
+  --t-line: #e6e7e4;
+  --t-line-soft: #f0f0ee;
+  --t-dim: #82838c;
+  --t-fg: #5a5b64;
+  --t-strong: #191a1e;
+  --t-bright: #000000;
+  --t-accent: #c2410c;
+  --t-accent-bg: #fef0e8;
+  --t-ok: #16a34a;
+  --t-err: #dc2626;
+  --t-err-bg: #fffbf9;
+  --t-err-line: #f3d9d3;
+  --t-info: #2f5af5;
+  --t-agent: #6d5bc7;
+  --t-card-shadow: 0 1px 3px rgba(20, 20, 30, 0.05);
+}
+@theme inline {
   --color-*: initial;
   --color-black: #000;
-  --color-bg: #0f0e0c;
-  --color-surface: #141210;
-  --color-raised: #181510;
-  --color-line: #24211c;
-  --color-dim: #847e72;
-  --color-fg: #cfccc4;
-  --color-strong: #efe9dc;
-  /* Amber — ONLY needs-you items and primary actions. Never decorative. */
-  --color-accent: #e0a458;
-  --color-ok: #7da87b;    /* desaturated green — running/ok */
-  --color-err: #c96f5f;   /* desaturated red — failed */
-  --color-agent: #9c8cc9; /* violet — agent activity */
+  --color-bg: var(--t-bg);
+  --color-surface: var(--t-surface);
+  --color-raised: var(--t-raised);
+  --color-line: var(--t-line);
+  --color-line-soft: var(--t-line-soft);
+  --color-dim: var(--t-dim);
+  --color-fg: var(--t-fg);
+  --color-strong: var(--t-strong);
+  --color-bright: var(--t-bright);
+  --color-accent: var(--t-accent);
+  --color-accent-bg: var(--t-accent-bg);
+  --color-ok: var(--t-ok);
+  --color-err: var(--t-err);
+  --color-err-bg: var(--t-err-bg);
+  --color-err-line: var(--t-err-line);
+  --color-info: var(--t-info);
+  --color-agent: var(--t-agent);
   --font-sans: "Inter Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
