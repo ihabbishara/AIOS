@@ -116,3 +116,73 @@ describe("Clock.tick", () => {
     await expect(clock.tick()).resolves.toBeUndefined();
   });
 });
+
+describe("Clock.tick — routines", () => {
+  function setupRoutines(nowLocal: Date) {
+    const store = new Store(":memory:");
+    const fired: Array<{ id: number; name: string }> = [];
+    const clock = new Clock({
+      store,
+      anchors: [],
+      onAnchor: async () => {},
+      onReminderDue: () => {},
+      onRoutineDue: (r) => { fired.push({ id: r.id, name: r.name }); },
+      nowFn: () => nowLocal,
+    });
+    return { store, clock, fired };
+  }
+
+  it("fires a due routine once and stamps; second tick is a no-op", async () => {
+    const { store, clock, fired } = setupRoutines(new Date(2026, 6, 15, 9, 30));
+    const id = store.addRoutine({ name: "r1", prompt: "p", recurrence: '{"kind":"daily","hhmm":"09:00"}' });
+    await clock.tick();
+    await clock.tick();
+    expect(fired).toEqual([{ id, name: "r1" }]);
+    expect(store.getRoutine(id)!.last_fired_date).toBe("2026-07-15");
+  });
+
+  it("disabled routine never fires", async () => {
+    const { store, clock, fired } = setupRoutines(new Date(2026, 6, 15, 9, 30));
+    const id = store.addRoutine({ name: "r1", prompt: "p", recurrence: '{"kind":"daily","hhmm":"09:00"}' });
+    store.updateRoutine(id, { enabled: false });
+    await clock.tick();
+    expect(fired).toEqual([]);
+  });
+
+  it("a throwing onRoutineDue does not kill the tick", async () => {
+    const store = new Store(":memory:");
+    store.addRoutine({ name: "bad", prompt: "p", recurrence: '{"kind":"daily","hhmm":"09:00"}' });
+    store.addReminder({ text: "after", dueAt: "2026-07-15T00:00:00.000Z", originChannel: "cli", originChatId: "x" });
+    const remindersFired: string[] = [];
+    const clock = new Clock({
+      store,
+      anchors: [],
+      onAnchor: async () => {},
+      onReminderDue: (r) => { remindersFired.push(r.text); },
+      onRoutineDue: () => { throw new Error("boom"); },
+      nowFn: () => new Date(2026, 6, 15, 9, 30),
+    });
+    await clock.tick();
+    expect(remindersFired).toEqual(["after"]); // reminders ran despite the throw
+  });
+});
+
+describe("Clock.tick — anchor kv override", () => {
+  it("kv override moves an anchor's effective time without restart", async () => {
+    const store = new Store(":memory:");
+    const anchorsFired: string[] = [];
+    const clock = new Clock({
+      store,
+      anchors: [{ name: "morning", hhmm: "07:30" }],
+      onAnchor: async (name) => { anchorsFired.push(name); },
+      onReminderDue: () => {},
+      nowFn: () => new Date(2026, 6, 15, 8, 0), // 08:00
+    });
+    store.kvSet("anchor:morning:hhmm", "09:00"); // pushed later than now
+    await clock.tick();
+    expect(anchorsFired).toEqual([]); // 08:00 < 09:00 override
+    store.kvSet("anchor:morning:hhmm", "07:00"); // pulled earlier
+    await clock.tick();
+    expect(anchorsFired).toEqual(["morning"]);
+  });
+});

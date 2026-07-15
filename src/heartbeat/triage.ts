@@ -24,6 +24,8 @@ export function defaultVerdict(event: AiosEvent): TriageVerdict | undefined {
   switch (event.type) {
     case "reminder.due":
       return "notify_now";
+    case "routine.due":
+      return "ignore"; // fires inject a kernel message directly — a ping here would double-notify
     case "action.executed":
       return event.auto ? "batch" : "ignore"; // approved ones were confirmed in chat already
     case "trust.changed":

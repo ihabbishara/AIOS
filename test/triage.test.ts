@@ -24,6 +24,9 @@ describe("defaultVerdict", () => {
   it("reminder.due → notify_now", () => {
     expect(defaultVerdict({ type: "reminder.due", id: 1, text: "x", channel: "cli", chatId: "l" })).toBe("notify_now");
   });
+  it("routine.due is ignored — the kernel injection handles it, no notify ping", () => {
+    expect(defaultVerdict({ type: "routine.due", id: 1, name: "r", prompt: "p", channel: "", chatId: "" })).toBe("ignore");
+  });
   it("autonomous executions batch; approved ones are ignored (already confirmed in chat)", () => {
     expect(defaultVerdict({ type: "action.executed", actionId: "a", actionType: "t", auto: true, ok: true })).toBe("batch");
     expect(defaultVerdict({ type: "action.executed", actionId: "a", actionType: "t", auto: false, ok: true })).toBe("ignore");

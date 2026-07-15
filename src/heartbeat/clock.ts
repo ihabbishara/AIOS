@@ -1,5 +1,6 @@
 // src/heartbeat/clock.ts
-import type { Store, ReminderRow } from "../store/db.js";
+import type { Store, ReminderRow, RoutineRow } from "../store/db.js";
+import { routineDue } from "./routines.js";
 
 export interface AnchorConfig {
   name: "morning" | "evening" | "dream" | "speculate" | "standup";
@@ -13,6 +14,8 @@ export interface ClockDeps {
   anchors: AnchorConfig[];
   onAnchor: (name: "morning" | "evening" | "dream" | "speculate" | "standup") => Promise<void>;
   onReminderDue: (reminder: ReminderRow) => void;
+  /** Optional — routines fire only when wired (tests that don't care omit it). */
+  onRoutineDue?: (routine: RoutineRow) => void;
   /** Invoked at the end of every tick — cheap periodic work (e.g. budget-paused goal resume). */
   onTick?: () => void;
   log?: (line: string) => void;
@@ -62,7 +65,8 @@ export class Clock {
 
       for (const anchor of this.deps.anchors) {
         const key = `anchor:${anchor.name}:last`;
-        if (!anchorDue(parts, anchor.hhmm, this.deps.store.kvGet(key))) continue;
+        const hhmm = this.deps.store.kvGet(`anchor:${anchor.name}:hhmm`) ?? anchor.hhmm;
+        if (!anchorDue(parts, hhmm, this.deps.store.kvGet(key))) continue;
         this.deps.store.kvSet(key, parts.date); // stamp first — never retry a crashed brief
         try {
           await this.deps.onAnchor(anchor.name);
@@ -76,6 +80,19 @@ export class Clock {
           this.deps.onReminderDue(reminder);
         } catch (err) {
           this.deps.log?.(`reminder ${reminder.id} dispatch failed: ${(err as Error).message}`);
+        }
+      }
+
+      if (this.deps.onRoutineDue) {
+        for (const routine of this.deps.store.listRoutines()) {
+          if (!routineDue(now, routine)) continue;
+          // CAS stamp BEFORE the fire — same fire-once-through-crashes property as anchors.
+          if (!this.deps.store.stampRoutineFired(routine.id, routine.last_fired_at, parts.date, now.toISOString())) continue;
+          try {
+            this.deps.onRoutineDue(routine);
+          } catch (err) {
+            this.deps.log?.(`routine ${routine.id} dispatch failed: ${(err as Error).message}`);
+          }
         }
       }
 

@@ -11,6 +11,7 @@ export type AiosEvent =
   | { type: "action.resolved"; actionId: string; actionType: string; verdict: "approved" | "rejected" | "expired" }
   | { type: "trust.changed"; actionType: string; state: string }
   | { type: "reminder.due"; id: number; text: string; channel: string; chatId: string }
+  | { type: "routine.due"; id: number; name: string; prompt: string; channel: string; chatId: string }
   | { type: "brief.sent"; anchor: "morning" | "evening"; chatKey: string | null }
   | { type: "triage.decision"; eventType: string; verdict: string; via: "rule" | "default" | "model" }
   | { type: "mail.received"; account: string; messageId: string; threadId: string; from: string; to: string; subject: string; snippet: string; labels: string[]; receivedAt: string }
