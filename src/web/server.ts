@@ -21,6 +21,10 @@ import { buildOrgView, buildAgentProfile } from "./org-view.js";
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 import { buildAttentionView } from "./attention-view.js";
 import { buildScheduleView, validateRoutineBody, isValidHHMM, anchorOverrideKey, ANCHOR_NAMES } from "./schedule-view.js";
+import {
+  skillsPluginRoot, buildSkillsView, validateSkillMd, readSkill, writeSkill,
+  deleteSkill, skillUsedBy, fetchSkillMd, agentYamlPath, rewriteSkillsField,
+} from "./skills-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -532,6 +536,68 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         const reminderDel = /^\/api\/reminders\/(\d+)$/.exec(path);
         if (reminderDel && req.method === "DELETE") {
           if (!store.cancelReminder(Number(reminderDel[1]))) return json(res, 404, { error: "unknown or non-pending reminder" });
+          return json(res, 200, { ok: true });
+        }
+
+        // ---- skills manager (spec 2026-07-15 skills-manager) ----
+        const skillsRoot = skillsPluginRoot();
+
+        if (path === "/api/skills" && req.method === "GET") {
+          return json(res, 200, buildSkillsView(skillsRoot, registry));
+        }
+
+        // Fetch route BEFORE the :name matcher — "fetch" is a reserved skill name.
+        if (path === "/api/skills/fetch" && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { url?: unknown };
+          if (typeof body.url !== "string") return json(res, 400, { error: "url must be a string" });
+          const r = await fetchSkillMd(body.url);
+          if (!r.ok) return json(res, 400, { error: r.error });
+          return json(res, 200, { md: r.md });
+        }
+
+        const skillMatch = /^\/api\/skills\/([a-z][a-z0-9-]*)$/.exec(path);
+        if (skillMatch && req.method === "GET") {
+          const md = readSkill(skillsRoot, skillMatch[1]);
+          if (md === null) return json(res, 404, { error: "unknown skill" });
+          return json(res, 200, { md });
+        }
+        if (skillMatch && req.method === "PUT") {
+          if (skillMatch[1] === "fetch") return json(res, 400, { error: '"fetch" is a reserved skill name' });
+          const body = JSON.parse(await readBody(req)) as { md?: unknown };
+          if (typeof body.md !== "string") return json(res, 400, { error: "md must be a string" });
+          const v = validateSkillMd(body.md);
+          if (!v.ok) return json(res, 400, { error: v.error });
+          if (v.name !== skillMatch[1]) {
+            return json(res, 400, { error: `frontmatter name "${v.name}" must equal "${skillMatch[1]}"` });
+          }
+          writeSkill(skillsRoot, skillMatch[1], body.md);
+          return json(res, 200, { ok: true });
+        }
+        if (skillMatch && req.method === "DELETE") {
+          const usedBy = skillUsedBy(registry, skillMatch[1]);
+          if (usedBy.length > 0 && url.searchParams.get("force") !== "1") {
+            return json(res, 409, { error: "skill in use", usedBy });
+          }
+          if (!deleteSkill(skillsRoot, skillMatch[1])) return json(res, 404, { error: "unknown skill" });
+          return json(res, 200, { ok: true });
+        }
+
+        const agentSkillsMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)\/skills$/.exec(path);
+        if (agentSkillsMatch && req.method === "PATCH") {
+          const canonical = registry.agentOf.get(agentSkillsMatch[1].toLowerCase()) ?? agentSkillsMatch[1];
+          const def = registry.agents.get(canonical);
+          if (!def) return json(res, 404, { error: "unknown agent" });
+          const body = JSON.parse(await readBody(req)) as { skills?: unknown };
+          if (!Array.isArray(body.skills) || body.skills.some((s) => typeof s !== "string")) {
+            return json(res, 400, { error: "skills must be a string array" });
+          }
+          const known = new Set(buildSkillsView(skillsRoot, registry).map((s) => s.name));
+          const unknown = (body.skills as string[]).filter((s) => !known.has(s));
+          if (unknown.length > 0) return json(res, 400, { error: `unknown skills: ${unknown.join(", ")}` });
+          const yamlPath = agentYamlPath(config.agentsDir, def);
+          if (!yamlPath) return json(res, 500, { error: `agent yaml not found for ${canonical}` });
+          writeFileSync(yamlPath, rewriteSkillsField(readFileSync(yamlPath, "utf8"), body.skills as string[]));
+          reloadPacks();
           return json(res, 200, { ok: true });
         }
 
