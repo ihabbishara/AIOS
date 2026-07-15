@@ -6,13 +6,14 @@ export type {
   GoalNodeView, GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, RoutineView, AnchorView, ScheduleReminderView, Recurrence,
+  SkillView,
 } from "../../src/web/dto.js";
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
   OrgDepartmentView, AgentProfileInfo, PermissionInfo, PackView,
   GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
-  ScheduleView, Recurrence,
+  ScheduleView, Recurrence, SkillView,
 } from "../../src/web/dto.js";
 
 export function getToken(): string {
@@ -105,6 +106,16 @@ export const api = {
   setAnchor: (name: string, hhmm: string) =>
     request<{ ok: true }>(`/api/anchors/${encodeURIComponent(name)}`, { method: "PATCH", body: JSON.stringify({ hhmm }) }),
   cancelReminder: (id: number) => request<{ ok: true }>(`/api/reminders/${id}`, { method: "DELETE" }),
+  skills: () => request<SkillView[]>("/api/skills"),
+  skillMd: (name: string) => request<{ md: string }>(`/api/skills/${encodeURIComponent(name)}`),
+  saveSkill: (name: string, md: string) =>
+    request<{ ok: true }>(`/api/skills/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ md }) }),
+  deleteSkill: (name: string, force = false) =>
+    request<{ ok: true }>(`/api/skills/${encodeURIComponent(name)}${force ? "?force=1" : ""}`, { method: "DELETE" }),
+  fetchSkill: (url: string) =>
+    request<{ md: string }>("/api/skills/fetch", { method: "POST", body: JSON.stringify({ url }) }),
+  setAgentSkills: (agent: string, skills: string[]) =>
+    request<{ ok: true }>(`/api/agents/${encodeURIComponent(agent)}/skills`, { method: "PATCH", body: JSON.stringify({ skills }) }),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",

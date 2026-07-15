@@ -1,4 +1,4 @@
-// ui2/src/App.tsx — Ember Cockpit shell: 6 sections stay mounted; route picks visibility (old-UI pattern).
+// ui2/src/App.tsx — Ember Cockpit shell: 7 sections stay mounted; route picks visibility (old-UI pattern).
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import { useEvents, useFetch, useLiveQuery } from "./hooks.js";
@@ -14,9 +14,10 @@ import { Goals } from "./views/Goals.js";
 import { Staff } from "./views/Staff.js";
 import { Mail } from "./views/Mail.js";
 import { Schedule } from "./views/Schedule.js";
+import { Skills } from "./views/Skills.js";
 import { System } from "./views/System.js";
 
-const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "mail", r: "schedule", y: "system" };
+const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "mail", r: "schedule", k: "skills", y: "system" };
 
 export function App() {
   const route = useRoute();
@@ -36,7 +37,7 @@ export function App() {
     setChatOpen(true);
   };
 
-  // ⌘J chat toggle + `g then h/g/s/m/r/y` section jumps (never while typing).
+  // ⌘J chat toggle + `g then h/g/s/m/r/k/y` section jumps (never while typing).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
@@ -74,6 +75,7 @@ export function App() {
       <div className={show("staff")}><Staff events={events} route={route} onOpenChat={openChat} /></div>
       <div className={show("mail")}><Mail events={events} route={route} /></div>
       <div className={show("schedule")}><Schedule /></div>
+      <div className={show("skills")}><Skills /></div>
       <div className={show("system")}><System events={events} route={route} /></div>
       <BottomTabs section={route.section} needsYou={attention?.length ?? 0} />
       <ChatDrawer

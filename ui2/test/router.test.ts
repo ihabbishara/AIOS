@@ -21,4 +21,7 @@ describe("router", () => {
   it("schedule is a section", () => {
     expect(parseHash("#/schedule").section).toBe("schedule");
   });
+  it("skills is a section", () => {
+    expect(parseHash("#/skills").section).toBe("skills");
+  });
 });
