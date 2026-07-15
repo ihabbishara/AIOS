@@ -9,9 +9,9 @@ afterEach(() => {
 });
 
 describe("AIOS_UI_DIST", () => {
-  it("defaults to <root>/ui/dist", () => {
+  it("defaults to <root>/ui2/dist", () => {
     delete process.env.AIOS_UI_DIST;
-    expect(loadConfig("/tmp/x").uiDist).toBe("/tmp/x/ui/dist");
+    expect(loadConfig("/tmp/x").uiDist).toBe("/tmp/x/ui2/dist");
   });
   it("resolves a relative override against root", () => {
     process.env.AIOS_UI_DIST = "ui2/dist";
