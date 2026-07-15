@@ -183,3 +183,39 @@ export interface HealthInfo {
   /** Count of policy.violation events observed (the audit-week signal). */
   policyViolations: number;
 }
+
+// ---- schedule (spec 2026-07-15) ----
+export type { Recurrence } from "../heartbeat/routines.js";
+import type { Recurrence as RecurrenceT } from "../heartbeat/routines.js";
+
+export interface AnchorView {
+  name: string;
+  /** Effective time — kv override when set, config default otherwise. */
+  hhmm: string;
+  overridden: boolean;
+  firedToday: boolean;
+}
+
+export interface RoutineView {
+  id: number;
+  name: string;
+  prompt: string;
+  recurrence: RecurrenceT;
+  enabled: boolean;
+  lastFiredAt: string | null;
+  /** Local "YYYY-MM-DD HH:MM", display-only. */
+  nextFire: string | null;
+}
+
+export interface ScheduleReminderView {
+  id: number;
+  text: string;
+  dueAt: string;
+  origin: string;
+}
+
+export interface ScheduleView {
+  anchors: AnchorView[];
+  routines: RoutineView[];
+  reminders: ScheduleReminderView[];
+}
