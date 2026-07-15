@@ -1,7 +1,7 @@
 // ui2/src/components/BottomTabs.tsx — phone nav: the 5 sections as bottom tabs (spec §7).
 import { SECTIONS, href } from "../lib/router.js";
 
-const ICONS: Record<string, string> = { home: "◉", goals: "◎", staff: "▤", mail: "✉", system: "⚙" };
+const ICONS: Record<string, string> = { home: "◉", goals: "◎", staff: "▤", mail: "✉", schedule: "◷", system: "⚙" };
 
 export function BottomTabs({ section, needsYou }: { section: string; needsYou: number }) {
   return (

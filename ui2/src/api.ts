@@ -5,12 +5,14 @@ export type {
   PackRoleView, PackPlaybookView, PackJobView, PackWorkspaceView, PackView,
   GoalNodeView, GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
+  ScheduleView, RoutineView, AnchorView, ScheduleReminderView, Recurrence,
 } from "../../src/web/dto.js";
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
   OrgDepartmentView, AgentProfileInfo, PermissionInfo, PackView,
   GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
+  ScheduleView, Recurrence,
 } from "../../src/web/dto.js";
 
 export function getToken(): string {
@@ -93,6 +95,16 @@ export const api = {
   packFiles: (pillar: string) => request<Array<{ file: string; yaml: string }>>(`/api/packs/${pillar}/files`),
   savePackFile: (pillar: string, file: string, yaml: string) =>
     request<{ ok: boolean; reloaded: boolean }>(`/api/packs/${pillar}/files/${file}`, { method: "PUT", body: JSON.stringify({ yaml }) }),
+  schedule: () => request<ScheduleView>("/api/schedule"),
+  addRoutine: (r: { name: string; prompt: string; recurrence: Recurrence }) =>
+    request<{ id: number }>("/api/routines", { method: "POST", body: JSON.stringify(r) }),
+  updateRoutine: (id: number, patch: { name?: string; prompt?: string; recurrence?: Recurrence; enabled?: boolean }) =>
+    request<{ ok: true }>(`/api/routines/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteRoutine: (id: number) => request<{ ok: true }>(`/api/routines/${id}`, { method: "DELETE" }),
+  runRoutine: (id: number) => request<{ ok: true }>(`/api/routines/${id}/run`, { method: "POST" }),
+  setAnchor: (name: string, hhmm: string) =>
+    request<{ ok: true }>(`/api/anchors/${encodeURIComponent(name)}`, { method: "PATCH", body: JSON.stringify({ hhmm }) }),
+  cancelReminder: (id: number) => request<{ ok: true }>(`/api/reminders/${id}`, { method: "DELETE" }),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",

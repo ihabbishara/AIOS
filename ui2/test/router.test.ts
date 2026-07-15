@@ -18,4 +18,7 @@ describe("router", () => {
     expect(href("goals/x")).toBe("#/goals/x");
     expect(href("#/goals/x")).toBe("#/goals/x");
   });
+  it("schedule is a section", () => {
+    expect(parseHash("#/schedule").section).toBe("schedule");
+  });
 });

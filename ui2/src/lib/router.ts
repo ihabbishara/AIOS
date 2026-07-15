@@ -3,7 +3,7 @@ import { useMemo, useSyncExternalStore } from "react";
 
 export interface Route { section: string; parts: string[]; query: URLSearchParams }
 
-export const SECTIONS = ["home", "goals", "staff", "mail", "system"] as const;
+export const SECTIONS = ["home", "goals", "staff", "mail", "schedule", "system"] as const;
 
 export function parseHash(hash: string): Route {
   const [path, q] = hash.replace(/^#\/?/, "").split("?");
