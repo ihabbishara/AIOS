@@ -35,6 +35,7 @@ import { deptLabel } from "./kernel/labels.js";
 import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
 import { Triage, modelClassifier } from "./heartbeat/triage.js";
+import { makeRoutineFire } from "./heartbeat/routines.js";
 import { runBrief } from "./heartbeat/briefs.js";
 import { VoiceService } from "./voice/index.js";
 import { deliverReply } from "./voice/mirror.js";
@@ -415,6 +416,12 @@ async function main(): Promise<void> {
     }
   };
 
+  // Routines inject their prompt as a synthetic inbound message — full kernel path (spec 2026-07-15).
+  const routineFire = makeRoutineFire({ onMessage, primaryChat: config.primaryChat, log });
+  bus.on((e) => {
+    if (e.event.type === "routine.due") routineFire(e.event);
+  });
+
   // Channels: CLI only with --cli flag (interactive dev); bots whenever tokens exist.
   if (process.argv.includes("--cli") || (!config.telegramToken && !config.slackBotToken)) {
     channels.set("cli", new CliChannel());
@@ -673,6 +680,11 @@ async function main(): Promise<void> {
     onTick: () => goals.resumeBudgetPaused(),
     onReminderDue: (r) =>
       bus.emit({ type: "reminder.due", id: r.id, text: r.text, channel: r.origin_channel, chatId: r.origin_chat_id }),
+    onRoutineDue: (r) =>
+      bus.emit({
+        type: "routine.due", id: r.id, name: r.name, prompt: r.prompt,
+        channel: r.origin_channel ?? "", chatId: r.origin_chat_id ?? "",
+      }),
     log,
   });
   clock.start();
