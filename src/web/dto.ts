@@ -90,6 +90,12 @@ export interface AgentProfileInfo {
   aliases: string[];
   visibility: "shared" | "private";
   permissionMode: string;
+  /** Org role: coordinator | lead | worker | critic. */
+  kind: string;
+  /** Effective capability names (dept defaults ∪ agent extras). */
+  capabilities: string[];
+  /** The manifest system prompt, verbatim. */
+  prompt: string;
   model: string | null;
   skills: string[];
   guarded: boolean;
@@ -100,6 +106,15 @@ export interface AgentProfileInfo {
   recentRuns: Array<{ ts: string; context: string; ok: boolean; costUsd: number | null }>;
   handoffs: Array<{ ts: string; reason: string; channel: string; chatId: string }>;
   costByDay: Record<string, number>;
+}
+
+export interface AgentActivityInfo {
+  /** Merged per-agent event feed, newest first, capped at 100. */
+  timeline: Array<{ ts: string; kind: "run" | "route" | "mail" | "goal"; summary: string; ok?: boolean }>;
+  /** Goals with at least one node assigned to the agent; nodes filtered to the agent's. */
+  goals: Array<{ goalId: string; title: string; status: string; nodes: Array<{ key: string; status: string }> }>;
+  /** Agent mail involving this agent (from or to), newest first. */
+  mail: Array<{ id: string; ts: string; from: string; to: string; kind: string; snippet: string; status: string }>;
 }
 
 export interface PermissionInfo {

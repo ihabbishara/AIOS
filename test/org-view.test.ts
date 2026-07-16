@@ -169,4 +169,12 @@ describe("buildAgentProfile", () => {
     expect(p.handoffs[0].reason).toBe("charter match — code change");
     expect(Object.values(p.costByDay)).toEqual([0.3]);
   });
+
+  it("exposes kind, capabilities, and the system prompt", () => {
+    const { store, bus, registry } = harness();
+    const p = buildAgentProfile("vulcan", registry, store, bus)!;
+    expect(p.kind).toBe("coordinator");
+    expect(p.capabilities).toEqual(["files-basic", "vw"]);
+    expect(p.prompt).toBe("You are vulcan.");
+  });
 });
