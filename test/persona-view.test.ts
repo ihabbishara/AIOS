@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
 import { EventBus } from "../src/events.js";
-import { buildAgentActivity } from "../src/web/persona-view.js";
+import { buildAgentActivity, spliceManifestField } from "../src/web/persona-view.js";
 import { fixtureRegistry } from "./org-view.test.js";
 
 function harness() {
@@ -74,5 +74,68 @@ describe("buildAgentActivity", () => {
     expect(a.mail).toHaveLength(1);
     expect(a.mail[0]).toMatchObject({ id: "m1", from: "vulcan", to: "midas", kind: "request", status: "unread" });
     expect(a.mail[0].snippet).toHaveLength(120);
+  });
+});
+
+const MANIFEST = `name: vulcan
+# the human-facing card
+title: Senior Engineer
+department: engineering
+charter: >
+  Owns implementing code changes.
+persona: >
+  Terse.
+prompt: >
+  You are vulcan.
+tools: [Read, Edit, Write]
+maxTurns: 80
+aliases: [developer]
+kind: coordinator
+`;
+
+describe("spliceManifestField", () => {
+  it("replaces a plain scalar, leaving every other byte untouched", () => {
+    const out = spliceManifestField(MANIFEST, "title", "Staff Engineer");
+    expect(out).toContain("title: Staff Engineer\n");
+    expect(out.replace("title: Staff Engineer\n", "title: Senior Engineer\n")).toBe(MANIFEST);
+    expect(out).toContain("# the human-facing card"); // comment survives
+  });
+
+  it("replaces a block scalar as folded when single-line", () => {
+    const out = spliceManifestField(MANIFEST, "charter", "Ships production code.");
+    expect(out).toContain("charter: >\n  Ships production code.\n");
+    expect(out).toContain("persona: >\n  Terse.\n"); // neighbor untouched
+  });
+
+  it("uses a literal block when the value has newlines (fidelity over house style)", () => {
+    const out = spliceManifestField(MANIFEST, "prompt", "Line one.\n\nLine three.");
+    expect(out).toContain("prompt: |\n  Line one.\n\n  Line three.\n");
+  });
+
+  it("replaces maxTurns and rejects non-positive / non-integer values", () => {
+    expect(spliceManifestField(MANIFEST, "maxTurns", 40)).toContain("maxTurns: 40\n");
+    expect(() => spliceManifestField(MANIFEST, "maxTurns", 0)).toThrow(/positive integer/);
+    expect(() => spliceManifestField(MANIFEST, "maxTurns", 2.5)).toThrow(/positive integer/);
+    expect(() => spliceManifestField(MANIFEST, "maxTurns", "40" as unknown as number)).toThrow(/positive integer/);
+  });
+
+  it("inserts model after the tools line when absent", () => {
+    const out = spliceManifestField(MANIFEST, "model", "haiku");
+    expect(out).toContain("tools: [Read, Edit, Write]\nmodel: haiku\n");
+  });
+
+  it("quotes scalars that need it", () => {
+    const out = spliceManifestField(MANIFEST, "title", "Engineer: staff");
+    expect(out).toContain(`title: "Engineer: staff"\n`);
+  });
+
+  it("rejects unknown fields, empty strings, and unparseable yaml", () => {
+    expect(() => spliceManifestField(MANIFEST, "name", "loki")).toThrow(/not editable/);
+    expect(() => spliceManifestField(MANIFEST, "charter", "  ")).toThrow(/non-empty/);
+    expect(() => spliceManifestField("{broken: [", "title", "X")).toThrow(/yaml/i);
+  });
+
+  it("rejects a manifest missing a required field (corrupt file guard)", () => {
+    expect(() => spliceManifestField("name: x\n", "charter", "New charter.")).toThrow(/missing required/);
   });
 });
