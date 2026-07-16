@@ -123,7 +123,7 @@ export function Skills() {
       {editorMd !== null && (
         <div className="mt-4">
           <SectionLabel>{sel ? `Edit: ${sel.name}` : "New skill"}</SectionLabel>
-          <Editor initialMd={editorMd} usedBy={sel?.usedBy ?? []} agents={agents} onToggle={toggle}
+          <Editor key={sel?.name ?? "new"} initialMd={editorMd} usedBy={sel?.usedBy ?? []} agents={agents} onToggle={toggle}
             onSaved={() => { setEditorMd(null); setSelected(null); reload(); }}
             onDeleted={() => { setEditorMd(null); setSelected(null); reload(); }} />
         </div>

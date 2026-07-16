@@ -22,7 +22,7 @@ const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "m
 export function App() {
   const route = useRoute();
   const { events, connected } = useEvents();
-  const { data: state, error, reload } = useFetch(() => api.state(), []);
+  const { data: state, unauthorized, reload } = useFetch(() => api.state(), []);
   const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
   const { data: attention } = useLiveQuery(() => api.attention(), events, T.attention);
   const [chatOpen, setChatOpen] = useState(false);
@@ -60,7 +60,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (error === "unauthorized") return <TokenGate onSet={reload} />;
+  if (unauthorized) return <TokenGate onSet={reload} />;
 
   const show = (s: string) => (route.section === s ? "flex-1 min-h-0 flex flex-col pb-14 md:pb-0" : "hidden");
 

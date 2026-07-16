@@ -24,6 +24,12 @@ export function setToken(t: string): void {
   localStorage.setItem("aios_token", t);
 }
 
+/** Thrown on a 401 so the token gate keys off a type, not a magic string that a rename could
+ *  silently break. */
+export class UnauthorizedError extends Error {
+  constructor() { super("unauthorized"); this.name = "UnauthorizedError"; }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -33,7 +39,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  if (res.status === 401) throw new Error("unauthorized");
+  if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }

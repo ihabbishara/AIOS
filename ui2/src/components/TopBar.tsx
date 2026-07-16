@@ -1,15 +1,18 @@
 // ui2/src/components/TopBar.tsx — AIOS · Home Goals Staff Mail System ··· budget · theme · connection dot · ⌘K.
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { BudgetInfo } from "../api.js";
 import { SECTIONS, href } from "../lib/router.js";
 import { usd } from "../lib/format.js";
-import { currentTheme, toggleTheme } from "../lib/theme.js";
+import { currentTheme, toggleTheme, subscribeTheme } from "../lib/theme.js";
 
 export function TopBar({ section, budget, connected, needsYou, onPalette }: {
   section: string; budget: BudgetInfo | undefined; connected: boolean;
   needsYou: number; onPalette: () => void;
 }) {
   const [theme, setThemeState] = useState(currentTheme());
+  // Subscribe so a toggle from ANY entry point (this button, the ⌘K palette) keeps the glyph in
+  // sync — the icon used to desync when the palette toggled theme without touching this state.
+  useEffect(() => subscribeTheme(setThemeState), []);
   return (
     <header className="flex items-center gap-1 px-4 h-12 border-b border-line bg-surface shrink-0">
       <a href={href("home")} className="text-strong font-medium text-[14px] mr-4 tracking-wide">AIOS</a>
@@ -37,7 +40,7 @@ export function TopBar({ section, budget, connected, needsYou, onPalette }: {
         )}
         <button
           aria-label="Toggle theme"
-          onClick={() => setThemeState(toggleTheme())}
+          onClick={() => toggleTheme()}
           className="text-[13px] text-dim hover:text-strong transition-colors"
         >
           {theme === "dark" ? "☀" : "☾"}

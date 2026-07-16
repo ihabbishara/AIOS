@@ -34,10 +34,15 @@ export const LANES: Array<{ key: Lane; label: string }> = [
   { key: "done", label: "Done" },
 ];
 
+const RUNNING_STATUSES = new Set(["planning", "running", "replanning"]);
+
 export function laneOf(status: string): Lane {
   if (status === "awaiting-mail") return "running";
   const bucket = bucketOf(status);
   if (bucket === "needs" || bucket === "waiting") return "needs";
-  if (bucket === "running") return "running";
-  return "done";
+  if (bucket === "done" || bucket === "abandoned") return "done";
+  // running bucket, but bucketOf's default also catches UNKNOWN statuses — only the known
+  // in-progress ones belong in Running; anything unrecognized surfaces in Needs-you rather than
+  // hiding as if healthy (a new backend status shouldn't silently bury a stuck goal).
+  return RUNNING_STATUSES.has(status) ? "running" : "needs";
 }

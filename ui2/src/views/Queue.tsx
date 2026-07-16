@@ -34,6 +34,10 @@ export function Queue({ groups, selected, onSelect, onAct, rowErrors, busy }: {
   const isNew = (id: string) => {
     if (seen.current.has(id)) return false;
     seen.current.add(id);
+    if (seen.current.size > 2000) { // bound it — insertion-ordered, drop the oldest ids
+      const it = seen.current.values();
+      for (let i = 0; i < 1000; i++) seen.current.delete(it.next().value as string);
+    }
     return true;
   };
 

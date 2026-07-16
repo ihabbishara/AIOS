@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { getToken, type StoredEvent } from "./api.js";
+import { getToken, UnauthorizedError, type StoredEvent } from "./api.js";
 import { lastMatching } from "./lib/topics.js";
 
 /** Live event stream via SSE, capped buffer, auto-reconnect. */
@@ -53,16 +53,21 @@ export function useEvents(cap = 400): { events: StoredEvent[]; connected: boolea
 export function useFetch<T>(fn: () => Promise<T>, deps: unknown[] = []): {
   data: T | undefined;
   error: string | undefined;
+  unauthorized: boolean;
   reload: () => void;
 } {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string>();
+  const [unauthorized, setUnauthorized] = useState(false);
   const reload = useCallback(() => {
-    fn().then((d) => { setData(d); setError(undefined); }).catch((e) => setError((e as Error).message));
+    fn()
+      .then((d) => { setData(d); setError(undefined); setUnauthorized(false); })
+      // Gate on the error TYPE, not its message — a renamed string can't silently break the gate.
+      .catch((e) => { setError((e as Error).message); setUnauthorized(e instanceof UnauthorizedError); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   useEffect(() => { reload(); }, [reload]);
-  return { data, error, reload };
+  return { data, error, unauthorized, reload };
 }
 
 /** useFetch keyed on the newest event matching `topics` — SSE events invalidate REST reads. */

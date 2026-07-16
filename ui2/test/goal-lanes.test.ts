@@ -21,4 +21,8 @@ describe("laneOf", () => {
   it("lane order is needs, running, done", () => {
     expect(LANES.map((l) => l.key)).toEqual(["needs", "running", "done"]);
   });
+  it("an UNKNOWN status surfaces in needs-you, not hidden in running", () => {
+    expect(laneOf("some-new-backend-status")).toBe("needs");
+    expect(laneOf("")).toBe("needs");
+  });
 });

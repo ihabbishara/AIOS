@@ -139,7 +139,9 @@ export function Schedule() {
     <div className="flex-1 overflow-y-auto px-4 py-3 max-w-3xl w-full mx-auto">
       <SectionLabel>Anchors</SectionLabel>
       {data.anchors.map((a) => (
-        <AnchorRow key={a.name} {...a}
+        // key includes hhmm so the row remounts (re-seeds its input) when the persisted value
+        // changes — e.g. the server normalizes 9:00→09:00 — instead of showing stale local text.
+        <AnchorRow key={`${a.name}:${a.hhmm}`} {...a}
           onSave={(hhmm) => api.setAnchor(a.name, hhmm).then(reload).catch((e) => setAnchorErr((e as Error).message))} />
       ))}
       {anchorErr && <div className="text-err text-xs mt-1">{anchorErr}</div>}
