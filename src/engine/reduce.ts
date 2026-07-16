@@ -219,7 +219,12 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
           n.loopRounds = 0;
           n.runnerRounds = 0;
           n.fixerRounds = 0;
+          // Clear ALL prior-attempt residue, not just the verdict: the verify worker seeds
+          // `report = lastReport` on resume, so a stale failing report must not survive a retry.
+          // Safety then doesn't rest implicitly on the round-reset + round>0 fixer guard.
           n.lastVerdict = null;
+          n.lastReport = null;
+          n.lastFeedback = null;
           state.lastResumeTs = ev.ts; // fresh wall-time window for the human-granted retry
         }
         // accept → node.completed follows in the same batch; abandon → node.failed follows.

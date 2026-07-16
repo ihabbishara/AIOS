@@ -248,7 +248,7 @@ A live web dashboard served by the daemon at `http://localhost:4280`:
 - **Costs** — usage-equivalents per agent and per day (covered by subscription).
 - **Telemetry rail** — every event streaming live (SSE).
 
-Rebuild after UI changes: `cd ui && npm run build` (daemon serves `ui/dist`).
+Rebuild after UI changes: `cd ui2 && npm run build` (daemon serves `ui2/dist`).
 
 ### Remote access via Tailscale
 
