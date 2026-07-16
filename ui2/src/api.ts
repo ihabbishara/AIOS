@@ -1,7 +1,7 @@
 // Wire types live in src/web/dto.ts — one contract for server builders and this client.
 export type {
   AgentInfo, StateInfo, StoredEvent, ActionInfo, TrustInfo,
-  OrgAgentCard, OrgDepartmentView, AgentProfileInfo, PermissionInfo,
+  OrgAgentCard, OrgDepartmentView, AgentProfileInfo, AgentActivityInfo, PermissionInfo,
   PackRoleView, PackPlaybookView, PackJobView, PackWorkspaceView, PackView,
   GoalNodeView, GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
@@ -10,7 +10,7 @@ export type {
 } from "../../src/web/dto.js";
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
-  OrgDepartmentView, AgentProfileInfo, PermissionInfo, PackView,
+  OrgDepartmentView, AgentProfileInfo, AgentActivityInfo, PermissionInfo, PackView,
   GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, Recurrence, SkillView,
@@ -50,6 +50,12 @@ export const api = {
   health: () => request<HealthInfo>("/api/health"),
   org: () => request<OrgDepartmentView[]>("/api/org"),
   agent: (name: string) => request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}`),
+  agentActivity: (name: string) =>
+    request<AgentActivityInfo>(`/api/agents/${encodeURIComponent(name)}/activity`),
+  patchAgentManifest: (name: string, field: string, value: string | number) =>
+    request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}/manifest`, {
+      method: "PATCH", body: JSON.stringify({ field, value }),
+    }),
   goals: () => request<GoalView[]>("/api/goals"),
   goal: (idOrSlug: string) => request<GoalDetail>(`/api/goals/${encodeURIComponent(idOrSlug)}`),
   goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon") =>

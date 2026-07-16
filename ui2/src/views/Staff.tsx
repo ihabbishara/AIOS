@@ -1,4 +1,5 @@
-// ui2/src/views/Staff.tsx — org columns + profile + governance + department admin (spec §6 Staff).
+// ui2/src/views/Staff.tsx — org columns + governance + department admin (spec §6 Staff).
+// The rich per-agent profile lives in StaffProfile.tsx (persona explorer).
 import { useState } from "react";
 import { api, type StoredEvent } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
@@ -7,6 +8,7 @@ import { navigate, type Route } from "../lib/router.js";
 import { Button, Dot, Empty, SectionLabel, Tag } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usdFloat } from "../lib/format.js";
+import { StaffProfile } from "./StaffProfile.js";
 
 export function Staff({ events, route, onOpenChat }: {
   events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void;
@@ -22,7 +24,7 @@ export function Staff({ events, route, onOpenChat }: {
           className={`label hover:text-fg ${sub === "governance" ? "text-strong" : ""}`}>governance</button>
       </div>
       {sub === "agents" && route.parts[1]
-        ? <Profile name={route.parts[1]} events={events} onOpenChat={onOpenChat} />
+        ? <StaffProfile name={route.parts[1]} events={events} route={route} onOpenChat={onOpenChat} />
         : sub === "governance"
           ? <Governance events={events} />
           : <OrgColumns events={events} />}
@@ -148,104 +150,6 @@ function YamlEditor({ pillar, file, initial, onClose }: {
           <Button variant="primary" onClick={save}>Save</Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Profile({ name, events, onOpenChat }: {
-  name: string; events: StoredEvent[]; onOpenChat: (t: string, s?: string) => void;
-}) {
-  const { data: p, error } = useLiveQuery(() => api.agent(name), events, T.agentsActions, [name]);
-  const [note, setNote] = useState("");
-  if (error) return <Empty>{error}</Empty>;
-  if (!p) return <Empty>Loading…</Empty>;
-
-  const propose = async (tool: string, action: "grant" | "revoke") => {
-    setNote("");
-    try { await api.proposePermission(name, tool, action); setNote(`${action} of ${tool} queued for approval`); }
-    catch (err) { setNote((err as Error).message); }
-  };
-
-  return (
-    <div className="max-w-3xl">
-      <button onClick={() => navigate("staff")} className="label hover:text-fg mb-3">← staff</button>
-      <div className="flex items-center gap-3 flex-wrap mb-1">
-        <h2 className="text-[17px] font-bold text-bright">{p.name}</h2>
-        <span className="text-dim">{p.title} · {p.department}</span>
-        {p.model && <Tag>{p.model}</Tag>}
-        {p.visibility === "private" && <Tag>🔒 private</Tag>}
-        {p.guarded && <Tag>🛡 guarded</Tag>}
-        <Button className="ml-auto" variant="primary" onClick={() => onOpenChat(p.name)}>Chat ⌘J</Button>
-      </div>
-      {p.aliases.length > 0 && <div className="text-[11px] text-dim mb-2">aka {p.aliases.join(", ")}</div>}
-      <p className="text-fg leading-relaxed mb-5 whitespace-pre-wrap">{p.charter}</p>
-
-      <SectionLabel>Access</SectionLabel>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {p.tools.map((t) => (
-          <button key={t.name} title={`${t.source} — click to queue revoke`} onClick={() => void propose(t.name, "revoke")}>
-            <Tag tone={t.source === "granted" ? "ok" : "dim"}>{t.name}</Tag>
-          </button>
-        ))}
-        {p.revoked.map((t) => (
-          <button key={t.name} title="revoked — click to queue grant" onClick={() => void propose(t.name, "grant")}>
-            <Tag tone="err">{t.name}</Tag>
-          </button>
-        ))}
-      </div>
-      <GrantBox onGrant={(tool) => void propose(tool, "grant")} />
-      {note && <div className="text-[11px] text-accent mb-4">{note}</div>}
-
-      <SectionLabel>Trust — {p.department} action types</SectionLabel>
-      <div className="flex flex-wrap gap-1.5 mb-5">
-        {p.trust.length === 0 && <span className="text-[12px] text-dim">no tracked action types</span>}
-        {p.trust.map((t) => (
-          <Tag key={t.actionType} tone={t.state === "autonomous" ? "ok" : t.state === "graduating" ? "agent" : "dim"}>
-            {t.actionType} · {t.state} · streak {t.streak}
-          </Tag>
-        ))}
-      </div>
-
-      <SectionLabel>Recent runs</SectionLabel>
-      <div className="mb-5">
-        {p.recentRuns.slice(0, 10).map((r, i) => (
-          <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
-            <Dot tone={r.ok ? "ok" : "err"} />
-            <span className="text-dim">{ts(r.ts)}</span>
-            <span className="truncate">{r.context}</span>
-            {r.costUsd != null && <span className="text-dim ml-auto">{usdFloat(r.costUsd)}</span>}
-          </div>
-        ))}
-        {p.recentRuns.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
-      </div>
-
-      <SectionLabel>Cost by day</SectionLabel>
-      <Sparkline data={p.costByDay} />
-    </div>
-  );
-}
-
-function GrantBox({ onGrant }: { onGrant: (tool: string) => void }) {
-  const [tool, setTool] = useState("");
-  return (
-    <div className="flex gap-2 mb-2">
-      <input value={tool} onChange={(e) => setTool(e.target.value)} placeholder="grant a tool (queues approval)…"
-        onKeyDown={(e) => { if (e.key === "Enter" && tool.trim()) { onGrant(tool.trim()); setTool(""); } }}
-        className="bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim w-64" />
-    </div>
-  );
-}
-
-function Sparkline({ data }: { data: Record<string, number> }) {
-  const days = Object.entries(data).sort(([a], [b]) => (a < b ? -1 : 1)).slice(-14);
-  const max = Math.max(0.01, ...days.map(([, v]) => v));
-  return (
-    <div className="flex items-end gap-1 h-12">
-      {days.map(([d, v]) => (
-        <div key={d} title={`${d} · ${usdFloat(v)}`} className="w-4 bg-line rounded-sm"
-          style={{ height: `${Math.max(4, (v / max) * 100)}%` }} />
-      ))}
-      {days.length === 0 && <span className="text-[12px] text-dim">no spend</span>}
     </div>
   );
 }
