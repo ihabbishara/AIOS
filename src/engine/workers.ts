@@ -214,7 +214,7 @@ export async function runAttempt(
           ].filter(Boolean).join("\n\n");
           const produced = await runAgent(spec.agent, producerBrief);
           lastOutput = produced.text;
-          save(`${spec.key}-v${round}.md`, produced.text, spec.agent);
+          save(`${spec.key}-a${attempt}-v${round}.md`, produced.text, spec.agent);
 
           const criticBrief = [
             `Review the following ${spec.agent} output against the original task.`,
@@ -223,12 +223,12 @@ export async function runAttempt(
           ].join("\n\n");
           const review = await runAgent(spec.critic!, criticBrief);
           const verdict = review.structured as Verdict | undefined;
-          save(`${spec.key}-review-${round}.md`,
+          save(`${spec.key}-a${attempt}-review-${round}.md`,
             verdict ? `**Verdict:** ${verdict.verdict}\n\n${verdict.summary}\n\n${verdict.reasons.map((r) => `- ${r}`).join("\n")}` : review.text,
             spec.critic!);
           feedback = verdict ? [verdict.summary, ...verdict.reasons].join("\n- ") : review.text;
           if (verdict) lastReasons = verdict.reasons;
-          recordRound({ node: spec.key, attempt, round, role: "critic", verdict, feedback, artifactRef: `${spec.key}-v${round}.md` });
+          recordRound({ node: spec.key, attempt, round, role: "critic", verdict, feedback, artifactRef: `${spec.key}-a${attempt}-v${round}.md` });
           if (verdict?.verdict === "approve") approved = true;
         }
         if (!approved) {
@@ -236,7 +236,7 @@ export async function runAttempt(
           // append — a crash can never leave a finished attempt without its park.
           appendEvents(store, goal.id, [
             { type: "attempt.finished", payload: { node: spec.key, attempt, outcome: "ok", costCents, turns } },
-            { type: "review.requested", payload: { node: spec.key, lastArtifactRef: `${spec.key}-v${round}.md`, objections: lastReasons } },
+            { type: "review.requested", payload: { node: spec.key, lastArtifactRef: `${spec.key}-a${attempt}-v${round}.md`, objections: lastReasons } },
           ]);
           break;
         }
@@ -260,21 +260,21 @@ export async function runAttempt(
               `# Failing verification (round ${round}) — fix these\n${report.summary}\n${report.failures.map((f) => `- ${f}`).join("\n")}`,
             ].filter(Boolean).join("\n\n");
             const fix = await runAgent(spec.critic!, fixBrief);
-            save(`${spec.key}-fix-${round}.md`, fix.text, spec.critic!);
-            recordRound({ node: spec.key, attempt, round, role: "fixer", feedback: report.summary, artifactRef: `${spec.key}-fix-${round}.md` });
+            save(`${spec.key}-a${attempt}-fix-${round}.md`, fix.text, spec.critic!);
+            recordRound({ node: spec.key, attempt, round, role: "fixer", feedback: report.summary, artifactRef: `${spec.key}-a${attempt}-fix-${round}.md` });
             fixedThrough = round;
           }
           round++;
           const runnerBrief = [spec.brief, ctx, "Run the verification now."].filter(Boolean).join("\n\n");
           const res = await runAgent(spec.agent, runnerBrief);
           report = res.structured as TestReport | undefined;
-          save(`${spec.key}-run-${round}.md`,
+          save(`${spec.key}-a${attempt}-run-${round}.md`,
             report ? `**Passed:** ${report.passed}\n\n${report.summary}\n\n${report.failures.map((f) => `- ${f}`).join("\n")}` : res.text,
             spec.agent);
           recordRound({
             node: spec.key, attempt, round, role: "runner", report,
             feedback: report && !report.passed ? [report.summary, ...report.failures].join("\n- ") : "",
-            artifactRef: `${spec.key}-run-${round}.md`,
+            artifactRef: `${spec.key}-a${attempt}-run-${round}.md`,
           });
           if (!report) break;
         }
@@ -293,7 +293,7 @@ export async function runAttempt(
           appendEvents(store, goal.id, [
             { type: "attempt.finished", payload: { node: spec.key, attempt, outcome: "ok", costCents, turns } },
             { type: "review.requested", payload: {
-              node: spec.key, lastArtifactRef: `${spec.key}-run-${round}.md`,
+              node: spec.key, lastArtifactRef: `${spec.key}-a${attempt}-run-${round}.md`,
               objections: [report.summary, ...report.failures],
             } },
           ]);

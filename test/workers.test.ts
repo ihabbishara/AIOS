@@ -117,8 +117,8 @@ describe("runAttempt — loop nodes", () => {
     expect(rounds).toHaveLength(2);
     expect(rounds[0]).toMatchObject({ node: "impl", round: 1, role: "critic" });
     expect(rounds[1]).toMatchObject({ round: 2 });
-    expect(vault.readGoalArtifact(goalDir, "impl-v1.md")).toBeTruthy();
-    expect(vault.readGoalArtifact(goalDir, "impl-review-2.md")).toContain("approve");
+    expect(vault.readGoalArtifact(goalDir, "impl-a1-v1.md")).toBeTruthy();       // attempt-scoped
+    expect(vault.readGoalArtifact(goalDir, "impl-a1-review-2.md")).toContain("approve");
     expect(vault.readGoalArtifact(goalDir, "impl.md")).not.toContain("Loop cap reached");
     expect(store.listNodes("g1")[0].rounds_used).toBe(2);
   });
@@ -132,14 +132,14 @@ describe("runAttempt — loop nodes", () => {
     expect(journalTypes(store)).not.toContain("node.completed");
     expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "ok" });
     expect(payloadOf(store, "review.requested")[0]).toMatchObject({
-      node: "impl", lastArtifactRef: "impl-v3.md", objections: ["too long"],
+      node: "impl", lastArtifactRef: "impl-a1-v3.md", objections: ["too long"],
     });
     expect(store.listNodes("g1")[0]).toMatchObject({ status: "needs-review", error: "too long" });
   });
 
-  it("review-retry attempt injects user guidance into the producer brief and runs fresh rounds", async () => {
+  it("review-retry attempt injects user guidance, runs fresh rounds, and does NOT clobber attempt-1 artifacts", async () => {
     const briefs: string[] = [];
-    const { store, deps, goal } = harness(async (role, brief) => {
+    const { store, vault, goalDir, deps, goal } = harness(async (role, brief) => {
       briefs.push(`${role}:${brief}`);
       if (role === "minos-eng") return { text: "r", structured: { verdict: "approve", summary: "ok", reasons: [] }, costUsd: 0, numTurns: 1 };
       return { text: "v", costUsd: 0, numTurns: 1 };
@@ -159,6 +159,9 @@ describe("runAttempt — loop nodes", () => {
     const rounds = payloadOf(store, "round.recorded");
     expect(rounds[rounds.length - 1]).toMatchObject({ round: 1, attempt: 2 }); // fresh rounds, not 4
     expect(payloadOf(store, "node.completed")[0]).toMatchObject({ node: "impl" });
+    // The retry's round-1 producer writes under attempt 2 — attempt 1's -a1- files are never
+    // overwritten (round reset to 0 used to make attempt 2 re-save impl-v1.md over attempt 1's).
+    expect(vault.readGoalArtifact(goalDir, "impl-a2-v1.md")).toBeTruthy();
   });
 
   it("crash-resume: attempt 2 starts at round N+1 with the critic's last feedback", async () => {
@@ -232,7 +235,7 @@ describe("runAttempt — verify nodes", () => {
     await runAttempt(goal(), VERIFY, 1, deps);
     expect(journalTypes(store)).not.toContain("node.completed");
     expect(payloadOf(store, "review.requested")[0]).toMatchObject({
-      node: "test", lastArtifactRef: "test-run-3.md", objections: ["2 tests fail", "t1", "t2"],
+      node: "test", lastArtifactRef: "test-a1-run-3.md", objections: ["2 tests fail", "t1", "t2"],
     });
   });
 
