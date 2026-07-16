@@ -196,8 +196,58 @@ function Activity({ name, events }: { name: string; events: StoredEvent[] }) {
   );
 }
 
-function EditManifest({ profile: _profile }: { profile: AgentProfileInfo }) {
-  return <Empty>soon</Empty>;
+function EditManifest({ profile }: { profile: AgentProfileInfo }) {
+  return (
+    <div className="flex flex-col gap-4 mb-5">
+      <div className="text-[11px] text-dim">
+        Edits splice the agent's YAML in place and reload the registry. Structural fields
+        (name, department, capabilities, tools, skills) are managed elsewhere.
+      </div>
+      <Field key={`${profile.name}-title`} agent={profile.name} field="title" initial={profile.title} />
+      <Field key={`${profile.name}-model`} agent={profile.name} field="model" initial={profile.model ?? ""}
+        hint="empty is rejected — removing the key stays a YAML-file operation" />
+      <Field key={`${profile.name}-maxTurns`} agent={profile.name} field="maxTurns" initial={String(profile.maxTurns)} number />
+      <Field key={`${profile.name}-charter`} agent={profile.name} field="charter" initial={profile.charter} multiline />
+      <Field key={`${profile.name}-persona`} agent={profile.name} field="persona" initial={profile.persona} multiline />
+      <Field key={`${profile.name}-prompt`} agent={profile.name} field="prompt" initial={profile.prompt} multiline />
+    </div>
+  );
+}
+
+function Field({ agent, field, initial, multiline, number, hint }: {
+  agent: string; field: string; initial: string; multiline?: boolean; number?: boolean; hint?: string;
+}) {
+  const [val, setVal] = useState(initial);
+  const [saved, setSaved] = useState(initial);
+  const [note, setNote] = useState("");
+  const dirty = val !== saved;
+
+  const save = async () => {
+    setNote("");
+    try {
+      await api.patchAgentManifest(agent, field, number ? Number(val) : val);
+      setSaved(val);
+      setNote("saved");
+    } catch (err) { setNote((err as Error).message); }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <SectionLabel>{field}</SectionLabel>
+        {hint && <span className="text-[10px] text-dim">{hint}</span>}
+        {dirty && <Button className="ml-auto" variant="primary" onClick={() => void save()}>Save</Button>}
+        {note && <span className={`text-[11px] ${note === "saved" ? "text-dim" : "text-err"} ${dirty ? "" : "ml-auto"}`}>{note}</span>}
+      </div>
+      {multiline ? (
+        <textarea value={val} onChange={(e) => { setVal(e.target.value); setNote(""); }} spellCheck={false}
+          className="font-mono text-[12px] bg-bg border border-line rounded-md p-3 h-32 outline-none focus:border-dim" />
+      ) : (
+        <input value={val} onChange={(e) => { setVal(e.target.value); setNote(""); }}
+          className="bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim w-64" />
+      )}
+    </div>
+  );
 }
 
 function GrantBox({ onGrant }: { onGrant: (tool: string) => void }) {
