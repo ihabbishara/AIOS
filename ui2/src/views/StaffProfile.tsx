@@ -56,7 +56,30 @@ function Overview({ p, note, propose }: {
 }) {
   return (
     <>
-      <p className="text-fg leading-relaxed mb-5 whitespace-pre-wrap">{p.charter}</p>
+      <p className="text-fg leading-relaxed mb-2 whitespace-pre-wrap">{p.charter}</p>
+      <p className="text-[13px] text-dim leading-relaxed mb-4 whitespace-pre-wrap">{p.persona}</p>
+
+      {p.capabilities.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {p.capabilities.map((c) => <Tag key={c}>{c}</Tag>)}
+        </div>
+      )}
+
+      {p.skills.length > 0 && (
+        <>
+          <SectionLabel>Skills</SectionLabel>
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {p.skills.map((s) => (
+              <button key={s} onClick={() => navigate(`skills/${s}`)}><Tag tone="ok">{s}</Tag></button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <details className="mb-5">
+        <summary className="label cursor-pointer hover:text-fg">system prompt</summary>
+        <pre className="font-mono text-[11px] text-dim whitespace-pre-wrap mt-2 p-3 card">{p.prompt}</pre>
+      </details>
 
       <SectionLabel>Access</SectionLabel>
       <div className="flex flex-wrap gap-1.5 mb-2">
@@ -95,6 +118,18 @@ function Overview({ p, note, propose }: {
           </div>
         ))}
         {p.recentRuns.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
+      </div>
+
+      <SectionLabel>Handoffs</SectionLabel>
+      <div className="mb-5">
+        {p.handoffs.slice(0, 10).map((h, i) => (
+          <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
+            <span className="text-dim">{ts(h.ts)}</span>
+            <span className="truncate">{h.reason}</span>
+            <span className="text-dim ml-auto">{h.channel}</span>
+          </div>
+        ))}
+        {p.handoffs.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
       </div>
 
       <SectionLabel>Cost by day</SectionLabel>
