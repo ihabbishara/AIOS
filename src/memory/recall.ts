@@ -141,16 +141,23 @@ function lexicalScores(store: Store, qTokens: string[], matched: EntityRow[], op
 function finalize(store: Store, cand: CandidateSet, qTokens: string[], query: string, opts: RecallOpts, nowMs: number): RecallHit[] {
   const { scores, meta, labelsById } = cand;
   // Clearance filter (spec §7.8): drop docs the caller isn't cleared for BEFORE ranking, so a
-  // denied doc never occupies a result slot. Audit logs but keeps the hole open; enforce drops.
+  // denied doc never occupies a result slot. Read-side filtering only HIDES a doc (no
+  // write-availability risk), so it enforces clearance IMMEDIATELY regardless of the global
+  // policy mode — the domain:money broadening hole is closed now, not deferred to the enforce
+  // flip. policy.check is retained purely to record the violation for the audit trail.
   if (opts.clearance) {
     for (const [id, docLbls] of labelsById) {
       if (!scores.has(id)) continue;
-      if (docLbls.length === 0 || visibleTo(docLbls, opts.clearance)) continue;
-      const decision = opts.policy?.check(
-        { labels: docLbls as Label[], sink: "recall-index", agent: { labels: opts.clearance } },
-        "recall:clearance", meta.get(id)!.ref,
-      );
-      if (decision === "deny") scores.delete(id); // enforce: remove; audit returns "allow", kept
+      // Cleared iff the doc is LABELED and every label is shared/held. Unlabeled → not cleared
+      // (fail-closed, matching the engine's treatment of unlabeled data at a sensitive sink).
+      if (docLbls.length > 0 && visibleTo(docLbls, opts.clearance)) continue;
+      if (docLbls.length) {
+        opts.policy?.check(
+          { labels: docLbls as Label[], sink: "recall-index", agent: { labels: opts.clearance } },
+          "recall:clearance", meta.get(id)?.ref ?? "",
+        );
+      }
+      scores.delete(id);
     }
   }
 

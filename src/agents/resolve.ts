@@ -166,17 +166,19 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
 
     // Dept context block — same construction the pack resolver used (mission + gated memo).
     const includeMemo = !(dept.privateMemo && def.manifest.visibility !== "private");
-    const memo = includeMemo ? memoContextForDomain(deps.store, deps.vault, dept.memoDomain) : "";
-    const contextBlock = [`## Pillar: ${dept.department}`, dept.mission.trim(), memo]
-      .filter(Boolean).join("\n\n");
-    // Audit the dept memo → system-prompt flow (spec §7.6). The existing privateMemo gate above
-    // stays; this only observes (audit) / would deny an over-broad label (enforce).
+    let memo = includeMemo ? memoContextForDomain(deps.store, deps.vault, dept.memoDomain) : "";
+    // The dept memo → system-prompt flow is a real sink: HONOR the verdict, don't just observe.
+    // The privateMemo gate above still applies independently; this adds the label check, and in
+    // enforce an over-broad dept label the agent isn't cleared for is dropped (audit → allow).
     if (memo) {
-      deps.policy?.check(
+      const decision = deps.policy?.check(
         { labels: [deptLabel(dept.department)], origin: "trusted", sink: `prompt.system:${canonical}`, agent: { labels } },
         "resolve:memo", memo,
       );
+      if (decision === "deny") memo = "";
     }
+    const contextBlock = [`## Pillar: ${dept.department}`, dept.mission.trim(), memo]
+      .filter(Boolean).join("\n\n");
 
     // Static MCP servers from capabilities. Shim era: bare aios-pack tools without an explicit
     // aios-pack capability still get the scoped server (the legacy path always attached it).

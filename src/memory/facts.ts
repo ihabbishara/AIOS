@@ -48,19 +48,26 @@ export async function forgetNow(
     return overlap >= threshold;
   });
   if (!hit.length) return 0;
-  const domains = new Set<string>();
-  for (const f of hit) {
-    deps.store.supersedeMemoFact(f.id, null);
-    domains.add(f.domain);
-  }
+  // Mirror the distiller's discipline: render PROSPECTIVELY (memo without the hit facts) and
+  // supersede in the DB only when the gate write EXECUTES. Superseding first would drop the fact
+  // from memo_facts while the still-unwritten memo file keeps feeding it into the system prompt —
+  // the "forgotten" content would keep reaching the prompt if the write were ever queued.
+  const hitIds = new Set(hit.map((f) => f.id));
+  const domains = new Set(hit.map((f) => f.domain));
+  let forgotten = 0;
   for (const d of domains) {
-    const md = renderMemo(d, deps.store.activeMemoFacts(d));
+    const remaining = deps.store.activeMemoFacts(d).filter((f) => !hitIds.has(f.id));
+    const md = renderMemo(d, remaining);
     const content = md || `# ${d} memo\n\n(empty)`;
     const row = await deps.gate.propose(
       { type: "vault.write", payload: { path: memoRelPath(d as Domain), content }, preview: `Forget: refresh ${d} memo` },
       FORGET_ORIGIN,
     );
-    if (row.status !== "executed") deps.log?.(`forgetNow: ${d} memo refresh not executed (${row.status})`);
+    if (row.status === "executed") {
+      for (const f of hit) if (f.domain === d) { deps.store.supersedeMemoFact(f.id, null); forgotten++; }
+    } else {
+      deps.log?.(`forgetNow: ${d} memo refresh not executed (${row.status}) — facts kept`);
+    }
   }
-  return hit.length;
+  return forgotten;
 }

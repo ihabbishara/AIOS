@@ -48,25 +48,35 @@ const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => b
   "org.internal": (sink) => sink !== "file-export" && !(isChat(sink) && !isPrimaryChat(sink)),
 };
 
-// Enumerated declassify rules (spec §5). id → does this input qualify for the lowered sink.
-const DECLASSIFY_RULES: Record<string, (input: CheckInput) => boolean> = {
+// Enumerated declassify rules (spec §5). Each rule is SCOPED to the single label it lowers —
+// a rule may only rescue its own label, never a co-present stricter one (that would be laundering).
+const DECLASSIFY_RULES: Record<string, { label: Label; ok: (input: CheckInput) => boolean }> = {
   // D1: personal.email → brief ONLY as a count-only summary ("N reply drafts await approval").
-  "D1-email-count": (i) => i.labels.includes("personal.email") && i.sink === "brief",
+  "D1-email-count": { label: "personal.email", ok: (i) => i.sink === "brief" },
 };
 
-export function rawCheck(input: CheckInput): Verdict {
+/** Full evaluation: the verdict plus, on a deny, the specific label that caused it (for the
+ *  audit record — labels[0] would misname the offender on a multi-label union). */
+function evaluate(input: CheckInput): { verdict: Verdict; deniedBy?: Label } {
   const origin = input.origin ?? "trusted";
   // Untrusted integrity: never system-prompt prose; context (fenced data) is allowed.
-  if (origin === "untrusted" && input.sink.startsWith("prompt.system:")) return "deny";
-  // Strictest label wins — union of inputs, no laundering.
+  if (origin === "untrusted" && input.sink.startsWith("prompt.system:")) {
+    return { verdict: "deny", deniedBy: input.labels[0] };
+  }
+  // Strictest label wins. A declassify rule may only rescue THE label it is keyed to, so a
+  // co-present stricter label cannot ride a weaker label's rule to the sink (no laundering).
   let declassify: string | undefined;
   for (const label of input.labels) {
     if (POLICY_TABLE[label](input.sink, input.agent)) continue;
-    const rule = Object.entries(DECLASSIFY_RULES).find(([, ok]) => ok(input));
+    const rule = Object.entries(DECLASSIFY_RULES).find(([, r]) => r.label === label && r.ok(input));
     if (rule) { declassify = rule[0]; continue; }
-    return "deny";
+    return { verdict: "deny", deniedBy: label };
   }
-  return declassify ? { declassify } : "allow";
+  return { verdict: declassify ? { declassify } : "allow" };
+}
+
+export function rawCheck(input: CheckInput): Verdict {
+  return evaluate(input).verdict;
 }
 
 export { POLICY_TABLE, DECLASSIFY_RULES };
@@ -90,13 +100,16 @@ export class Policy {
   /** Returns the enforced verdict for the current mode ("allow"/"deny"), reporting any raw deny.
    *  `contentForHash` is hashed for the violation record and NEVER stored/emitted as text. */
   check(input: CheckInput, site: string, contentForHash = ""): "allow" | "deny" {
-    // Enforce: an unlabeled flow at a sink stricter than chat is a deny (spec §4).
-    const unlabeledSensitive =
-      input.labels.length === 0 && this.deps.mode === "enforce" && isSensitiveSink(input.sink);
-    const verdict = unlabeledSensitive ? "deny" : rawCheck(input);
+    // An unlabeled flow at a sink stricter than chat is what enforce will deny (spec §4). Detect
+    // it mode-independently so AUDIT reports (previews) it — otherwise "one clean audit week"
+    // hides exactly the flows the enforce flip is about to start denying.
+    const unlabeledSensitive = input.labels.length === 0 && isSensitiveSink(input.sink);
+    const { verdict, deniedBy } = unlabeledSensitive
+      ? { verdict: "deny" as Verdict, deniedBy: undefined }
+      : evaluate(input);
     const denied = verdict === "deny";
     if (denied) {
-      const label = input.labels[0] ?? "shared";
+      const label = deniedBy ?? input.labels[0] ?? "shared";
       this.deps.report({ label, sink: input.sink, site, hash: labelHash(contentForHash) });
     }
     if (this.deps.mode === "audit") return "allow"; // block nothing new

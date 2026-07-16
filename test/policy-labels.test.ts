@@ -10,9 +10,9 @@ describe("label derivation", () => {
     expect(deptLabel("engineering")).toBe("org.internal");
     expect(deptLabel("research")).toBe("org.internal");
   });
-  it("calendar event → personal.calendar; a private-participant mail thread → the dept label", () => {
+  it("calendar event → personal.calendar; a mail thread → the dept label (privacy is a separate wall)", () => {
     expect(docLabels({ source: "event", domain: "inbox" })).toEqual(["personal.calendar"]);
-    expect(docLabels({ source: "mail", domain: "money", mailPrivate: true, dept: "finance" })).toEqual(["personal.finance"]);
+    expect(docLabels({ source: "mail", domain: "money", dept: "finance" })).toEqual(["personal.finance"]);
     expect(docLabels({ source: "mail", domain: "code", dept: "engineering" })).toEqual(["org.internal"]);
     expect(docLabels({ source: "decision", domain: "code" })).toEqual(["org.internal"]);
     expect(docLabels({ source: "vault", domain: "general" })).toEqual(["shared"]);

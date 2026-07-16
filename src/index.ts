@@ -239,13 +239,17 @@ async function main(): Promise<void> {
     : undefined;
   memoryDeps.embedder = embedder;
   let embedTimer: NodeJS.Timeout | undefined;
+  let embedInFlight = false; // true single-flight: a running sweep must not overlap another
   const scheduleEmbed = (delayMs = 5_000) => {
     if (!embedder?.available()) return;
     clearTimeout(embedTimer);
     embedTimer = setTimeout(() => {
+      if (embedInFlight) { scheduleEmbed(1_000); return; } // a sweep is running — re-arm, don't overlap
+      embedInFlight = true;
       void embedMissing(store, embedder, 64)
         .then((n) => { if (n === 64) scheduleEmbed(1_000); }) // keep draining a big backlog
-        .catch((err) => log(`embed sweep failed: ${(err as Error).message}`));
+        .catch((err) => log(`embed sweep failed: ${(err as Error).message}`))
+        .finally(() => { embedInFlight = false; });
     }, delayMs);
     embedTimer.unref?.();
   };
@@ -669,6 +673,15 @@ async function main(): Promise<void> {
           factDiff: factDiffLLM(config.curatorModel, log),
           ground: groundLLM(config.curatorModel, log),
           policy: infoPolicy, log,
+          // Make the system-prompt-memo untrusted filter LIVE (was defaulting to trusted, so it
+          // never fired): classify a teaching by its stored origin. Only the literal 'untrusted'
+          // origin is filtered; 'agent-inferred' capture output stays trusted here by design (see
+          // the capture trust-model note — promoting it to untrusted needs the consolidation
+          // decision, not a silent flip). Decisions are human acts → always trusted.
+          signalOrigin: (source, ref) =>
+            source === "teaching" && store.getTeaching(Number(ref))?.origin === "untrusted"
+              ? "untrusted"
+              : "trusted",
         }).catch((err) => log(`distill failed: ${(err as Error).message}`));
         // memory-v2 housekeeping: entity extraction over new titles, vector sweep, usage-log prune.
         void extractNewEntities({ store, extract: extractEntitiesLLM(config.curatorModel, log), log })

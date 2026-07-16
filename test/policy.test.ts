@@ -64,6 +64,17 @@ describe("rawCheck — label × sink table (spec §5)", () => {
   it("multi-label = strictest wins (union of inputs, no laundering)", () => {
     expect(rawCheck({ labels: ["shared", "personal.finance"], sink: "recall-index" })).toBe("deny");
   });
+
+  it("a declassify rule cannot launder a co-present stricter label", () => {
+    // D1 lowers personal.email → brief. personal.finance has NO brief rule, so a brief carrying
+    // BOTH must deny — email's rule may not rescue finance. (Regression: the rule used to match
+    // the whole input, letting finance ride D1 into the vaulted+indexed brief.)
+    expect(rawCheck({ labels: ["personal.email", "personal.finance"], sink: "brief" })).toBe("deny");
+    // order-independent
+    expect(rawCheck({ labels: ["personal.finance", "personal.email"], sink: "brief" })).toBe("deny");
+    // the legitimate single-label declassify still resolves
+    expect(rawCheck({ labels: ["personal.email"], sink: "brief" })).toEqual({ declassify: "D1-email-count" });
+  });
 });
 
 describe("Policy modes", () => {
@@ -86,6 +97,20 @@ describe("Policy modes", () => {
     const p = new Policy({ mode: "enforce", report: () => {} });
     expect(p.check({ labels: [], sink: "recall-index" }, "x")).toBe("deny");
     expect(p.check({ labels: [], sink: "chat:primary" }, "x")).toBe("allow"); // chat is not stricter
+  });
+  it("audit PREVIEWS an unlabeled-sensitive flow: reports it, returns allow", () => {
+    const seen: Violation[] = [];
+    const p = new Policy({ mode: "audit", report: (v) => seen.push(v) });
+    expect(p.check({ labels: [], sink: "recall-index" }, "indexer:x", "secret")).toBe("allow");
+    expect(seen).toHaveLength(1); // enforce would deny this — audit must surface it, not hide it
+    expect(p.check({ labels: [], sink: "chat:primary" }, "x")).toBe("allow");
+    expect(seen).toHaveLength(1); // chat is not sensitive — no new violation
+  });
+  it("names the offending label on a multi-label deny, not labels[0]", () => {
+    const seen: Violation[] = [];
+    const p = new Policy({ mode: "audit", report: (v) => seen.push(v) });
+    p.check({ labels: ["shared", "personal.finance"], sink: "recall-index" }, "site");
+    expect(seen[0].label).toBe("personal.finance"); // shared passes; finance is the real offender
   });
   it("declassify verdict resolves to allow at the named sink", () => {
     const p = new Policy({ mode: "enforce", report: () => {} });

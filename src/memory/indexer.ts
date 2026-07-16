@@ -147,7 +147,7 @@ export function indexMailThread(store: Store, registry: LoadedRegistry, threadId
     const def = canonical ? registry.agents.get(canonical) : undefined;
     if (def?.manifest.visibility === "private") { mailPrivate = true; break; }
   }
-  const labels = docLabels({ source: "mail", domain, dept, mailPrivate });
+  const labels = docLabels({ source: "mail", domain, dept });
   // Audit the recall-index flow BEFORE the private-participant wall drops it — so the log fires
   // and enforce mode has the label even if the redundant wall is removed later.
   if (mailPrivate) {

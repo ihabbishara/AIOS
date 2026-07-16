@@ -83,12 +83,14 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
     ...teachings.map((t) => ({ text: `- ${t.kind}: ${t.text}`, origin: originOf("teaching", String(t.id)), ref: `teaching:${t.id}` })),
   ];
 
-  // Memos in ALWAYS_LOADED domains flow into the moderator SYSTEM prompt — an untrusted-origin
-  // signal there is the inbox.md injection vector. Exclude + log it (spec §6). This is a
-  // structural guarantee: decisions/teachings are trusted by construction, so it's a no-op on
-  // real data, but any future untrusted source can never become system-prompt prose.
+  // Memos that reach a SYSTEM prompt must never carry an untrusted-origin signal (the inbox.md
+  // injection vector). The system-prompt-injected set is `profile` (memoContext AND every dept's
+  // memoContextForDomain) PLUS ALWAYS_LOADED — NOT just ALWAYS_LOADED, or profile is a hole.
+  // Structural guarantee: decisions/teachings are trusted by construction, so it's a no-op on
+  // real data, but any future untrusted source can never become system-prompt prose (spec §6).
+  const systemPromptMemo = domain === "profile" || ALWAYS_LOADED.includes(domain);
   let kept = typed;
-  if (ALWAYS_LOADED.includes(domain)) {
+  if (systemPromptMemo) {
     kept = typed.filter((s) => {
       if (s.origin === "trusted") return true;
       deps.policy?.check(
@@ -109,11 +111,16 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   if (!candidates.length) return;
 
   // Resolve + ground (spec §4, fail-closed): unresolvable refs never reach the verifier.
+  // A teaching whose candidate is DROPPED (unresolvable ref or ungrounded) must NOT be marked
+  // consolidated below — otherwise a verifier false-negative silently consumes it forever.
+  const retryTeachingIds = new Set<number>();
+  const noteRetry = (ref: string) => { if (ref.startsWith("teaching:")) retryTeachingIds.add(Number(ref.slice(9))); };
+
   const resolved = candidates
     .map((c) => ({ c, sourceText: resolveSourceRef(store, vault, domain, c.source_ref) }))
     .filter((r): r is { c: FactCandidate; sourceText: string } => {
       if (r.sourceText !== undefined) return true;
-      emitUngrounded(deps, domain, r.c.fact);
+      emitUngrounded(deps, domain, r.c.fact); noteRetry(r.c.source_ref);
       return false;
     });
   let verdicts: boolean[];
@@ -127,7 +134,7 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   const nowIso = deps.nowIso ?? new Date().toISOString();
   const accepted: Array<{ c: FactCandidate; origin: MemoFactRow["origin"] }> = [];
   resolved.forEach((r, i) => {
-    if (!verdicts[i]) { emitUngrounded(deps, domain, r.c.fact); return; }
+    if (!verdicts[i]) { emitUngrounded(deps, domain, r.c.fact); noteRetry(r.c.source_ref); return; }
     accepted.push({ c: r.c, origin: originOfRef(store, r.c.source_ref) });
   });
   if (!accepted.length) return;
@@ -155,7 +162,11 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
       });
       if (a.c.supersedes) store.supersedeMemoFact(a.c.supersedes, newId);
     }
-    if (teachings.length) store.markTeachingsConsolidated(teachings.map((t) => t.id));
+    if (teachings.length) {
+      // Consume only teachings whose candidate wasn't dropped — a dropped one is retried next run.
+      const consumed = teachings.filter((t) => !retryTeachingIds.has(t.id)).map((t) => t.id);
+      if (consumed.length) store.markTeachingsConsolidated(consumed);
+    }
     if (decisions.length) {
       // Stamp the cursor with the MAX consumed decision ts (not "now") so a decision resolved
       // mid-run is re-read next run (a benign re-curate) instead of being silently skipped.
@@ -174,7 +185,14 @@ function emitUngrounded(deps: DistillDeps, domain: string, fact: string): void {
 }
 
 /** source_ref grammar: teaching:<id> | decision:<id> | memo:<domain> | doc:<source>:<ref>.
- *  Returns the supporting text, or undefined when the ref does not resolve (→ fact dropped). */
+ *  Returns the supporting text, or undefined when the ref does not resolve (→ fact dropped).
+ *
+ *  NOTE (grounding is circular for teaching refs): a teaching resolves to its OWN text, so the
+ *  grounding verifier ("does SOURCE support FACT") is trivially satisfied for teaching-derived
+ *  facts and provides NO integrity protection there — grounding only bites for doc:/decision:
+ *  refs against independent sources. The protection for a capture-derived (agent-inferred)
+ *  teaching is therefore its ORIGIN classification + renderMemo's untrusted exclusion, not the
+ *  verifier. Do not add trust weight to teaching-sourced facts on the strength of grounding. */
 function resolveSourceRef(store: Store, vault: VaultWriter, domain: string, ref: string): string | undefined {
   if (ref.startsWith("teaching:")) return store.getTeaching(Number(ref.slice(9)))?.text;
   if (ref.startsWith("decision:")) {

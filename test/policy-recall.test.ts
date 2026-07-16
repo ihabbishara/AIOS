@@ -26,18 +26,31 @@ describe("recall clearance filter (spec §7.8)", () => {
     const hits = recall(store, "PrivateClinic", { clearance: ["personal.finance", "org.internal"], policy });
     expect(hits.some((h) => h.domain === "money")).toBe(true);
   });
-  it("audit: the hole stays open (money doc returned) but a violation is reported", () => {
+  it("audit: read-side filtering closes the hole NOW (money doc dropped) AND reports it", () => {
+    // Read-side clearance is decoupled from the enforce flip — it only hides docs, so it must
+    // enforce immediately even in audit, closing the known domain:money hole before the flip.
     const store = new Store(":memory:");
     seed(store);
     const seen: unknown[] = [];
     const policy = new Policy({ mode: "audit", report: (v) => seen.push(v) });
     const hits = recall(store, "PrivateClinic", { domain: "money", clearance: ["org.internal"], policy });
-    expect(hits.some((h) => h.domain === "money")).toBe(true); // not blocked in audit
-    expect(seen.length).toBeGreaterThan(0);                     // but observed
+    expect(hits.every((h) => h.domain !== "money")).toBe(true); // dropped even in audit
+    expect(seen.length).toBeGreaterThan(0);                     // and observed
   });
-  it("no clearance passed → no filter (moderator/legacy callers unaffected)", () => {
+  it("unlabeled docs fail CLOSED for a clearance-scoped caller", () => {
+    const store = new Store(":memory:");
+    indexDoc(store, { source: "vault", ref: "notes/legacy.md", domain: "code", labels: [],
+      title: "Legacy", body: "PrivateClinic orphan note", ts: "2026-07-14T00:00:00Z", fingerprint: "9" });
+    const hits = recall(store, "PrivateClinic", { clearance: ["org.internal"], policy: new Policy({ mode: "audit", report: () => {} }) });
+    expect(hits.some((h) => h.ref === "notes/legacy.md")).toBe(false); // hidden from a scoped caller
+  });
+  it("no clearance passed → no filter (moderator/legacy callers unaffected, unlabeled visible)", () => {
     const store = new Store(":memory:");
     seed(store);
-    expect(recall(store, "PrivateClinic").length).toBeGreaterThan(0);
+    indexDoc(store, { source: "vault", ref: "notes/legacy.md", domain: "code", labels: [],
+      title: "Legacy", body: "PrivateClinic orphan note", ts: "2026-07-14T00:00:00Z", fingerprint: "9" });
+    const hits = recall(store, "PrivateClinic"); // no clearance → coordinator path
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.some((h) => h.ref === "notes/legacy.md")).toBe(true); // coordinator still sees unlabeled
   });
 });

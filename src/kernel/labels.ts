@@ -24,8 +24,10 @@ export function domainLabel(domain: Domain): Label {
   }
 }
 
-/** The label union a memory_doc carries, from its source. */
-export function docLabels(args: { source: MemorySource; domain: Domain; mailPrivate?: boolean; dept?: string }): Label[] {
+/** The label union a memory_doc carries, from its source. Private-participant mail protection is
+ *  NOT a label concern — it is enforced separately by the indexer's deleteMemoryDoc wall
+ *  (src/memory/indexer.ts), so no `mailPrivate` param here (it would be dead + misleading). */
+export function docLabels(args: { source: MemorySource; domain: Domain; dept?: string }): Label[] {
   switch (args.source) {
     case "event": return ["personal.calendar"];                       // only calendar events are indexed
     case "mail":  return [args.dept ? deptLabel(args.dept) : "org.internal"];

@@ -29,13 +29,21 @@ type Pipe = (texts: string[], opts: { pooling: "mean"; normalize: boolean }) => 
 export class LocalEmbedder implements Embedder {
   private pipe?: Pipe;
   private failed = false;
+  private failedAt = 0;
+  private static readonly RETRY_COOLDOWN_MS = 5 * 60_000;
 
   constructor(private opts: { cacheDir: string; log?: (l: string) => void }) {}
 
-  available(): boolean { return !this.failed; }
+  /** Latched off, but only for a cooldown: a transient failure (e.g. a slow cold-load timeout at
+   *  boot) must not disable hybrid recall for the whole process lifetime — allow a later retry. */
+  available(): boolean {
+    if (!this.failed) return true;
+    if (Date.now() - this.failedAt >= LocalEmbedder.RETRY_COOLDOWN_MS) { this.failed = false; return true; }
+    return false;
+  }
 
   async embed(texts: string[]): Promise<Float32Array[]> {
-    if (this.failed) throw new Error("embedder latched off");
+    if (!this.available()) throw new Error("embedder latched off (cooldown)");
     try {
       if (!this.pipe) {
         const { pipeline, env } = await import("@huggingface/transformers");
@@ -49,7 +57,7 @@ export class LocalEmbedder implements Embedder {
       const out = await this.pipe(texts, { pooling: "mean", normalize: true });
       return out.tolist().map((v) => Float32Array.from(v));
     } catch (err) {
-      this.failed = true; // don't retry a broken model on every recall
+      this.failed = true; this.failedAt = Date.now(); // don't retry on every recall — but see cooldown
       this.opts.log?.(`embedder failed (${(err as Error).message}) — recall stays lexical-only`);
       throw err;
     }
