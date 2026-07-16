@@ -25,6 +25,7 @@ import {
   skillsPluginRoot, buildSkillsView, validateSkillMd, readSkill, writeSkill,
   deleteSkill, skillUsedBy, fetchSkillMd, agentYamlPath, rewriteSkillsField,
 } from "./skills-view.js";
+import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -633,6 +634,37 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           writeFileSync(yamlPath, rewriteSkillsField(readFileSync(yamlPath, "utf8"), body.skills as string[]));
           reloadPacks();
           return json(res, 200, { ok: true });
+        }
+
+        // ---- persona explorer (spec 2026-07-16 persona-explorer) ----
+        const agentActivityMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)\/activity$/.exec(path);
+        if (agentActivityMatch && req.method === "GET") {
+          const a = buildAgentActivity(agentActivityMatch[1], registry, store, bus);
+          if (!a) return json(res, 404, { error: "unknown agent" });
+          return json(res, 200, a);
+        }
+
+        const manifestMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)\/manifest$/.exec(path);
+        if (manifestMatch && req.method === "PATCH") {
+          const canonical = registry.agentOf.get(manifestMatch[1].toLowerCase()) ?? manifestMatch[1];
+          const def = registry.agents.get(canonical);
+          if (!def) return json(res, 404, { error: "unknown agent" });
+          const body = JSON.parse(await readBody(req)) as { field?: unknown; value?: unknown };
+          if (typeof body.field !== "string" || (typeof body.value !== "string" && typeof body.value !== "number")) {
+            return json(res, 400, { error: "field (string) and value (string | number) required" });
+          }
+          const yamlPath = agentYamlPath(config.agentsDir, def);
+          if (!yamlPath) return json(res, 500, { error: `agent yaml not found for ${canonical}` });
+          let next: string;
+          try {
+            next = spliceManifestField(readFileSync(yamlPath, "utf8"), body.field, body.value);
+          } catch (err) {
+            return json(res, 400, { error: (err as Error).message });
+          }
+          writeFileSync(yamlPath, next);
+          reloadPacks(); // registry maps mutate in place; a throw here = 500 but the file is valid yaml
+          log(`persona edit: ${canonical}.${body.field}`);
+          return json(res, 200, buildAgentProfile(canonical, registry, store, bus));
         }
 
         if (path === "/api/mail/unread" && req.method === "GET") {
