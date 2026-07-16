@@ -5,7 +5,7 @@ import { api, type AgentProfileInfo, type StoredEvent } from "../api.js";
 import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { Button, Dot, Empty, SectionLabel, Tag } from "../components/ui.js";
+import { Button, Dot, Empty, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
 import { ts, usdFloat } from "../lib/format.js";
 
 export function StaffProfile({ name, events, route, onOpenChat }: {
@@ -138,8 +138,62 @@ function Overview({ p, note, propose }: {
   );
 }
 
-function Activity({ name: _name, events: _events }: { name: string; events: StoredEvent[] }) {
-  return <Empty>soon</Empty>;
+/** Everything that can add a timeline/goals/mail row for an agent. */
+const ACTIVITY_TOPICS = [...T.agentsActions, ...T.agentMail, ...T.goals] as const;
+
+const TIMELINE_TONE = { run: "ok", route: "accent", mail: "agent", goal: "dim" } as const;
+
+function Activity({ name, events }: { name: string; events: StoredEvent[] }) {
+  const { data: a, error } = useLiveQuery(() => api.agentActivity(name), events, ACTIVITY_TOPICS, [name]);
+  if (error) return <Empty>{error}</Empty>;
+  if (!a) return <Empty>Loading…</Empty>;
+  return (
+    <>
+      <SectionLabel>Timeline</SectionLabel>
+      <div className="mb-5">
+        {a.timeline.map((t, i) => (
+          <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
+            <Dot tone={t.ok === false ? "err" : TIMELINE_TONE[t.kind]} />
+            <span className="text-dim">{ts(t.ts)}</span>
+            <span className="text-[10px] text-dim w-10">{t.kind}</span>
+            <span className="truncate">{t.summary}</span>
+          </div>
+        ))}
+        {a.timeline.length === 0 && <span className="text-[12px] text-dim">no activity yet</span>}
+      </div>
+
+      <SectionLabel>Goals</SectionLabel>
+      <div className="mb-5">
+        {a.goals.map((g) => (
+          <div key={g.goalId} className="card px-3 py-2 mb-1.5">
+            <div className="flex gap-2 items-center text-[13px]">
+              <span className="text-strong truncate">{g.title}</span>
+              <Tag tone={toneOfStatus(g.status)}>{g.status}</Tag>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {g.nodes.map((n) => (
+                <Tag key={n.key} tone={toneOfStatus(n.status)}>{n.key} · {n.status}</Tag>
+              ))}
+            </div>
+          </div>
+        ))}
+        {a.goals.length === 0 && <span className="text-[12px] text-dim">no goal work yet</span>}
+      </div>
+
+      <SectionLabel>Mail</SectionLabel>
+      <div className="mb-5">
+        {a.mail.map((m) => (
+          <div key={m.id} className="flex gap-3 text-[12px] py-1 items-center">
+            <span className="text-dim">{ts(m.ts)}</span>
+            <span className="text-strong">{m.from} → {m.to}</span>
+            <Tag>{m.kind}</Tag>
+            <span className="truncate text-dim">{m.snippet}</span>
+          </div>
+        ))}
+        {a.mail.length === 0 && <span className="text-[12px] text-dim">no mail yet</span>}
+      </div>
+    </>
+  );
 }
 
 function EditManifest({ profile: _profile }: { profile: AgentProfileInfo }) {
