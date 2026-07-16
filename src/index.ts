@@ -3,6 +3,7 @@ import { existsSync, statSync, unlinkSync } from "node:fs";
 import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
+import { makeDailyLogger } from "./vault/daily-log.js";
 import { makeResolveAgent, type ResolveAgentDeps } from "./agents/resolve.js";
 import type { Embedder } from "./memory/embeddings.js";
 import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
@@ -425,6 +426,10 @@ async function main(): Promise<void> {
   bus.on((e) => {
     if (e.event.type === "routine.due") routineFire(e.event);
   });
+
+  // Goal lifecycle → Obsidian daily note (the JobManager→GoalEngine migration dropped this).
+  const dailyLogger = makeDailyLogger({ vault, store, log });
+  bus.on((e) => dailyLogger(e.event));
 
   // Channels: CLI only with --cli flag (interactive dev); bots whenever tokens exist.
   if (process.argv.includes("--cli") || (!config.telegramToken && !config.slackBotToken)) {
