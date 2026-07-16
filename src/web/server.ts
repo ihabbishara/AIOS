@@ -140,6 +140,27 @@ export function startWebServer(deps: WebDeps, port: number): Server {
   const startedAt = Date.now();
   let sseClients = 0;
 
+  // SSE can't send an Authorization header, so the old path put the long-lived token in the
+  // stream URL (?token=) — leaking it into access/proxy logs and browser history. Instead the
+  // browser exchanges its header-authed token for a short-lived, single-use ticket and passes
+  // THAT in the URL; a leaked ticket is spent and expired within seconds.
+  const streamTickets = new Map<string, number>(); // ticket → expiryMs
+  const STREAM_TICKET_TTL = 30_000;
+  const issueStreamTicket = (): string => {
+    const t = randomUUID();
+    const now = Date.now();
+    streamTickets.set(t, now + STREAM_TICKET_TTL);
+    if (streamTickets.size > 64) for (const [k, exp] of streamTickets) if (exp < now) streamTickets.delete(k);
+    return t;
+  };
+  const consumeStreamTicket = (t: string | null): boolean => {
+    if (!t) return false;
+    const exp = streamTickets.get(t);
+    if (exp === undefined) return false;
+    streamTickets.delete(t); // one-time
+    return exp >= Date.now();
+  };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
@@ -147,10 +168,17 @@ export function startWebServer(deps: WebDeps, port: number): Server {
     try {
       if (path.startsWith("/api/")) {
         if (token) {
-          const auth = req.headers.authorization ?? url.searchParams.get("token") ?? "";
-          if (auth !== `Bearer ${token}` && auth !== token) {
+          // The stream endpoint authenticates via a one-time ticket (SSE has no headers); every
+          // other endpoint uses the Authorization header. No token-in-URL path exists anymore.
+          const ticketOk = path === "/api/stream" && consumeStreamTicket(url.searchParams.get("ticket"));
+          const auth = req.headers.authorization ?? "";
+          if (!ticketOk && auth !== `Bearer ${token}` && auth !== token) {
             return json(res, 401, { error: "unauthorized" });
           }
+        }
+
+        if (path === "/api/stream-ticket" && req.method === "GET") {
+          return json(res, 200, { ticket: issueStreamTicket() });
         }
 
         // ---- read endpoints ----

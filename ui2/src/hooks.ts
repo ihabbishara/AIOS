@@ -11,24 +11,39 @@ export function useEvents(cap = 400): { events: StoredEvent[]; connected: boolea
   useEffect(() => {
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout>;
-    const connect = () => {
-      const tokenParam = getToken() ? `?token=${encodeURIComponent(getToken())}` : "";
-      es = new EventSource(`/api/stream${tokenParam}`);
+    let stopped = false;
+    const connect = async () => {
+      // Exchange the bearer token (sent as a header) for a short-lived one-time ticket, so the
+      // long-lived token never lands in the stream URL / logs / history. Re-fetched each connect,
+      // so auto-reconnect gets a fresh ticket.
+      let ticket = "";
+      try {
+        const r = await fetch("/api/stream-ticket", getToken() ? { headers: { Authorization: `Bearer ${getToken()}` } } : undefined);
+        if (r.ok) ticket = ((await r.json()) as { ticket: string }).ticket;
+      } catch { /* fall through — EventSource will error and schedule a retry */ }
+      if (stopped) return;
+      es = new EventSource(`/api/stream?ticket=${encodeURIComponent(ticket)}`);
       es.onopen = () => setConnected(true);
       es.onmessage = (m) => {
         const e = JSON.parse(m.data) as StoredEvent;
         if (seen.current.has(e.id)) return;
         seen.current.add(e.id);
+        // Bound the dedup set (insertion-ordered): drop the oldest ids well past the buffer window
+        // and the 100-event reconnect replay, so it can't grow unbounded over a long session.
+        if (seen.current.size > 4000) {
+          const it = seen.current.values();
+          for (let i = 0; i < 2000; i++) seen.current.delete(it.next().value as number);
+        }
         setEvents((prev) => [...prev.slice(-cap + 1), e]);
       };
       es.onerror = () => {
         setConnected(false);
         es?.close();
-        retry = setTimeout(connect, 3000);
+        retry = setTimeout(() => void connect(), 3000);
       };
     };
-    connect();
-    return () => { es?.close(); clearTimeout(retry); };
+    void connect();
+    return () => { stopped = true; es?.close(); clearTimeout(retry); };
   }, [cap]);
 
   return { events, connected };
