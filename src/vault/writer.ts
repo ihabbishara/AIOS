@@ -1,8 +1,21 @@
 import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
+const p2 = (n: number) => String(n).padStart(2, "0");
+
+/** LOCAL calendar date `YYYY-MM-DD`. Daily notes and goal dirs are the user's days, not UTC's —
+ *  toISOString() (UTC) filed a 01:25-local entry into the previous day for any positive offset. */
+export function localDate(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+/** LOCAL wall-clock `HH:MM`. */
+export function localHM(d: Date = new Date()): string {
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDate();
 }
 
 export function slugify(text: string): string {
@@ -21,7 +34,8 @@ export class VaultWriter {
   }
 
   init(): void {
-    for (const dir of ["jobs", "knowledge", "daily", "notes"]) {
+    // `jobs/` retired with JobManager (goals/ is its successor) — no longer created.
+    for (const dir of ["knowledge", "daily", "notes"]) {
       mkdirSync(join(this.root, dir), { recursive: true });
     }
   }
@@ -32,39 +46,6 @@ export class VaultWriter {
     if (absPath !== base && !absPath.startsWith(base + sep)) {
       throw new Error(`path escapes vault: ${relPath}`);
     }
-  }
-
-  jobDirName(slug: string): string {
-    return `${today()}-${slug}`;
-  }
-
-  jobDir(jobDirName: string): string {
-    const dir = join(this.root, "jobs", jobDirName);
-    this.assertContained(resolve(dir), jobDirName);
-    mkdirSync(dir, { recursive: true });
-    return dir;
-  }
-
-  writeJobArtifact(
-    jobDirName: string,
-    fileName: string,
-    content: string,
-    frontmatter: Record<string, string | number | boolean> = {},
-  ): string {
-    const dir = this.jobDir(jobDirName);
-    const fm = Object.entries({ created: new Date().toISOString(), ...frontmatter })
-      .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-      .join("\n");
-    const path = join(dir, fileName);
-    this.assertContained(resolve(path), fileName);
-    writeFileSync(path, `---\n${fm}\n---\n\n${content}\n`);
-    return path;
-  }
-
-  readJobArtifact(jobDirName: string, fileName: string): string | undefined {
-    const path = join(this.root, "jobs", jobDirName, fileName);
-    this.assertContained(resolve(path), join(jobDirName, fileName));
-    return existsSync(path) ? readFileSync(path, "utf8") : undefined;
   }
 
   goalDirName(slug: string): string {
@@ -149,9 +130,9 @@ export class VaultWriter {
   }
 
   appendDaily(line: string): void {
-    const path = join(this.root, "daily", `${today()}.md`);
+    const path = join(this.root, "daily", `${localDate()}.md`);
     mkdirSync(join(this.root, "daily"), { recursive: true });
-    if (!existsSync(path)) writeFileSync(path, `# ${today()}\n\n`);
-    appendFileSync(path, `- ${new Date().toISOString().slice(11, 16)} ${line}\n`);
+    if (!existsSync(path)) writeFileSync(path, `# ${localDate()}\n\n`);
+    appendFileSync(path, `- ${localHM()} ${line}\n`);
   }
 }
