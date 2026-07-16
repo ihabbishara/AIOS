@@ -48,7 +48,9 @@ export function parseRecurrence(raw: unknown): Recurrence | null {
         ? { kind: "weekly", dow: o.dow, hhmm: o.hhmm }
         : null;
     case "interval":
-      return typeof o.everyMinutes === "number" && Number.isInteger(o.everyMinutes) && o.everyMinutes >= 1
+      // Ceiling (1 year) so an absurd value can't produce a routine that silently never fires.
+      return typeof o.everyMinutes === "number" && Number.isInteger(o.everyMinutes) &&
+        o.everyMinutes >= 1 && o.everyMinutes <= 525_600
         ? { kind: "interval", everyMinutes: o.everyMinutes }
         : null;
     default:

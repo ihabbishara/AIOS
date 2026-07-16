@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { fetchSkillMd, agentYamlPath, rewriteSkillsField } from "../src/web/skills-view.js";
+import { fetchSkillMd, agentYamlPath, rewriteSkillsField, isBlockedHost } from "../src/web/skills-view.js";
 
 function fakeFetch(body: string, init?: { status?: number; contentType?: string }): typeof fetch {
   return (async () =>
@@ -21,6 +21,17 @@ describe("fetchSkillMd", () => {
   it("rejects non-https and invalid urls without calling fetch", async () => {
     expect(await fetchSkillMd("http://example.com/x", fakeFetch("x"))).toMatchObject({ ok: false, error: "https only" });
     expect(await fetchSkillMd("not a url", fakeFetch("x"))).toMatchObject({ ok: false, error: "invalid url" });
+  });
+  it("rejects private/loopback/link-local hosts (SSRF) without calling fetch", async () => {
+    for (const host of ["localhost", "127.0.0.1", "169.254.169.254", "10.0.0.5", "192.168.1.1", "[::1]", "foo.internal"]) {
+      expect(await fetchSkillMd(`https://${host}/SKILL.md`, fakeFetch("x"))).toMatchObject({ ok: false });
+    }
+    // public hosts still pass the guard
+    expect(isBlockedHost("raw.githubusercontent.com")).toBe(false);
+    expect(isBlockedHost("8.8.8.8")).toBe(false);
+    expect(isBlockedHost("169.254.169.254")).toBe(true);
+    expect(isBlockedHost("172.16.0.1")).toBe(true);
+    expect(isBlockedHost("172.32.0.1")).toBe(false); // outside 172.16/12
   });
   it("rejects non-text content-type, oversize, and HTTP errors", async () => {
     expect(await fetchSkillMd("https://x.com/a", fakeFetch("bin", { contentType: "application/octet-stream" })))
@@ -91,5 +102,14 @@ kind: worker
 
   it("rejects names that would need quoting rather than emitting broken flow yaml", () => {
     expect(() => rewriteSkillsField(SRC, ["not valid"])).toThrow(/invalid skill name/);
+  });
+  it("preserves CRLF line endings (no mixed EOLs)", () => {
+    const crlf = "name: janus\r\nskills: [a]\r\nkind: worker\r\n";
+    const out = rewriteSkillsField(crlf, ["a", "b"]);
+    expect(out).toBe("name: janus\r\nskills: [a, b]\r\nkind: worker\r\n");
+    expect(out).not.toMatch(/[^\r]\n/); // every \n is preceded by \r
+  });
+  it("refuses a file with duplicate top-level skills keys rather than editing one silently", () => {
+    expect(() => rewriteSkillsField("name: x\nskills: [a]\nskills: [b]\n", ["c"])).toThrow(/multiple top-level/);
   });
 });

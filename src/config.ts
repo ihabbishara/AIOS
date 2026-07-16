@@ -301,11 +301,13 @@ export function loadConfig(root = process.cwd()): Config {
 /** Ops floor: the /api surface must not ship open by default. If no token is
  *  configured, generate one, persist it to .env (trailing-newline-guarded —
  *  a bare append once corrupted AIOS_PRIMARY_CHAT), export it to the process,
- *  and print it once so the user can paste it into the UI. Explicit opt-out:
- *  AIOS_UI_TOKEN=off. */
+ *  and print it once so the user can paste it into the UI. There is NO open
+ *  opt-out: any non-empty value (including the literal "off") is kept AS the
+ *  required token — server.ts gates on `if (token)`, so "off" still demands
+ *  that exact bearer value. The API cannot be opened; it always fails closed. */
 export function ensureUiToken(envPath: string, log: (m: string) => void): void {
   const current = process.env.AIOS_UI_TOKEN;
-  if (current && current.length > 0) return; // set (or "off") — respect it
+  if (current && current.length > 0) return; // any non-empty value is the required token
   const token = randomBytes(32).toString("hex");
   let body = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
   if (body.length > 0 && !body.endsWith("\n")) body += "\n";

@@ -106,6 +106,9 @@ async function readBody(req: IncomingMessage): Promise<string> {
 }
 
 const VOICE_BODY_CAP = 25 * 1024 * 1024;
+// A saved SKILL.md becomes agent system-prompt content — cap the paste/PUT path too, matching the
+// fetch path's rationale (which was capped; this one was not — a multi-MB paste injected unbounded).
+const SKILL_BODY_CAP = 512 * 1024;
 
 async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -563,7 +566,10 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         }
         if (skillMatch && req.method === "PUT") {
           if (skillMatch[1] === "fetch") return json(res, 400, { error: '"fetch" is a reserved skill name' });
-          const body = JSON.parse(await readBody(req)) as { md?: unknown };
+          let raw: string;
+          try { raw = (await readBodyBuffer(req, SKILL_BODY_CAP)).toString("utf8"); }
+          catch { return json(res, 413, { error: `skill body exceeds ${SKILL_BODY_CAP} bytes` }); }
+          const body = JSON.parse(raw) as { md?: unknown };
           if (typeof body.md !== "string") return json(res, 400, { error: "md must be a string" });
           const v = validateSkillMd(body.md);
           if (!v.ok) return json(res, 400, { error: v.error });
