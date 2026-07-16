@@ -15,7 +15,7 @@
 - `"fetch"` is a **reserved skill name** (would collide with `POST /api/skills/fetch`) — PUT rejects it.
 - URL fetch: **https only**, `redirect: "error"`, 10 s timeout, 256 KB cap, content-type must start with `text/`. Fetch **never writes to disk** — it returns `{ md }` for editor prefill only.
 - Skills plugin root: `process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin")` — must match `src/agents/runner.ts:13`.
-- YAML rewrites use `parseDocument` / `doc.set` / `doc.toString()` — never parse+restringify (comments must survive).
+- Agent-YAML rewrites are **line-splices**, never parse+restringify: `yaml`'s `Document.toString()` reformats whole hand-authored files (a no-op round-trip churns 24/28 lines). Parse only to locate/validate; splice lines to edit. Every untouched line must survive byte-identical.
 - Commit style: `feat(scope): lowercase summary`.
 - Daemon tests: `npx vitest run <file>` from repo root. ui2: from `ui2/`.
 
@@ -320,15 +320,17 @@ describe("agentYamlPath", () => {
 
 describe("rewriteSkillsField", () => {
   const SRC = `name: janus\n# keep this comment\ntools: [Read]\nskills: [market-sizing]\nkind: worker\n`;
-  it("replaces the skills array and preserves comments + other fields", () => {
-    const out = rewriteSkillsField(SRC, ["market-sizing", "design-tokens"]);
-    expect(out).toContain("# keep this comment");
-    expect(out).toContain("design-tokens");
-    expect(out).toContain("kind: worker");
+  it("replaces ONLY the skills line — every other line byte-identical", () => {
+    expect(rewriteSkillsField(SRC, ["market-sizing", "design-tokens"]))
+      .toBe(`name: janus\n# keep this comment\ntools: [Read]\nskills: [market-sizing, design-tokens]\nkind: worker\n`);
   });
   it("adds the key when absent, removes it when empty", () => {
-    expect(rewriteSkillsField("name: odin\n", ["a-skill"])).toContain("a-skill");
-    expect(rewriteSkillsField(SRC, [])).not.toContain("skills");
+    expect(rewriteSkillsField("name: odin\n", ["a-skill"])).toBe("name: odin\nskills: [a-skill]\n");
+    expect(rewriteSkillsField(SRC, [])).toBe(`name: janus\n# keep this comment\ntools: [Read]\nkind: worker\n`);
+  });
+  it("collapses block-style lists to flow style", () => {
+    expect(rewriteSkillsField(`name: x\nskills:\n  - a\n  - b\ntools: [Read]\n`, ["c"]))
+      .toBe(`name: x\nskills: [c]\ntools: [Read]\n`);
   });
 });
 ```
@@ -339,12 +341,6 @@ Run: `npx vitest run test/skills-assign.test.ts`
 Expected: FAIL — `fetchSkillMd` is not exported.
 
 - [ ] **Step 3: Implement — append to `src/web/skills-view.ts`**
-
-Extend the yaml import at the top of the file:
-
-```ts
-import { parse as parseYaml, parseDocument } from "yaml";
-```
 
 Append:
 
@@ -400,12 +396,25 @@ export function agentYamlPath(
   return null;
 }
 
-/** Comment-preserving rewrite of the `skills:` field (yaml Document API, not parse+restringify). */
+/**
+ * Line-splicing rewrite of the top-level `skills:` field. yaml's
+ * Document.toString() reformats whole hand-authored files (a no-op round-trip
+ * churns most lines), so we never restringify — locate the line, splice it.
+ * Handles flow style (`skills: [a, b]`) and block style (`skills:` + `- x` lines).
+ */
 export function rewriteSkillsField(text: string, skills: string[]): string {
-  const doc = parseDocument(text);
-  if (skills.length === 0) doc.delete("skills");
-  else doc.set("skills", skills);
-  return doc.toString();
+  const lines = text.split("\n");
+  const start = lines.findIndex((l) => /^skills:/.test(l));
+  const rendered = skills.length ? [`skills: [${skills.join(", ")}]`] : [];
+  if (start === -1) {
+    if (rendered.length === 0) return text;
+    let end = lines.length;
+    while (end > 0 && lines[end - 1].trim() === "") end--;
+    return [...lines.slice(0, end), ...rendered, ...lines.slice(end)].join("\n");
+  }
+  let stop = start + 1;
+  while (stop < lines.length && /^\s+-\s/.test(lines[stop])) stop++;
+  return [...lines.slice(0, start), ...rendered, ...lines.slice(stop)].join("\n");
 }
 ```
 
