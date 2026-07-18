@@ -46,7 +46,8 @@ describe("brief standups + mailroom", () => {
     vault.init();
     await runBrief({
       store, bus: new EventBus(store), vault, narrate: async () => "n", send: async () => {},
-      primary: { channel: "cli", chatId: "local" }, privateAgents: priv,
+      primary: { channel: "cli", chatId: "local" },
+      labelOf: (a) => (a === "midas" ? "personal.finance" : "org.internal"),
       nowFn: () => new Date(),
     }, "morning");
     expect(store.getMail("pub")!.status).toBe("read");
@@ -84,7 +85,8 @@ describe("brief standups + mailroom", () => {
     vault.init();
     await runBrief({
       store, bus, vault, narrate: async () => "n", send: async () => {},
-      primary: { channel: "cli", chatId: "local" }, privateAgents: priv,
+      primary: { channel: "cli", chatId: "local" },
+      labelOf: (a) => (a === "midas" ? "personal.finance" : "org.internal"),
       nowFn: () => new Date(),
     }, "morning");
     expect(mailRead).toEqual([["pub"]]); // exactly the briefed (public) mail — private note excluded, not acked

@@ -12,6 +12,9 @@ export interface CheckInput {
   origin?: Origin;              // default "trusted"
   sink: Sink;
   agent?: { labels: string[] }; // ResolvedAgent.labels — the reader's clearance
+  /** Narrow flow discriminator for declassify rules that rescue one specific pathway
+   *  (e.g. "decision-preview" for D2) — set by the call site, never derived from content. */
+  flow?: string;
 }
 export type Verdict = "allow" | "deny" | { declassify: string };
 
@@ -39,7 +42,9 @@ const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => b
   "personal.finance": (sink, agent) =>
     isPrimaryChat(sink) || (!!promptAgent(sink) && agentCleared("personal.finance", agent)),
   "personal.email": (sink) => sink === "prompt.context:speculate-email",
-  "personal.tasks": (sink) => isPrimaryChat(sink) || sink === "brief",
+  "personal.tasks": (sink, agent) =>
+    isPrimaryChat(sink) || sink === "brief" ||
+    (!!promptAgent(sink) && agentCleared("personal.tasks", agent)),
   "personal.calendar": (sink, agent) =>
     sink === "brief" || sink === "recall-index" ||
     (!!promptAgent(sink) && (agentCleared("personal.calendar", agent) || isCoordinatorSink(sink))),
@@ -53,6 +58,14 @@ const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => b
 const DECLASSIFY_RULES: Record<string, { label: Label; ok: (input: CheckInput) => boolean }> = {
   // D1: personal.email → brief ONLY as a count-only summary ("N reply drafts await approval").
   "D1-email-count": { label: "personal.email", ok: (i) => i.sink === "brief" },
+  // D2: finance DECISION PREVIEWS may be recall-indexed (wall-deletion cycle). Previews are
+  // curated one-liners (payloads are never indexed) and pre-policy behavior always indexed
+  // them; the read-side clearance filter still gates who can retrieve them. Finance MAIL and
+  // raw finance docs stay denied — this rescues only the decision-preview flow.
+  "D2-finance-decision-preview": {
+    label: "personal.finance",
+    ok: (i) => i.sink === "recall-index" && i.flow === "decision-preview",
+  },
 };
 
 /** Full evaluation: the verdict plus, on a deny, the specific label that caused it (for the
@@ -115,4 +128,28 @@ export class Policy {
     if (this.deps.mode === "audit") return "allow"; // block nothing new
     return denied ? "deny" : "allow"; // declassify → allow
   }
+
+  /** Wall-replacement sites (wall-deletion spec): the table verdict is authoritative in BOTH
+   *  modes. These flows were blocked by bespoke walls before the policy engine existed, so
+   *  honoring the table in audit is parity with the old behavior, not a new block. Denials are
+   *  reported exactly like check() — the violation stream is how we observe walls working. */
+  wall(input: CheckInput, site: string, contentForHash = ""): "allow" | "deny" {
+    const { verdict, deniedBy } = evaluate(input);
+    if (verdict === "deny") {
+      const label = deniedBy ?? input.labels[0] ?? "shared";
+      this.deps.report({ label, sink: input.sink, site, hash: labelHash(contentForHash) });
+      return "deny";
+    }
+    return "allow"; // declassify → allow
+  }
+}
+
+/** Wall-site verdict when the Policy instance may be absent (unit tests): the TABLE is still
+ *  authoritative — a missing reporter must never fail open. Prod always wires a Policy, so
+ *  denials are reported; without one the verdict alone stands. */
+export function wallVerdict(
+  policy: Policy | undefined, input: CheckInput, site: string, contentForHash = "",
+): "allow" | "deny" {
+  if (policy) return policy.wall(input, site, contentForHash);
+  return rawCheck(input) === "deny" ? "deny" : "allow";
 }

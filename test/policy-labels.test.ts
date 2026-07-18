@@ -10,13 +10,27 @@ describe("label derivation", () => {
     expect(deptLabel("engineering")).toBe("org.internal");
     expect(deptLabel("research")).toBe("org.internal");
   });
-  it("calendar event → personal.calendar; a mail thread → the dept label (privacy is a separate wall)", () => {
+  it("calendar event → personal.calendar; a mail thread → union of dept + participant-dept labels", () => {
     expect(docLabels({ source: "event", domain: "inbox" })).toEqual(["personal.calendar"]);
     expect(docLabels({ source: "mail", domain: "money", dept: "finance" })).toEqual(["personal.finance"]);
     expect(docLabels({ source: "mail", domain: "code", dept: "engineering" })).toEqual(["org.internal"]);
     expect(docLabels({ source: "decision", domain: "code" })).toEqual(["org.internal"]);
     expect(docLabels({ source: "vault", domain: "general" })).toEqual(["shared"]);
     expect(docLabels({ source: "memo", domain: "money" })).toEqual(["personal.finance"]);
+  });
+
+  it("mail participant-union: a private-dept participant labels a cross-dept thread (wall-deletion spec)", () => {
+    // midas participating in an engineering thread — the thread must carry personal.finance
+    expect(docLabels({ source: "mail", domain: "code", dept: "engineering", participantDepts: ["engineering", "finance"] }))
+      .toEqual(expect.arrayContaining(["org.internal", "personal.finance"]));
+    // duplicates collapse
+    expect(docLabels({ source: "mail", domain: "money", dept: "finance", participantDepts: ["finance", "finance"] }))
+      .toEqual(["personal.finance"]);
+  });
+
+  it("email decisions carry personal.email; calendar decisions keep personal.calendar (wall-deletion spec)", () => {
+    expect(docLabels({ source: "decision", domain: "inbox", actionType: "email.send" })).toEqual(["personal.email"]);
+    expect(docLabels({ source: "decision", domain: "inbox", actionType: "calendar.accept" })).toEqual(["personal.calendar"]);
   });
 });
 

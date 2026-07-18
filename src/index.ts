@@ -103,13 +103,6 @@ async function main(): Promise<void> {
     onQueued: () => goals.pump(),
     onAskParked: (g, n, m) => goals.parkFromAsk(g, n, m),
   });
-  // Agents in privateMemo departments (finance: midas/juno) — their mail is walled out of the
-  // vaulted, recall-indexed morning brief (money-wall parity with the standup carve-out).
-  const privateAgents = new Set(
-    [...registry.agents.entries()]
-      .filter(([, a]) => registry.departments.get(a.department)?.privateMemo)
-      .map(([n]) => n),
-  );
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
 
@@ -672,7 +665,7 @@ async function main(): Promise<void> {
       await runBrief(
         {
           store, bus, vault, narrate, send: sendVia, primary: config.primaryChat,
-          degraded: () => [...google.degraded(), ...bunq.degraded()], privateAgents,
+          degraded: () => [...google.degraded(), ...bunq.degraded()],
           policy: infoPolicy,
           labelOf: (a) => deptLabel(registry.agents.get(registry.agentOf.get(a) ?? a)?.department ?? ""),
           log,

@@ -2,7 +2,7 @@
 import type { Store } from "../store/db.js";
 import type { AiosEvent, EventBus } from "../events.js";
 import type { VaultWriter } from "../vault/writer.js";
-import type { Label, Policy } from "../kernel/policy.js";
+import { wallVerdict, type Label, type Policy } from "../kernel/policy.js";
 import { localParts } from "./clock.js";
 import { openLoopsForBrief, type OpenLoops } from "../lifeops/ops.js";
 
@@ -292,10 +292,8 @@ export interface BriefRunnerDeps {
   primary?: { channel: string; chatId: string };
   /** Live degraded-sense snapshot (e.g. GoogleAccounts.degraded) — surfaced as a re-auth section. */
   degraded?: () => Array<{ name: string; reason: string }>;
-  /** Agents in privateMemo departments — their mail is excluded from the brief AND left unread
-   *  (never vaulted/indexed; not silently consumed by the mark-read sweep). */
-  privateAgents?: Set<string>;
-  /** Info-flow checkpoint — audits the private-mail → brief flow the wall blocks (spec §7.3). */
+  /** Info-flow checkpoint — its table verdict decides which senders' mail is excluded from the
+   *  brief AND left unread (wall-deletion spec; replaced the privateAgents set). */
   policy?: Policy;
   /** Confidentiality label for a private agent's dept (index.ts derives from the registry). */
   labelOf?: (agent: string) => Label;
@@ -306,13 +304,15 @@ export interface BriefRunnerDeps {
 export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "evening"): Promise<void> {
   const now = (deps.nowFn ?? (() => new Date()))();
   const since = deps.store.kvGet("brief:last-ts") ?? null;
-  const privateAgents = deps.privateAgents ?? new Set<string>();
-  // Audit each private-agent mail the brief wall excludes (spec §7.3). The wall in assembleBrief
-  // stays; this only observes (audit) the personal.* → brief flow it blocks.
-  if (deps.policy) {
-    for (const m of deps.store.unreadMailFor("hermes")) {
-      if (!privateAgents.has(m.from_agent)) continue;
-      deps.policy.check({ labels: [deps.labelOf?.(m.from_agent) ?? "org.internal"], sink: "brief" }, "brief:private-mail", m.body);
+  // The table is the wall (wall-deletion spec): a sender whose dept label the policy denies at
+  // the brief sink is excluded from the brief AND left unread (never vaulted/indexed; not
+  // silently consumed by the mark-read sweep). personal.finance denies brief — money-wall parity.
+  const privateAgents = new Set<string>();
+  for (const m of deps.store.unreadMailFor("hermes")) {
+    if (privateAgents.has(m.from_agent)) continue;
+    const label = deps.labelOf?.(m.from_agent) ?? "org.internal";
+    if (wallVerdict(deps.policy, { labels: [label], sink: "brief" }, "brief:private-mail", m.body) === "deny") {
+      privateAgents.add(m.from_agent);
     }
   }
   const data = assembleBrief(deps.store, anchor, now.toISOString(), since, privateAgents);

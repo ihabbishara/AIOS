@@ -24,14 +24,24 @@ export function domainLabel(domain: Domain): Label {
   }
 }
 
-/** The label union a memory_doc carries, from its source. Private-participant mail protection is
- *  NOT a label concern — it is enforced separately by the indexer's deleteMemoryDoc wall
- *  (src/memory/indexer.ts), so no `mailPrivate` param here (it would be dead + misleading). */
-export function docLabels(args: { source: MemorySource; domain: Domain; dept?: string }): Label[] {
+/** The label union a memory_doc carries, from its source. Mail threads union the thread dept's
+ *  label with every participant's dept label — a private-dept agent participating in a cross-dept
+ *  thread marks the whole thread (this replaced the indexer's private-participant wall;
+ *  wall-deletion spec §3). Email decisions carry personal.email (their previews hold
+ *  recipient/subject), not the inbox domain's calendar label. */
+export function docLabels(args: {
+  source: MemorySource; domain: Domain; dept?: string;
+  participantDepts?: string[]; actionType?: string;
+}): Label[] {
   switch (args.source) {
     case "event": return ["personal.calendar"];                       // only calendar events are indexed
-    case "mail":  return [args.dept ? deptLabel(args.dept) : "org.internal"];
-    case "decision": return [domainLabel(args.domain)];
+    case "mail": {
+      const labels = new Set<Label>([args.dept ? deptLabel(args.dept) : "org.internal"]);
+      for (const d of args.participantDepts ?? []) labels.add(deptLabel(d));
+      return [...labels];
+    }
+    case "decision":
+      return [args.actionType?.startsWith("email.") ? "personal.email" : domainLabel(args.domain)];
     case "memo": return [domainLabel(args.domain)];
     case "vault": return ["shared"];                                  // hand-written notes default shared
   }

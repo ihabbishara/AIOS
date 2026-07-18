@@ -4,7 +4,7 @@ import type { Store, MailRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { StoredEvent } from "../events.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
-import type { Policy } from "../kernel/policy.js";
+import { wallVerdict, type Policy } from "../kernel/policy.js";
 import { docLabels } from "../kernel/labels.js";
 import { indexDoc, DOMAINS, type Domain, type MemorySource } from "./recall.js";
 
@@ -43,8 +43,9 @@ export function indexEvent(store: Store, e: StoredEvent, policy?: Policy): void 
   // context only; the Action Gate still protects all effects. Do not widen to attendee-set fields.
   const body = `${ev.summary} ${ev.organizer} ${ev.start}`;
   const labels = docLabels({ source: "event", domain: "inbox" });
-  // Audit the flow to the recall-index sink (calendar text is untrusted origin).
-  policy?.check({ labels, origin: "untrusted", sink: "recall-index" }, "indexer:event", body);
+  // The table is the wall (wall-deletion spec) — calendar allows recall-index today; this is
+  // defense in depth for any future label the allowlist admits.
+  if (wallVerdict(policy, { labels, origin: "untrusted", sink: "recall-index" }, "indexer:event", body) === "deny") return;
   indexDoc(store, {
     source: "event", ref: `event:${e.id}`, domain: "inbox", labels, origin: "untrusted",
     title: ev.summary, body, ts: e.ts, fingerprint: String(e.id),
@@ -54,13 +55,14 @@ export function indexEvent(store: Store, e: StoredEvent, policy?: Policy): void 
 export function indexDecision(store: Store, actionId: string, policy?: Policy): void {
   const a = store.getAction(actionId);
   if (!a) return;
-  // Privacy wall: email decisions carry recipient/subject in their preview — never index them.
-  if (a.type.startsWith("email.")) return;
   if (!RESOLVED_STATUSES.includes(a.status)) return;
   const body = `${a.preview}${a.reject_reason ? ` ${a.reject_reason}` : ""}`;
   const domain = domainForType(a.type);
-  const labels = docLabels({ source: "decision", domain });
-  policy?.check({ labels, sink: "recall-index" }, "indexer:decision", body);
+  // email.* decisions label personal.email (previews carry recipient/subject) — the table denies
+  // them at recall-index, replacing the old email-prefix wall (wall-deletion spec).
+  const labels = docLabels({ source: "decision", domain, actionType: a.type });
+  // flow "decision-preview" → D2 declassify keeps finance decision previews recallable.
+  if (wallVerdict(policy, { labels, sink: "recall-index", flow: "decision-preview" }, "indexer:decision", body) === "deny") return;
   indexDoc(store, {
     source: "decision", ref: a.id, domain, labels, origin: "trusted",
     title: a.type, body, ts: a.resolved_at ?? a.created_at, fingerprint: a.resolved_at ?? a.status,
@@ -125,12 +127,13 @@ function mailThreadDomain(registry: LoadedRegistry, root: MailRow): Domain {
   return DOMAINS.includes(memoDomain as Domain) ? (memoDomain as Domain) : "general";
 }
 
-/** Index one mail thread as a single recall doc — or delete it. Privacy wall at index
- *  time: a thread with ANY private-visibility participant is never indexed, and a stale
- *  doc is deleted (self-healing on visibility flips). Refused messages are excluded from
- *  the body; the count in the fingerprint forces a rebuild when a sweep refusal flips a
- *  message after insert. Bodies may embed external data — indexed as retrieval context
- *  only; the Action Gate still protects all effects (same posture as indexEvent). */
+/** Index one mail thread as a single recall doc — or delete it. The policy table is the
+ *  privacy wall: labels union the thread dept with every participant's dept, and a deny at
+ *  the recall-index sink deletes the doc (self-healing on label/dept changes). Refused
+ *  messages are excluded from the body; the count in the fingerprint forces a rebuild when
+ *  a sweep refusal flips a message after insert. Bodies may embed external data — indexed
+ *  as retrieval context only; the Action Gate still protects all effects (same posture as
+ *  indexEvent). */
 export function indexMailThread(store: Store, registry: LoadedRegistry, threadId: string, policy?: Policy): void {
   const rows = store.mailThread(threadId);
   if (!rows.length) return;
@@ -138,28 +141,27 @@ export function indexMailThread(store: Store, registry: LoadedRegistry, threadId
   const root = rows[0];
   const domain = mailThreadDomain(registry, root);
   const dept = mailThreadDept(registry, root);
-  const participants = new Set<string>();
-  for (const m of rows) { participants.add(m.from_agent); participants.add(m.to_agent); }
-  participants.delete("user");
-  let mailPrivate = false;
-  for (const p of participants) {
-    const canonical = registry.agentOf.get(p);
-    const def = canonical ? registry.agents.get(canonical) : undefined;
-    if (def?.manifest.visibility === "private") { mailPrivate = true; break; }
+  // Labels union the thread dept with every participant's dept — a private-dept agent
+  // participating in a cross-dept thread marks the whole thread. The table verdict below is the
+  // wall (deny → doc deleted); the old private-participant visibility loop is gone
+  // (wall-deletion spec §3/§4).
+  const participantDepts: string[] = [];
+  for (const m of rows) {
+    for (const p of [m.from_agent, m.to_agent]) {
+      if (p === "user") continue;
+      const canonical = registry.agentOf.get(p);
+      const d = canonical ? registry.agents.get(canonical)?.department : undefined;
+      if (d) participantDepts.push(d);
+    }
   }
-  const labels = docLabels({ source: "mail", domain, dept });
-  // Audit the recall-index flow BEFORE the private-participant wall drops it — so the log fires
-  // and enforce mode has the label even if the redundant wall is removed later.
-  if (mailPrivate) {
-    policy?.check({ labels, sink: "recall-index" }, "indexer:mail",
-      rows.map((m) => m.body).join("\n"));
-    store.deleteMemoryDoc("mail", ref); // wall intact (spec: walls stay in audit)
-    return;
-  }
+  const labels = docLabels({ source: "mail", domain, dept, participantDepts });
   const included = rows.filter((m) => m.status !== "refused");
   if (!included.length) { store.deleteMemoryDoc("mail", ref); return; }
-  policy?.check({ labels, sink: "recall-index" }, "indexer:mail",
-    included.map((m) => m.body).join("\n"));
+  if (wallVerdict(policy, { labels, sink: "recall-index" }, "indexer:mail",
+    included.map((m) => m.body).join("\n")) === "deny") {
+    store.deleteMemoryDoc("mail", ref); // self-healing: stale docs purge on the next reconcile
+    return;
+  }
   indexDoc(store, {
     source: "mail", ref, domain, labels, origin: "untrusted",
     title: `mail ${root.from_agent} ↔ ${root.to_agent} (${root.kind})`,

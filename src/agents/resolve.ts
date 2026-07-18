@@ -7,7 +7,7 @@ import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
-import { Policy } from "../kernel/policy.js";
+import { wallVerdict, Policy } from "../kernel/policy.js";
 import { deptLabel } from "../kernel/labels.js";
 import type { Embedder } from "../memory/embeddings.js";
 import type { Config } from "../config.js";
@@ -164,19 +164,16 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
     const labels = [...new Set(caps.flatMap((c) => c.labels))];
     const sandbox = caps.some((c) => c.sandbox);
 
-    // Dept context block — same construction the pack resolver used (mission + gated memo).
-    const includeMemo = !(dept.privateMemo && def.manifest.visibility !== "private");
-    let memo = includeMemo ? memoContextForDomain(deps.store, deps.vault, dept.memoDomain) : "";
-    // The dept memo → system-prompt flow is a real sink: HONOR the verdict, don't just observe.
-    // The privateMemo gate above still applies independently; this adds the label check, and in
-    // enforce an over-broad dept label the agent isn't cleared for is dropped (audit → allow).
-    if (memo) {
-      const decision = deps.policy?.check(
-        { labels: [deptLabel(dept.department)], origin: "trusted", sink: `prompt.system:${canonical}`, agent: { labels } },
-        "resolve:memo", memo,
-      );
-      if (decision === "deny") memo = "";
-    }
+    // Dept context block — mission + label-gated memo. The policy table is the wall
+    // (wall-deletion spec; replaced the privateMemo × visibility gate): an agent not cleared
+    // for its dept's label gets no memo (juno — shared bookkeeper, no personal.finance
+    // clearance), a cleared one does (midas via money-analysis, jasmine via lifeops).
+    let memo = memoContextForDomain(deps.store, deps.vault, dept.memoDomain);
+    if (memo && wallVerdict(
+      deps.policy,
+      { labels: [deptLabel(dept.department)], origin: "trusted", sink: `prompt.system:${canonical}`, agent: { labels } },
+      "resolve:memo", memo,
+    ) === "deny") memo = "";
     const contextBlock = [`## Pillar: ${dept.department}`, dept.mission.trim(), memo]
       .filter(Boolean).join("\n\n");
 

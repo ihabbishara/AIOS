@@ -80,23 +80,26 @@ describe("indexMailThread", () => {
     expect(store.memoryFingerprint("mail", "thread:tf")).toBeUndefined();
   });
 
-  it("deletes a previously indexed thread when a participant turns private", () => {
+  it("deletes a previously indexed thread when a participant's dept becomes private-labeled", () => {
     const store = new Store(":memory:");
     store.insertMail(mailRow({ id: "q1", body: "rotate the api keys quarterly", thread_id: "t1" }));
     indexMailThread(store, registry, "t1");
     expect(recall(store, "rotate keys").length).toBe(1);
+    // Participant-union labels are the wall now (wall-deletion spec): a participant moving into
+    // a private-labeled dept marks the thread, and the policy deny deletes the stale doc.
     const def = registry.agents.get("vulcan")!;
-    def.manifest.visibility = "private";
+    const prevDept = def.department;
+    def.department = "finance";
     try {
       indexMailThread(store, registry, "t1");
       expect(recall(store, "rotate keys").length).toBe(0);
       expect(store.memoryFingerprint("mail", "thread:t1")).toBeUndefined();
     } finally {
-      def.manifest.visibility = "shared";
+      def.department = prevDept;
     }
   });
 
-  it("maps domains: shared finance recipient → money, user-ask → asker's dept, unknown → general", () => {
+  it("maps domains: user-ask → asker's dept, unknown → general; finance-dept mail is policy-excluded", () => {
     const store = new Store(":memory:");
     store.insertMail(mailRow({ id: "a", to_agent: "ledger", body: "quarterly invoice totals", thread_id: "ta" }));
     store.insertMail(mailRow({ id: "b", to_agent: "user", body: "should I archive the legacy repo", thread_id: "tb", status: "awaiting-human" }));
@@ -104,7 +107,9 @@ describe("indexMailThread", () => {
     indexMailThread(store, registry, "ta");
     indexMailThread(store, registry, "tb");
     indexMailThread(store, registry, "tc");
-    expect(recall(store, "invoice totals", { domain: "money" })[0]?.ref).toBe("thread:ta");
+    // ta (finance dept) carries personal.finance → the table denies recall-index (wall-deletion
+    // spec behavior change: finance MAIL leaves the index; decision previews stay via D2).
+    expect(recall(store, "invoice totals", { domain: "money" }).length).toBe(0);
     expect(recall(store, "archive legacy repo", { domain: "code" })[0]?.ref).toBe("thread:tb");
     expect(recall(store, "orphaned correspondence", { domain: "general" })[0]?.ref).toBe("thread:tc");
   });
@@ -169,12 +174,13 @@ describe("reconcile mail pass", () => {
     reconcile(store, vault, registry);
     expect(recall(store, "backfilled correspondence")[0].ref).toBe("thread:t1");
     const def = registry.agents.get("vulcan")!;
-    def.manifest.visibility = "private";
+    const prevDept = def.department;
+    def.department = "finance";
     try {
       reconcile(store, vault, registry);
       expect(recall(store, "backfilled correspondence").length).toBe(0);
     } finally {
-      def.manifest.visibility = "shared";
+      def.department = prevDept;
     }
   });
 
