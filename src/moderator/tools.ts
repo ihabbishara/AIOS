@@ -167,6 +167,8 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     "Hand a department-sized goal to that department's lead. The lead decomposes it into a task graph " +
       "(parallel where possible), posts the plan to the chat, and execution starts immediately. Use for goals " +
       "that need multiple agents/steps; use hand_off for one-sitting tasks and code_task for code playbooks. " +
+      "Deep or multi-angle research (several sub-questions, cited report) → plan_goal(research); " +
+      "hand_off(clio) stays the quick-lookup path. " +
       "Departments: " + deps.departments.join(", "),
     {
       department: z.string().describe("Owning department, e.g. engineering"),

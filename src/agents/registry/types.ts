@@ -37,5 +37,8 @@ export const departmentSchema = z.object({
    *  Shared members (e.g. the group-facing bookkeeper) get mission/persona but NOT the memo,
    *  which can carry private money preferences. */
   privateMemo: z.boolean().default(false),
+  /** Planning guidance appended to the lead's planning brief (research-depth spec ⑤c).
+   *  Absent = no doctrine section; the brief is byte-identical to before. */
+  plannerDoctrine: z.string().optional(),
 }).transform((d) => ({ ...d, vaultSection: d.vaultSection ?? d.department }));
 export type DepartmentManifest = z.infer<typeof departmentSchema>;

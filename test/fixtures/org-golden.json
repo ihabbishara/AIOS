@@ -184,6 +184,7 @@
       "Glob",
       "Grep",
       "Read",
+      "WebFetch",
       "mcp__aios-pack__recall",
       "mcp__aios-pack__vault_read",
       "mcp__aios-pack__vault_write",
@@ -192,7 +193,7 @@
       "mcp__research__search_sources"
     ],
     "permissionMode": "dontAsk",
-    "maxTurns": 15,
+    "maxTurns": 20,
     "guarded": false
   },
   "odin": {

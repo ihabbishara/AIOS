@@ -178,7 +178,7 @@ export function rosterBlock(
   return [own, ...foreign].filter(Boolean).join("\n\n");
 }
 
-function planningBrief(dept: string, title: string, request: string, roster: string, retryError?: string): string {
+export function planningBrief(dept: string, title: string, request: string, roster: string, retryError?: string, doctrine?: string): string {
   return [
     `You are the ${dept} department lead. Decompose the goal below into a task graph.`,
     `# Goal: ${title}\n${request}`,
@@ -194,6 +194,7 @@ function planningBrief(dept: string, title: string, request: string, roster: str
 - Each brief must stand alone: the agent sees the goal request + prior artifacts of its deps, nothing else.
 - needsWorkspace: "worktree" (edit an existing repo safely) | "analyze" (read-only repo) | "greenfield" (new scratch dir) | "none". projectDir required for worktree/analyze.
 - Documentation, summaries, or analysis that only READ code need needsWorkspace "none" — agents Read/Grep repos directly. Only request worktree/analyze when the task must run commands or git inside the repo.`,
+    doctrine ? `# Department doctrine\n${doctrine.trim()}` : "",
     retryError ? `# Your previous plan was INVALID — fix this and return a corrected plan\n${retryError}` : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -247,7 +248,7 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     let raw: RawPlan | undefined;
     let error = "";
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined), origin, GRAPH_SCHEMA);
+      const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined, dept.plannerDoctrine), origin, GRAPH_SCHEMA);
       const candidate = res.structured as RawPlan | undefined;
       if (!candidate?.nodes) { error = "no structured plan returned"; continue; }
       const { v } = validateOrExplain(candidate.nodes, params.department, origin);

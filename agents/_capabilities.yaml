@@ -11,6 +11,7 @@ drafting:    { tools: [Write] }
 todo:        { tools: [TodoWrite] }
 shell:       { tools: [Bash] }
 web:         { tools: [WebSearch, WebFetch] }
+web-fetch:   { tools: [WebFetch] }   # fetch-only: citation spot-checks (minos) without search
 
 # -- memory / vault (aios-pack server) -----------------------------------------
 memory:      { server: aios-pack, tools: [recall, vault_read] }

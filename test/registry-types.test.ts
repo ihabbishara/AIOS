@@ -23,6 +23,16 @@ describe("agentSchema", () => {
   });
 });
 
+describe("departmentSchema plannerDoctrine", () => {
+  const base = { department: "research", mission: "m.", memoDomain: "research" };
+  it("parses plannerDoctrine when present", () => {
+    expect(departmentSchema.parse({ ...base, plannerDoctrine: "Fan out." }).plannerDoctrine).toBe("Fan out.");
+  });
+  it("is undefined when absent", () => {
+    expect(departmentSchema.parse(base).plannerDoctrine).toBeUndefined();
+  });
+});
+
 describe("departmentSchema", () => {
   it("parses and defaults vaultSection to department", () => {
     const d = departmentSchema.parse({ department: "engineering", mission: "Build software.", memoDomain: "code" });

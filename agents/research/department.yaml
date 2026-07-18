@@ -7,3 +7,14 @@ toolServer: research
 actions: [vault.write]
 playbooks: [research-report, market-research, product-design]
 capabilities: [files-ro, memory, vault-write, research-kb]
+plannerDoctrine: >
+  Deep or multi-angle research goals: fan out 2-5 parallel run nodes, one
+  per sub-question — clio for general investigation, janus for market
+  angles; borrow odin (engineering) for technical ones. Fan-out nodes take
+  no deps on each other. Each fan-out brief must demand recent primary
+  sources, a cited URL for every load-bearing claim, and save_source for
+  reusable finds. Then one final loop node (producer clio, critic minos)
+  depending on ALL fan-out nodes: merge into a single report with inline
+  citations, state what was already known versus newly found, and file it
+  under knowledge/. Scale to the question — a small question is a single
+  node; do not pad graphs.

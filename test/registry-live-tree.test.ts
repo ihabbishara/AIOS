@@ -59,6 +59,12 @@ describe("live agents/ tree", () => {
     }
   });
 
+  it("research department carries a planner doctrine and minos can fetch", () => {
+    const d = reg.departments.get("research")!;
+    expect(d.plannerDoctrine).toMatch(/fan out/i);
+    expect(reg.agents.get("minos")!.role.allowedTools).toContain("WebFetch");
+  });
+
   it("private agents are midas and jasmine only", () => {
     const priv = [...reg.agents.values()].filter((a) => a.role.privateOnly).map((a) => a.manifest.name).sort();
     expect(priv).toEqual(["jasmine", "midas"]);
