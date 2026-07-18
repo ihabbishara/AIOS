@@ -73,6 +73,8 @@ export interface ModeratorToolsDeps {
   memory: { embedder?: Embedder; halfLifeDays: number; stalePenalty: number };
   /** Agent mailbox — hermes can send work mail to staff (undefined = disabled). */
   mailbox?: Mailbox;
+  /** Media understanding for email attachments — transcription + downscale (spec 2026-07-18). */
+  media?: import("../attachments.js").MediaDeps;
   /** Optional structured log sink (same as ModeratorDeps.log). */
   log?: (line: string) => void;
 }
@@ -381,6 +383,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
           { account: args.account, messageId: args.message_id },
           deps.vault,
           deps.log,
+          deps.media,
         ),
       ),
   );

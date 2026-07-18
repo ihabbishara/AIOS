@@ -1,6 +1,6 @@
 // src/senses/google/read.ts
 import type { GoogleAccounts } from "./auth.js";
-import { processAttachment } from "../../attachments.js";
+import { processAttachment, type MediaDeps } from "../../attachments.js";
 import type { VaultWriter } from "../../vault/writer.js";
 
 export interface GmailPayload {
@@ -119,6 +119,7 @@ async function fetchAndProcessAttachment(
   part: AttachmentPart,
   vault: VaultWriter,
   log?: (line: string) => void,
+  media?: MediaDeps,
 ): Promise<string> {
   const safeName = part.fileName.replace(/[\r\n\[\]]/g, "_");
   try {
@@ -135,6 +136,7 @@ async function fetchAndProcessAttachment(
       { kind: "buffer", buf, fileName: part.fileName, mimeType: part.mimeType },
       vault,
       log,
+      media,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -173,6 +175,7 @@ export async function readEmail(
   opts: { account: string; messageId: string },
   vault?: VaultWriter,
   log?: (line: string) => void,
+  media?: MediaDeps,
 ): Promise<string> {
   const gmail = gmailOf(accounts, opts.account);
   if (typeof gmail === "string") return gmail;
@@ -198,7 +201,7 @@ export async function readEmail(
       // 5 units per attachments.get call — 20+ attachments would saturate quota).
       const notes: string[] = [];
       for (const p of parts) {
-        notes.push(await fetchAndProcessAttachment(gmail, opts.messageId, p, vault, log));
+        notes.push(await fetchAndProcessAttachment(gmail, opts.messageId, p, vault, log, media));
       }
       bodyLines.push("", ...notes);
     }

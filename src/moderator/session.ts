@@ -2,7 +2,7 @@ import { moderatorBlocks } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn, clearSession } from "../agents/resumable.js";
-import { processAttachments } from "../attachments.js";
+import { processAttachments, type MediaDeps } from "../attachments.js";
 import type { Store } from "../store/db.js";
 import type { GoalEngine } from "../engine/goals.js";
 import type { VaultWriter } from "../vault/writer.js";
@@ -40,6 +40,8 @@ export interface ModeratorDeps {
   memory: ModeratorToolsDeps["memory"];
   /** Post-turn conversational capture hook (memory-v2 §5) — fire-and-forget, fail-silent. */
   capture?: (userText: string, replyText: string) => void;
+  /** Media understanding for attachments — transcription + downscale (spec 2026-07-18). */
+  media?: MediaDeps;
 }
 
 /**
@@ -93,7 +95,7 @@ export class Moderator {
     // Process attachments before the agent turn so vault copies exist even if
     // the turn fails. The annotation block is prepended to the user message.
     const attachmentBlock = attachments?.length
-      ? await processAttachments(attachments, vault, this.deps.log)
+      ? await processAttachments(attachments, vault, this.deps.log, this.deps.media)
       : "";
 
     const prompt = attachmentBlock
@@ -135,6 +137,7 @@ export class Moderator {
       origin: this.origin,
       handOff: this.deps.handOff,
       agentNames,
+      media: this.deps.media,
       gate: this.deps.gate,
       actionTypes: this.deps.actionTypes,
       google: this.deps.google,

@@ -205,6 +205,14 @@ async function main(): Promise<void> {
     log,
   });
 
+  // Media understanding for attachments (spec 2026-07-18-media-understanding):
+  // same whisper path as voice notes; bare "ffmpeg" resolves via PATH like VoiceService.
+  const media = {
+    transcribe: (p: string) => voice.transcribe(p),
+    available: () => voice.available(),
+    ffmpegBin: "ffmpeg",
+  };
+
   // ---- google senses (gmail + calendar) ----
   const google = GoogleAccounts.load(join(config.dataDir, "google-tokens.json"));
   if (!google.enabled()) {
@@ -368,6 +376,7 @@ async function main(): Promise<void> {
     // (same object, mutated once constructed) — recall degrades to lexical until then.
     memory: memoryDeps,
     capture: captureFn,
+    media,
   });
 
   const directChats = new DirectChats({
