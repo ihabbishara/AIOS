@@ -47,8 +47,16 @@ describe("resolveAgent", () => {
           .map(fq),
       );
       for (const t of r.options.allowedTools ?? []) {
+        if (t === "ToolSearch") continue; // harness plumbing: schema loader, grants no access
         expect(union.has(t), `${name} leaked ${t}`).toBe(true);
       }
+    }
+  });
+
+  it("every agent carries ToolSearch — deferred-tool schemas must be loadable (odin's WebFetch died deferred)", () => {
+    const { resolve, registry } = setup();
+    for (const name of [...registry.agents.keys()]) {
+      expect(resolve(name, origin)!.options.allowedTools, name).toContain("ToolSearch");
     }
   });
 

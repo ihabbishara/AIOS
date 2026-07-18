@@ -159,7 +159,12 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
       return capDef;
     });
 
-    const allowedTools = [...new Set(caps.flatMap((c) => c.tools).map(fqPackTool))];
+    // ToolSearch is harness plumbing, not a capability: the SDK defers tool schemas behind
+    // it once the surface crosses its token threshold, and a deferred tool without ToolSearch
+    // is unreachable (observed live: odin's WebFetch deferred in direct chats — denied schema
+    // load, agent fully offline). It loads schemas only; access stays bounded by this
+    // allowlist + guards. Same lesson as the StructuredOutput widening in runner.ts.
+    const allowedTools = [...new Set([...caps.flatMap((c) => c.tools).map(fqPackTool), "ToolSearch"])];
     const ceiling = [...new Set(caps.flatMap((c) => c.actions))];
     const labels = [...new Set(caps.flatMap((c) => c.labels))];
     const sandbox = caps.some((c) => c.sandbox);
