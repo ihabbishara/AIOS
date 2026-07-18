@@ -3,7 +3,7 @@ import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn, clearSession } from "../agents/resumable.js";
 import { processAttachments, type MediaDeps } from "../attachments.js";
-import { buildAttachmentServer } from "../agents/attachment-server.js";
+import { buildAttachmentServer, ATTACH_TOOL } from "../agents/attachment-server.js";
 import type { Attachment } from "../agents/attachment.js";
 import { resolve as resolvePath } from "node:path";
 import type { Store } from "../store/db.js";
@@ -162,6 +162,7 @@ export class Moderator {
     const moderatorOptions = {
       ...resolved.options,
       systemPrompt,
+      allowedTools: [...new Set([...(resolved.options.allowedTools ?? []), ATTACH_TOOL])],
       mcpServers: { ...(resolved.options.mcpServers ?? {}), aios: server, aios_attachments: attachmentServer },
       settingSources: [],
       strictMcpConfig: true,

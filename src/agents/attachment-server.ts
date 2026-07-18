@@ -30,6 +30,9 @@ function isSafe(filePath: string, safeDirs: string[]): boolean {
   }
 }
 
+/** Fully-qualified tool name — seams that mount this server must widen allowedTools with it. */
+export const ATTACH_TOOL = "mcp__aios_attachments__attach_file";
+
 /**
  * Builds a minimal in-process MCP server with one tool: `attach_file`.
  *
