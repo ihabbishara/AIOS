@@ -38,4 +38,4 @@ maxTurns: 30
 permissionMode: dontAsk
 aliases: [researcher, ziad]
 kind: worker
-capabilities: [web]
+capabilities: [web, media-gen]

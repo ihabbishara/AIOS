@@ -22,6 +22,7 @@ import { buildPackServer } from "../packs/server.js";
 import { buildCodeServer } from "../code/exec.js";
 import { buildMoneyServer } from "../money/server.js";
 import { buildResearchServer } from "../research/server.js";
+import { buildMediaServer, type MediaServerDeps } from "../media/server.js";
 import { buildLifeopsServer } from "../lifeops/server.js";
 import { buildLedgerServer } from "../finance/server.js";
 import { buildCloudflareServer } from "../senses/cloudflare/server.js";
@@ -71,6 +72,8 @@ export interface ResolveAgentDeps {
   policy?: Policy;
   /** memory-v2: local embedder for hybrid recall (undefined = lexical-only). */
   embedder?: Embedder;
+  /** ⑤d media generation — live VoiceService handle for the speak tool. */
+  voice?: MediaServerDeps["voice"];
 }
 
 type ServerCtx = {
@@ -103,6 +106,7 @@ const SERVER_BUILDERS: Record<string, (c: ServerCtx) => Record<string, unknown>>
   }),
   money: (c) => ({ money: buildMoneyServer({ store: c.deps.store, categorize: c.deps.categorize! }) }),
   research: (c) => ({ research: buildResearchServer({ store: c.deps.store }) }),
+  media: (c) => ({ media: buildMediaServer({ voice: c.deps.voice }) }),
   lifeops: (c) => ({ lifeops: buildLifeopsServer({ store: c.deps.store }) }),
   ledger: (c) => ({
     ledger: buildLedgerServer(

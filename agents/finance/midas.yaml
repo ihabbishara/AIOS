@@ -49,4 +49,4 @@ maxTurns: 20
 visibility: private
 aliases: [cfo, faris]
 kind: lead
-capabilities: [money-analysis, memory]
+capabilities: [money-analysis, memory, media-gen]

@@ -126,6 +126,17 @@ describe("resolveAgent", () => {
     }
   });
 
+  it("media-gen carriers get the media server and its three tools", () => {
+    const { resolve } = setup();
+    for (const name of ["hermes", "midas", "athena", "odin", "clio", "venus"]) {
+      const r = resolve(name, origin)!;
+      expect(Object.keys(r.options.mcpServers ?? {}), name).toContain("media");
+      for (const t of ["mcp__media__render_chart", "mcp__media__render_diagram", "mcp__media__speak"]) {
+        expect(r.options.allowedTools, `${name}:${t}`).toContain(t);
+      }
+    }
+  });
+
   it("alias resolution works (cfo → midas gets the money server)", () => {
     const { resolve } = setup();
     const r = resolve("cfo", origin)!;

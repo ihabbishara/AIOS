@@ -255,7 +255,7 @@ async function main(): Promise<void> {
     }, delayMs);
     embedTimer.unref?.();
   };
-  const resolveDeps: ResolveAgentDeps = { registry, store, vault, gate, config, categorize, policy: infoPolicy, embedder };
+  const resolveDeps: ResolveAgentDeps = { registry, store, vault, gate, config, categorize, policy: infoPolicy, embedder, voice };
   // Post-turn conversational capture (memory-v2 §5): one cheap fail-silent one-shot per
   // coordinator/direct turn; candidates ride the teachings pipeline as agent-inferred.
   const captureFn = config.captureEnabled
