@@ -68,11 +68,15 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
     ? [...store.listUnconsolidatedTeachings(null), ...store.listUnconsolidatedTeachings("profile")].filter((t) => t.kind === "fact" || t.kind === "forget")
     : store.listUnconsolidatedTeachings(domain).filter((t) => t.kind === "preference" || t.kind === "forget");
 
+  const existing = vault.readNote(memoRelPath(domain)) ?? "";
+  // Bootstrap pending = a prose memo whose facts were never extracted. It must count as a
+  // signal source, or a QUIET domain (no new decisions/teachings) never bootstraps — general.md
+  // sat unextracted for two weeks behind this early return. Once facts exist, quiet domains
+  // early-return again (no nightly LLM churn on unchanged prose).
+  const bootstrapPending = !!existing.trim() && !store.activeMemoFacts(domain).length;
   // No-op without bumping the cursor: decisions are deliberately re-read every run until a write
   // succeeds, so the cursor stays write-dependent (do not "fix" it into a write-independent one).
-  if (!decisions.length && !teachings.length) return;
-
-  const existing = vault.readNote(memoRelPath(domain)) ?? "";
+  if (!decisions.length && !teachings.length && !bootstrapPending) return;
   const originOf = deps.signalOrigin ?? (() => "trusted" as Origin);
   const typed: Array<{ text: string; origin: Origin; ref: string }> = [
     ...decisions.map((d) => ({

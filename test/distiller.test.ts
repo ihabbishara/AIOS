@@ -120,6 +120,34 @@ describe("fact-diff distill (memory-v2 §4)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("bootstrap runs on a QUIET domain: prose memo + zero new signals still distills (starved-bootstrap fix)", async () => {
+    const { root, store, vault, gate } = setup();
+    vault.writeNote("memos/general.md", "# general\n- prefers window seats");
+    // NO teachings, NO decisions — the old early return starved this case forever.
+    await distill({
+      store, vault, gate, nowIso: NOW,
+      factDiff: async ({ signals }) => signals.some((s) => s.ref === "memo:general")
+        ? [{ subject: "travel", fact: "prefers window seats", source_ref: "memo:general" }] : [],
+      ground: groundAll,
+    });
+    expect(store.activeMemoFacts("general").map((f) => f.fact)).toContain("prefers window seats");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("quiet domain with facts already extracted stays a no-op (no LLM churn)", async () => {
+    const { root, store, vault, gate } = setup();
+    vault.writeNote("memos/general.md", "# general\n- prefers window seats");
+    store.addMemoFact({ domain: "general", subject: "travel", fact: "prefers window seats", sourceRef: "memo:general", origin: "user-stated" });
+    let called = 0;
+    await distill({
+      store, vault, gate, nowIso: NOW,
+      factDiff: async () => { called++; return []; },
+      ground: groundAll,
+    });
+    expect(called).toBe(0); // bootstrap done + no signals → early return holds
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("profile domain folds fact + forget teachings as fact-diff signals", async () => {
     const { root, store, vault, gate } = setup();
     const tid = store.addTeaching({ text: "Sara is my business partner", domain: null, kind: "fact" });
