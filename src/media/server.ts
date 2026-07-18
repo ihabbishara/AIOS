@@ -87,6 +87,19 @@ export async function renderChart(spec: ChartSpec, outDir: string): Promise<Rend
   }
 }
 
+/** Graphviz render — dot is a declarative graph language, not code execution. */
+export async function renderDiagram(dot: string, outDir: string): Promise<RenderResult> {
+  const dotPath = join(outDir, "diagram.dot");
+  const outPath = join(outDir, "diagram.png");
+  writeFileSync(dotPath, dot);
+  try {
+    await run("dot", ["-Tpng", dotPath, "-o", outPath], { timeout: TIMEOUT_MS });
+    return { ok: true, path: outPath };
+  } catch (err) {
+    return { ok: false, error: `diagram render failed: ${stderrTail(err)}` };
+  }
+}
+
 export interface MediaServerDeps {
   voice?: { available(): boolean; synthesize(text: string): Promise<string> };
   log?: (line: string) => void;
@@ -95,7 +108,6 @@ export interface MediaServerDeps {
 const seriesShape = z.object({ name: z.string().optional(), values: z.array(z.number()).min(1) });
 
 export function buildMediaServer(deps: MediaServerDeps) {
-  void deps; // speak (Task 2) consumes voice/log
   const renderChartTool = tool(
     "render_chart",
     "Render a data chart to PNG from a constrained spec (no code execution). " +
@@ -115,5 +127,36 @@ export function buildMediaServer(deps: MediaServerDeps) {
     },
   );
 
-  return createSdkMcpServer({ name: "media", version: "0.1.0", tools: [renderChartTool] });
+  const renderDiagramTool = tool(
+    "render_diagram",
+    "Render graphviz dot source to a PNG diagram. On a syntax error the message comes back " +
+      "verbatim — fix the source and retry. Deliver the result with attach_file.",
+    { dot: z.string().min(1).describe("Complete graphviz dot source, e.g. 'digraph { a -> b }'") },
+    async (a) => {
+      const dir = mkdtempSync("/tmp/aios-media-");
+      const r = await renderDiagram(a.dot, dir);
+      return text(r.ok ? `Diagram rendered: ${r.path} — deliver with attach_file.` : `Refused: ${r.error}`);
+    },
+  );
+
+  const speakTool = tool(
+    "speak",
+    "Synthesize speech (OGG voice note) from text, max 3000 chars. Deliver the result with " +
+      'attach_file kind "voice" so it arrives as a playable voice note.',
+    { text: z.string().min(1).max(3000) },
+    async (a) => {
+      if (!deps.voice?.available()) {
+        return text("Refused: speech synthesis is not available right now — reply in text instead.");
+      }
+      try {
+        const path = await deps.voice.synthesize(a.text);
+        return text(`Speech synthesized: ${path} — deliver with attach_file kind "voice".`);
+      } catch (err) {
+        deps.log?.(`speak failed: ${(err as Error).message}`);
+        return text(`Refused: speech synthesis failed (${(err as Error).message}) — reply in text instead.`);
+      }
+    },
+  );
+
+  return createSdkMcpServer({ name: "media", version: "0.1.0", tools: [renderChartTool, renderDiagramTool, speakTool] });
 }
