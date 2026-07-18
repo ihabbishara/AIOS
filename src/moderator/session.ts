@@ -3,7 +3,7 @@ import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn, clearSession } from "../agents/resumable.js";
 import { processAttachments, type MediaDeps } from "../attachments.js";
-import { buildAttachmentServer, ATTACH_TOOL } from "../agents/attachment-server.js";
+import { buildAttachmentServer, ATTACH_TOOL, AIOS_TMP_PREFIX } from "../agents/attachment-server.js";
 import type { Attachment } from "../agents/attachment.js";
 import { resolve as resolvePath } from "node:path";
 import type { Store } from "../store/db.js";
@@ -156,7 +156,7 @@ export class Moderator {
     const attachmentServer = buildAttachmentServer(collected, [
       resolvePath(projectsRoot),
       resolvePath("data/downloads"),
-      "/tmp/aios-", // prefix match — media render outputs land here
+      AIOS_TMP_PREFIX, // realpath'd /tmp/aios- prefix — media render outputs land here
     ]);
 
     const moderatorOptions = {

@@ -18,7 +18,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Attachment } from "../src/agents/attachment.js";
-import { buildAttachmentServer } from "../src/agents/attachment-server.js";
+import { buildAttachmentServer, AIOS_TMP_PREFIX } from "../src/agents/attachment-server.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -158,6 +158,19 @@ describe("buildAttachmentServer — attach_file tool", () => {
     expect(c1).toHaveLength(1);  // turn-1 collector unchanged
     expect(c2).toHaveLength(1);
     expect(c2[0].caption).toBe("turn 2");
+  });
+
+  it("AIOS_TMP_PREFIX admits a file in a real /tmp/aios-* dir (macOS /tmp symlink)", async () => {
+    const dir = mkdtempSync("/tmp/aios-prefixtest-");
+    const f = join(dir, "out.png");
+    writeFileSync(f, "x");
+    const collector: Attachment[] = [];
+    const handler = getHandler(collector, [AIOS_TMP_PREFIX]);
+
+    const result = await handler({ path: f });
+
+    expect(result.content[0].text).toContain("Queued for delivery");
+    expect(collector).toHaveLength(1);
   });
 
   it("attach_file forwards kind: voice into the collector", async () => {

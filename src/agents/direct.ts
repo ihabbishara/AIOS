@@ -3,7 +3,7 @@ import type { LoadedRegistry } from "./registry/loader.js";
 import type { ResolveAgentFn } from "./resolve.js";
 import { resumableTurn, clearSession } from "./resumable.js";
 import { withDenialObserver } from "./permissions.js";
-import { buildAttachmentServer, ATTACH_TOOL } from "./attachment-server.js";
+import { buildAttachmentServer, ATTACH_TOOL, AIOS_TMP_PREFIX } from "./attachment-server.js";
 import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox } from "../mail/mailbox.js";
 import { HALALO_EXPORTS_DIR } from "./guards/halalo-readonly.js";
@@ -106,7 +106,7 @@ export class DirectChats {
         resolve(def.cwd ?? this.deps.projectsRoot),
         resolve("data/downloads"),
         HALALO_EXPORTS_DIR, // keep in sync with the halalo Write guard so generated exports are attachable
-        "/tmp/aios-",       // prefix match — any /tmp/aios-* path is permitted
+        AIOS_TMP_PREFIX,    // realpath'd prefix — any /tmp/aios-* path is permitted (macOS /tmp → /private/tmp)
         ...(def.attachDirs ?? []),
       ];
       const attachmentServer = buildAttachmentServer(collected, safeDirs);
