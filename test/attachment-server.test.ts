@@ -30,7 +30,7 @@ import { buildAttachmentServer } from "../src/agents/attachment-server.js";
 function getHandler(
   collector: Attachment[],
   safeDirs: string[],
-): (args: { path: string; caption?: string }) => Promise<{ content: Array<{ type: string; text: string }> }> {
+): (args: { path: string; caption?: string; kind?: "voice" }) => Promise<{ content: Array<{ type: string; text: string }> }> {
   const server = buildAttachmentServer(collector, safeDirs);
   // server = { type: "sdk", name: "aios_attachments", instance: McpServer }
   const inst = (server as unknown as { instance: { _registeredTools: Record<string, { handler: unknown }> } }).instance;
@@ -158,6 +158,16 @@ describe("buildAttachmentServer — attach_file tool", () => {
     expect(c1).toHaveLength(1);  // turn-1 collector unchanged
     expect(c2).toHaveLength(1);
     expect(c2[0].caption).toBe("turn 2");
+  });
+
+  it("attach_file forwards kind: voice into the collector", async () => {
+    const collector: Attachment[] = [];
+    const handler = getHandler(collector, [safeDir]);
+
+    await handler({ path: safeFile, kind: "voice" });
+
+    expect(collector).toHaveLength(1);
+    expect(collector[0].kind).toBe("voice");
   });
 
   it("caption is optional — omitting it pushes undefined to collector", async () => {

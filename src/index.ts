@@ -409,12 +409,14 @@ async function main(): Promise<void> {
       if (result !== null) {
         await deliverReply({ voice, log }, channels.get(msg.channel), msg, result.text);
         for (const att of result.attachments) {
-          await channels
-            .get(msg.channel)
-            ?.sendFile(msg.chatId, att.path, att.caption)
-            .catch((err) =>
-              log(`sendFile failed (${att.path}): ${(err as Error).message}`),
-            );
+          const ch = channels.get(msg.channel);
+          const deliver =
+            att.kind === "voice" && ch?.sendVoice
+              ? ch.sendVoice(msg.chatId, att.path, att.caption)
+              : ch?.sendFile(msg.chatId, att.path, att.caption);
+          await deliver?.catch((err) =>
+            log(`attachment delivery failed (${att.path}): ${(err as Error).message}`),
+          );
         }
       }
     } catch (err) {

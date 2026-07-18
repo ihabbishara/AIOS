@@ -52,6 +52,10 @@ export function buildAttachmentServer(collector: Attachment[], safeDirs: string[
         .string()
         .optional()
         .describe("Short caption shown with the file (max 1 024 chars for Telegram)."),
+      kind: z
+        .enum(["voice"])
+        .optional()
+        .describe('Set to "voice" for synthesized speech so it arrives as a playable voice note.'),
     },
     async (args): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
       if (!isSafe(args.path, safeDirs)) {
@@ -64,7 +68,7 @@ export function buildAttachmentServer(collector: Attachment[], safeDirs: string[
           ],
         };
       }
-      collector.push({ path: args.path, caption: args.caption });
+      collector.push({ path: args.path, caption: args.caption, kind: args.kind });
       return {
         content: [{ type: "text", text: `Queued for delivery: ${args.path}` }],
       };
