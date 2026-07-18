@@ -290,7 +290,8 @@ async function main(): Promise<void> {
     const notice = outcome.ok
       ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.`
       : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.`;
-    const report = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
+    // Goal-completion delivery stays text (⑤d spec scope) — attachments dropped here.
+    const report = (await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice)).text;
     await channel?.send(goal.origin_chat_id, report);
     bus.emit({ type: "chat.out", channel: goal.origin_channel, chatId: goal.origin_chat_id, text: report.slice(0, 300) });
   };
@@ -599,11 +600,13 @@ async function main(): Promise<void> {
 
   const narrate = (anchor: "morning" | "evening", dataJson: string): Promise<string> => {
     const p = config.primaryChat!;
-    return moderator.handle(
-      p.channel,
-      p.chatId,
-      `[${anchor.toUpperCase()}-BRIEF] ${dataJson} — narrate this as my chief of staff: short, lead with what needs me, plain text.`,
-    );
+    return moderator
+      .handle(
+        p.channel,
+        p.chatId,
+        `[${anchor.toUpperCase()}-BRIEF] ${dataJson} — narrate this as my chief of staff: short, lead with what needs me, plain text.`,
+      )
+      .then((r) => r.text); // briefs are text-by-design; attachments dropped here
   };
 
   const clock = new Clock({

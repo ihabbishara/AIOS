@@ -30,7 +30,7 @@ function setup() {
   };
 
   const moderator = {
-    handle: async () => "moderator-reply",
+    handle: async () => ({ text: "moderator-reply", attachments: [] }),
     resetSession: () => {},
   };
 

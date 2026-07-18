@@ -23,7 +23,7 @@ function setup() {
   const gate = new ActionGate({ store, registry, policy: DEFAULT_POLICY, bus, expiryMs: 60_000 });
   // Stubs: gate commands must short-circuit before any agent is consulted.
   const router = new MessageRouter({
-    moderator: { handle: async () => "rami-reply" } as never,
+    moderator: { handle: async () => ({ text: "rami-reply", attachments: [] }) } as never,
     directChats: { handle: async () => ({ text: "direct-reply", attachments: [] }), names: () => [] } as never,
     chatBindings: new Map(),
     gate,

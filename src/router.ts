@@ -164,9 +164,9 @@ export class MessageRouter {
         reply = { text: `[${direct.role}]\n${result.text}`, attachments: result.attachments };
       } else {
         routed("hermes", "default", "no mention — chief of staff");
-        const text = await agentTurn("hermes", () =>
+        const result = await agentTurn("hermes", () =>
           moderator.handle(msg.channel, msg.chatId, msg.text, msg.attachments));
-        reply = textOnly(text);
+        reply = { text: result.text, attachments: result.attachments };
       }
     }
 

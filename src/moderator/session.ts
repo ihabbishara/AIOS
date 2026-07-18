@@ -3,6 +3,9 @@ import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn, clearSession } from "../agents/resumable.js";
 import { processAttachments, type MediaDeps } from "../attachments.js";
+import { buildAttachmentServer } from "../agents/attachment-server.js";
+import type { Attachment } from "../agents/attachment.js";
+import { resolve as resolvePath } from "node:path";
 import type { Store } from "../store/db.js";
 import type { GoalEngine } from "../engine/goals.js";
 import type { VaultWriter } from "../vault/writer.js";
@@ -61,16 +64,17 @@ export class Moderator {
     chatId: string,
     userText: string,
     attachments?: Array<{ path: string; fileName: string }>,
-  ): Promise<string> {
+  ): Promise<{ text: string; attachments: Attachment[] }> {
     const chatKey = `${channel}:${chatId}`;
     const prev = this.locks.get(chatKey) ?? Promise.resolve();
     let release!: () => void;
     this.locks.set(chatKey, new Promise((r) => (release = r)));
     await prev;
     try {
-      const reply = await this.turn(chatKey, channel, chatId, userText, attachments);
+      const collected: Attachment[] = [];
+      const reply = await this.turn(chatKey, channel, chatId, userText, attachments, collected);
       this.deps.capture?.(userText, reply); // post-turn capture (memory-v2 §5), fire-and-forget
-      return reply;
+      return { text: reply, attachments: collected };
     } finally {
       release();
     }
@@ -87,7 +91,8 @@ export class Moderator {
     channel: string,
     chatId: string,
     userText: string,
-    attachments?: Array<{ path: string; fileName: string }>,
+    attachments: Array<{ path: string; fileName: string }> | undefined,
+    collected: Attachment[],
   ): Promise<string> {
     const { store, goals, vault, projectsRoot, registry } = this.deps;
     this.origin = { channel, chatId };
@@ -146,10 +151,18 @@ export class Moderator {
       log: this.deps.log,
     });
 
+    // Turn-scoped attachment collector — same safe dirs as the direct seam (direct.ts):
+    // hermes can deliver rendered media/files from these roots to the chat.
+    const attachmentServer = buildAttachmentServer(collected, [
+      resolvePath(projectsRoot),
+      resolvePath("data/downloads"),
+      "/tmp/aios-", // prefix match — media render outputs land here
+    ]);
+
     const moderatorOptions = {
       ...resolved.options,
       systemPrompt,
-      mcpServers: { ...(resolved.options.mcpServers ?? {}), aios: server },
+      mcpServers: { ...(resolved.options.mcpServers ?? {}), aios: server, aios_attachments: attachmentServer },
       settingSources: [],
       strictMcpConfig: true,
       env: { ...process.env, CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: String(STREAM_CLOSE_TIMEOUT_MS) },
