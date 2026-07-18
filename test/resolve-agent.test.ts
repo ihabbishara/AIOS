@@ -103,6 +103,21 @@ describe("resolveAgent", () => {
     expect(vulcan.options.canUseTool).toBeTruthy();
   });
 
+  it("advisory confinement strips fs/exec but keeps capability-granted web tools (odin borrowed into a workspace-less goal)", async () => {
+    const { resolve } = setup();
+    const odin = resolve("odin", origin)!;
+    expect(odin.options.allowedTools).toContain("WebSearch"); // web capability granted it
+    const can = odin.options.canUseTool!;
+    const web = await can("WebSearch", { query: "x" }, {} as never);
+    expect(web.behavior).toBe("allow");
+    const fetch_ = await can("WebFetch", { url: "https://example.com" }, {} as never);
+    expect(fetch_.behavior).toBe("allow");
+    // fs/exec stay denied outside a workspace
+    for (const t of ["Read", "Grep", "Glob", "Write", "Edit", "Bash"]) {
+      expect((await can(t, {}, {} as never)).behavior, t).toBe("deny");
+    }
+  });
+
   it("alias resolution works (cfo → midas gets the money server)", () => {
     const { resolve } = setup();
     const r = resolve("cfo", origin)!;

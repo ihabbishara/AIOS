@@ -225,7 +225,11 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
       } else {
         options.permissionMode = "default";
         delete (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
-        const g = guardOptions(advisoryGuard(), "deny");
+        // Fallback "allow", NOT "deny": advisory means "strip fs/exec", and the named checks
+        // above are exactly that set. A deny fallback vetoed tools the capability union
+        // deliberately granted (odin's WebSearch/WebFetch died in workspace-less goals —
+        // observed live 2026-07-18). allowedTools still bounds what exists at all.
+        const g = guardOptions(advisoryGuard(), "allow");
         options.canUseTool = g.canUseTool;
         options.hooks = { ...(options.hooks ?? {}), ...(g.hooks ?? {}) };
       }
