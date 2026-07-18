@@ -106,7 +106,7 @@ const SERVER_BUILDERS: Record<string, (c: ServerCtx) => Record<string, unknown>>
   }),
   money: (c) => ({ money: buildMoneyServer({ store: c.deps.store, categorize: c.deps.categorize! }) }),
   research: (c) => ({ research: buildResearchServer({ store: c.deps.store }) }),
-  media: (c) => ({ media: buildMediaServer({ voice: c.deps.voice }) }),
+  media: (c) => ({ media: buildMediaServer({ voice: c.deps.voice, pythonBin: c.deps.config.pythonBin }) }),
   lifeops: (c) => ({ lifeops: buildLifeopsServer({ store: c.deps.store }) }),
   ledger: (c) => ({
     ledger: buildLedgerServer(

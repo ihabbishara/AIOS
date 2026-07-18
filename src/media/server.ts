@@ -65,7 +65,7 @@ export interface ChartSpec {
 export type RenderResult = { ok: true; path: string } | { ok: false; error: string };
 
 /** Validates cross-field constraints and shells out to the fixed template. */
-export async function renderChart(spec: ChartSpec, outDir: string): Promise<RenderResult> {
+export async function renderChart(spec: ChartSpec, outDir: string, pythonBin = "python3"): Promise<RenderResult> {
   for (const [i, s] of spec.series.entries()) {
     if (s.values.length !== spec.labels.length) {
       return { ok: false, error: `series ${i + 1} has ${s.values.length} values but there are ${spec.labels.length} labels` };
@@ -80,7 +80,7 @@ export async function renderChart(spec: ChartSpec, outDir: string): Promise<Rend
   writeFileSync(specPath, JSON.stringify(spec));
   writeFileSync(pyPath, CHART_PY);
   try {
-    await run("python3", [pyPath, specPath, outPath], { timeout: TIMEOUT_MS });
+    await run(pythonBin, [pyPath, specPath, outPath], { timeout: TIMEOUT_MS });
     return { ok: true, path: outPath };
   } catch (err) {
     return { ok: false, error: `chart render failed: ${stderrTail(err)}` };
@@ -102,6 +102,8 @@ export async function renderDiagram(dot: string, outDir: string): Promise<Render
 
 export interface MediaServerDeps {
   voice?: { available(): boolean; synthesize(text: string): Promise<string> };
+  /** Python interpreter for chart renders (launchd PATH may lack the matplotlib one). */
+  pythonBin?: string;
   log?: (line: string) => void;
 }
 
@@ -122,7 +124,7 @@ export function buildMediaServer(deps: MediaServerDeps) {
     },
     async (a) => {
       const dir = mkdtempSync("/tmp/aios-media-");
-      const r = await renderChart(a as ChartSpec, dir);
+      const r = await renderChart(a as ChartSpec, dir, deps.pythonBin ?? "python3");
       return text(r.ok ? `Chart rendered: ${r.path} — deliver with attach_file.` : `Refused: ${r.error}`);
     },
   );
