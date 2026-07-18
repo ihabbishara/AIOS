@@ -1,5 +1,7 @@
 # Obsidian Daily-Log Repair Implementation Plan
 
+> **STATUS: SUPERSEDED — DO NOT EXECUTE.** Implemented 2026-07-16 in commits `f8eb210` + `930001d` (deployed, backfill run, verified idempotent). All tasks below are satisfied, with two user-directed deviations beyond this plan's scope: timestamps/filenames switched to LOCAL time (this plan deferred the UTC quirk) and the dead `writeJobArtifact`/`readJobArtifact`/`jobDirName`/`jobDir` methods were deleted. Nothing here remains to build.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Restore the vault's daily notes — goal lifecycle lines with wiki-links, live via a bus subscriber, plus a one-time idempotent backfill of the Jul 3–16 gap.
