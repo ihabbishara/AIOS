@@ -14,8 +14,9 @@
 //   new Uint8Array(...) before calling pdfParse — that is tested here implicitly.
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
 import { processAttachment, processAttachments } from "../src/attachments.js";
@@ -204,7 +205,7 @@ describe("processAttachment — PDF with text", () => {
 });
 
 describe("processAttachment — PDF with empty text (image-only)", () => {
-  it("returns image-only note for PDF with no content stream", async () => {
+  it("stores the scanned PDF for visual Read instead of dead-ending", async () => {
     const { vault, storeFile } = makeVault();
     const pdfBuf = makePdf(); // no content stream → pdf-parse returns empty text
 
@@ -213,9 +214,9 @@ describe("processAttachment — PDF with empty text (image-only)", () => {
       vault,
     );
 
-    expect(storeFile).not.toHaveBeenCalled();
+    expect(storeFile).toHaveBeenCalledOnce();
     expect(result).toContain("scan.pdf");
-    expect(result).toContain("image-only");
+    expect(result).toContain("scanned PDF (no text layer)");
   });
 });
 
@@ -434,5 +435,54 @@ describe("video attachments", () => {
     const out = await processAttachment(big, makeVault().vault, undefined, { transcribe, available: () => true });
     expect(transcribe).not.toHaveBeenCalled();
     expect(out).toContain("video too large");
+  });
+});
+
+import { execFileSync } from "node:child_process";
+const hasFfmpeg = (() => { try { execFileSync("ffmpeg", ["-version"], { stdio: "ignore" }); return true; } catch { return false; } })();
+
+describe("image-only PDF vault fallback", () => {
+  it("stores the PDF in the vault and points Read at it", async () => {
+    const { vault, storeFile } = makeVault();
+    const out = await processAttachment(
+      { kind: "buffer", buf: makePdf(), fileName: "scan2.pdf", mimeType: "application/pdf" }, vault,
+    );
+    expect(storeFile).toHaveBeenCalledOnce();
+    expect(storeFile.mock.calls[0][0]).toBe("attachments/pdfs");
+    expect(out).toContain("scanned PDF (no text layer) saved to vault at");
+    expect(out).toContain("Use the Read tool");
+  });
+});
+
+describe("oversize image downscale", () => {
+  it.skipIf(!hasFfmpeg)("downscales >5MB images instead of rejecting", async () => {
+    const { vault, storeFile } = makeVault();
+    const bmp = join(tmpdir(), `aios-test-big-${randomUUID()}.bmp`);
+    execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "color=c=red:s=2400x2400", "-frames:v", "1", bmp], { stdio: "ignore" });
+    const buf = readFileSync(bmp);
+    expect(buf.length).toBeGreaterThan(5 * 1024 * 1024); // 2400*2400*3 ≈ 16.5 MB uncompressed
+    const out = await processAttachment(
+      { kind: "buffer", buf, fileName: "huge.bmp", mimeType: "image/bmp" }, vault, undefined,
+      { ffmpegBin: "ffmpeg" },
+    );
+    expect(storeFile).toHaveBeenCalledOnce();
+    expect(String(storeFile.mock.calls[0][1])).toMatch(/\.jpg$/);
+    expect(out).toContain("image saved to vault at");
+    expect(out).toContain("downscaled from");
+    unlinkSync(bmp);
+  });
+
+  it("no ffmpeg dep → oversize still rejected with the existing note", async () => {
+    const big = { kind: "buffer" as const, buf: Buffer.alloc(6 * 1024 * 1024), fileName: "big.png", mimeType: "image/png" };
+    const out = await processAttachment(big, makeVault().vault);
+    expect(out).toContain("image too large");
+  });
+
+  it("small images unchanged — no downscale note", async () => {
+    const out = await processAttachment(
+      { kind: "buffer", buf: Buffer.from("tiny"), fileName: "s.png", mimeType: "image/png" }, makeVault().vault,
+    );
+    expect(out).toContain("image saved to vault at");
+    expect(out).not.toContain("downscaled");
   });
 });

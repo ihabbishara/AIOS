@@ -107,10 +107,22 @@ async function transcribeToAnnotation(
   }
 }
 
+/** Downscale an image to ≤2000px-wide JPEG. Returns the tmp output path, or null on any failure. */
+async function downscaleImage(ffmpegBin: string, inPath: string): Promise<string | null> {
+  const out = join(tmpdir(), `aios-img-${randomUUID()}.jpg`);
+  try {
+    await run(ffmpegBin, ["-y", "-i", inPath, "-vf", "scale='min(2000,iw)':-2", "-q:v", "3", out]);
+    return existsSync(out) ? out : null;
+  } catch {
+    try { unlinkSync(out); } catch {}
+    return null;
+  }
+}
+
 // ── MIME classification helpers ──────────────────────────────────────────────
 
-const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
-const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]);
+const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
 const VIDEO_EXTS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm"]);
 const VIDEO_MIMES = new Set([
   "video/mp4",
@@ -129,6 +141,7 @@ function guessMimeType(fileName: string): string {
     ".png": "image/png",
     ".gif": "image/gif",
     ".webp": "image/webp",
+    ".bmp": "image/bmp",
     ".pdf": "application/pdf",
     ".mp3": "audio/mpeg",
     ".m4a": "audio/mp4",
@@ -166,49 +179,46 @@ async function classifyAndProcess(
   // ── Image ──────────────────────────────────────────────────────────────────
   if (IMAGE_EXTS.has(ext) || IMAGE_MIMES.has(mimeType)) {
     const MAX_IMAGE = 5 * 1024 * 1024; // 5 MB
-    if (buf.length > MAX_IMAGE) {
-      // m3: inline cleanup — no misleading cleanup() closure.
-      if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
-      const mb = Math.round(buf.length / 1024 / 1024);
-      log?.(`[attachments] ${safeName} skipped: ${mb} MB > 5 MB limit`);
-      return `[Attachment: ${safeName} — image too large (${mb} MB, limit 5 MB); not stored]`;
-    }
 
     // M1: randomUUID() prevents filename collision under concurrent processing.
     // m7: use safeName so a crafted filename with \n/[] can't inject into the vault path.
     const destName = `${randomUUID()}-${basename(safeName)}`;
 
-    // Initialize to "" so TypeScript's CFA knows vaultPath is always assigned
-    // before the return statement. If vault.storeFile throws, the finally block
-    // runs and re-throws — the empty string is never returned because the return
-    // on the last line of this branch is never reached.
-    let vaultPath = "";
-
-    if (sourcePath) {
-      // Disk file (Telegram): copy into vault, always remove staging file.
-      // M2: try/finally guarantees deletion even when vault.storeFile throws.
-      try {
-        vaultPath = vault.storeFile("attachments/images", destName, sourcePath);
-      } finally {
-        try { unlinkSync(sourcePath); } catch {}
-      }
-    } else {
-      // In-memory buffer (Gmail): write to OS temp, copy to vault, clean up.
-      // m2: path.join() instead of string template for OS-agnostic separator.
-      const tmpPath = join(tmpdir(), `aios-att-${randomUUID()}`);
-      writeFileSync(tmpPath, buf);
-      try {
-        vaultPath = vault.storeFile("attachments/images", destName, tmpPath);
-      } finally {
-        try { unlinkSync(tmpPath); } catch {}
-      }
+    // Unify staging: buffer sources hit OS tmp so both downscale and store work
+    // from a path. M2: try/finally guarantees staging deletion on any exit.
+    let stagePath = sourcePath;
+    let stagedTmp: string | undefined;
+    if (!stagePath) {
+      stagedTmp = join(tmpdir(), `aios-att-${randomUUID()}`);
+      writeFileSync(stagedTmp, buf);
+      stagePath = stagedTmp;
     }
-
-    log?.(`[attachments] ${safeName} → vault at ${vaultPath}`);
-    return (
-      `[Attachment: ${safeName} — image saved to vault at ${vaultPath}. ` +
-      `Use the Read tool to view it.]`
-    );
+    try {
+      if (buf.length > MAX_IMAGE) {
+        const mb = Math.round(buf.length / 1024 / 1024);
+        const down = media?.ffmpegBin ? await downscaleImage(media.ffmpegBin, stagePath) : null;
+        if (!down) {
+          log?.(`[attachments] ${safeName} skipped: ${mb} MB > 5 MB limit`);
+          return `[Attachment: ${safeName} — image too large (${mb} MB, limit 5 MB); not stored]`;
+        }
+        try {
+          const vaultPath = vault.storeFile("attachments/images", `${destName}.jpg`, down);
+          log?.(`[attachments] ${safeName} → downscaled from ${mb} MB → vault at ${vaultPath}`);
+          return `[Attachment: ${safeName} — image saved to vault at ${vaultPath} (downscaled from ${mb} MB). Use the Read tool to view it.]`;
+        } finally {
+          try { unlinkSync(down); } catch {}
+        }
+      }
+      const vaultPath = vault.storeFile("attachments/images", destName, stagePath);
+      log?.(`[attachments] ${safeName} → vault at ${vaultPath}`);
+      return (
+        `[Attachment: ${safeName} — image saved to vault at ${vaultPath}. ` +
+        `Use the Read tool to view it.]`
+      );
+    } finally {
+      if (stagedTmp) { try { unlinkSync(stagedTmp); } catch {} }
+      if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
+    }
   }
 
   // ── PDF ────────────────────────────────────────────────────────────────────
@@ -223,14 +233,27 @@ async function classifyAndProcess(
       // Convert to Uint8Array — pdfjs requires this on Node v22+ (Buffer's V8
       // backing-store differs from plain Uint8Array and breaks xref reading).
       const { text } = await pdfParse(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-      if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
       const MAX_CHARS = 12_000;
       const body = text.trim().slice(0, MAX_CHARS);
       const suffix = text.trim().length > MAX_CHARS ? "\n…[text truncated at 12 000 chars]" : "";
-      log?.(`[attachments] ${safeName} → extracted ${body.length} chars of PDF text`);
       if (!body) {
-        return `[Attachment: ${safeName} — PDF appears to be image-only; no extractable text]`;
+        // Scanned/image-only PDF: store the original for visual Read instead of dead-ending.
+        const destName = `${randomUUID()}-${basename(safeName)}`;
+        let vaultPath: string;
+        if (sourcePath) {
+          try { vaultPath = vault.storeFile("attachments/pdfs", destName, sourcePath); }
+          finally { try { unlinkSync(sourcePath); } catch {} }
+        } else {
+          const tmpPath = join(tmpdir(), `aios-att-${randomUUID()}.pdf`);
+          writeFileSync(tmpPath, buf);
+          try { vaultPath = vault.storeFile("attachments/pdfs", destName, tmpPath); }
+          finally { try { unlinkSync(tmpPath); } catch {} }
+        }
+        log?.(`[attachments] ${safeName} → scanned PDF stored at ${vaultPath}`);
+        return `[Attachment: ${safeName} — scanned PDF (no text layer) saved to vault at ${vaultPath}. Use the Read tool to view it.]`;
       }
+      if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
+      log?.(`[attachments] ${safeName} → extracted ${body.length} chars of PDF text`);
       return `[Attachment: ${safeName} — PDF text follows]\n${body}${suffix}`;
     } catch (err) {
       if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
