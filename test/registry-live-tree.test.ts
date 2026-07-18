@@ -52,8 +52,11 @@ describe("live agents/ tree", () => {
     expect(halalo.role.systemPrompt).toContain("Exports directory");
   });
 
-  it("jasmine prompt has unbroken tool chain", () => {
-    expect(reg.agents.get("jasmine")!.role.systemPrompt).toContain("update_task/complete_task/dismiss_task");
+  it("jasmine prompt names every lifeops tool", () => {
+    const prompt = reg.agents.get("jasmine")!.role.systemPrompt;
+    for (const tool of ["add_task", "list_tasks", "update_task", "complete_task", "dismiss_task"]) {
+      expect(prompt).toContain(tool);
+    }
   });
 
   it("private agents are midas and jasmine only", () => {
