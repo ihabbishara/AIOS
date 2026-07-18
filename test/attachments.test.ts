@@ -356,3 +356,83 @@ describe("processAttachment — filename sanitization (m7)", () => {
     expect(result).not.toMatch(/evil\nname/);
   });
 });
+
+// ── Media understanding (spec 2026-07-18-media-understanding) ────────────────
+
+describe("audio attachments", () => {
+  const mp3 = { kind: "buffer" as const, buf: Buffer.from("fake-mp3-bytes"), fileName: "note.mp3", mimeType: "audio/mpeg" };
+
+  it("transcribes via injected media.transcribe and inlines the transcript", async () => {
+    const transcribe = vi.fn(async () => "hello from the voice note");
+    const out = await processAttachment(mp3, makeVault().vault, undefined, { transcribe, available: () => true });
+    expect(transcribe).toHaveBeenCalledOnce();
+    expect(out).toContain("audio transcript follows");
+    expect(out).toContain("hello from the voice note");
+  });
+
+  it("caps the transcript at 8000 chars", async () => {
+    const transcribe = async () => "x".repeat(9000);
+    const out = await processAttachment(mp3, makeVault().vault, undefined, { transcribe, available: () => true });
+    expect(out).toContain("x".repeat(8000));
+    expect(out).not.toContain("x".repeat(8001));
+    expect(out).toContain("[transcript truncated]");
+  });
+
+  it("voice unavailable → honest note, transcribe not called", async () => {
+    const transcribe = vi.fn(async () => "never");
+    const out = await processAttachment(mp3, makeVault().vault, undefined, { transcribe, available: () => false });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(out).toContain("transcription unavailable");
+  });
+
+  it("no media deps at all → unavailable note (back-compat default)", async () => {
+    const out = await processAttachment(mp3, makeVault().vault);
+    expect(out).toContain("transcription unavailable");
+  });
+
+  it("transcribe throwing → failed annotation, no throw", async () => {
+    const out = await processAttachment(mp3, makeVault().vault, undefined, {
+      transcribe: async () => { throw new Error("whisper exploded"); }, available: () => true,
+    });
+    expect(out).toContain("transcription failed: whisper exploded");
+  });
+
+  it("oversize audio → size rejection before transcribe", async () => {
+    const transcribe = vi.fn(async () => "never");
+    const big = { kind: "buffer" as const, buf: Buffer.alloc(26 * 1024 * 1024), fileName: "long.wav", mimeType: "audio/wav" };
+    const out = await processAttachment(big, makeVault().vault, undefined, { transcribe, available: () => true });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(out).toContain("audio too large");
+  });
+});
+
+describe("video attachments", () => {
+  const mp4 = { kind: "buffer" as const, buf: Buffer.from("fake-mp4"), fileName: "clip.mp4", mimeType: "video/mp4" };
+
+  it("transcribes the audio track via the same transcribe fn", async () => {
+    const transcribe = vi.fn(async () => "words from the video");
+    const out = await processAttachment(mp4, makeVault().vault, undefined, { transcribe, available: () => true });
+    expect(transcribe).toHaveBeenCalledOnce();
+    expect(out).toContain("video transcript follows");
+    expect(out).toContain("words from the video");
+  });
+
+  it("empty transcript → no speech detected", async () => {
+    const out = await processAttachment(mp4, makeVault().vault, undefined, { transcribe: async () => "  ", available: () => true });
+    expect(out).toContain("no speech detected");
+  });
+
+  it("unavailable → honest note (previous 'not supported' text gone)", async () => {
+    const out = await processAttachment(mp4, makeVault().vault);
+    expect(out).toContain("transcription unavailable");
+    expect(out).not.toContain("not supported");
+  });
+
+  it("oversize video rejected before transcribe", async () => {
+    const transcribe = vi.fn(async () => "never");
+    const big = { kind: "buffer" as const, buf: Buffer.alloc(101 * 1024 * 1024), fileName: "movie.mp4", mimeType: "video/mp4" };
+    const out = await processAttachment(big, makeVault().vault, undefined, { transcribe, available: () => true });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(out).toContain("video too large");
+  });
+});

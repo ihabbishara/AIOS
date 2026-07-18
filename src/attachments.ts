@@ -12,12 +12,16 @@
  * (in-memory Buffers from the attachments API) converge here via
  * AttachmentSource.
  */
-import { readFileSync, writeFileSync, unlinkSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, statSync, existsSync } from "node:fs";
 import { extname, basename, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { VaultWriter } from "./vault/writer.js";
+
+const run = promisify(execFile);
 
 // pdf-parse is CommonJS; use createRequire for safe interop in ESM context.
 // pdf-parse v1 passes the input directly to pdfjs's getDocument(). On Node v22+,
@@ -42,6 +46,67 @@ export type AttachmentSource =
   | { kind: "file"; path: string; fileName: string }
   | { kind: "buffer"; buf: Buffer; fileName: string; mimeType: string };
 
+/** Injected media capabilities — absent deps degrade to honest "unavailable" notes. */
+export interface MediaDeps {
+  /** VoiceService.transcribe — accepts any ffmpeg-readable path (audio AND video). */
+  transcribe?: (path: string) => Promise<string>;
+  /** VoiceService.available — false means whisper/ffmpeg missing or disabled. */
+  available?: () => boolean;
+  /** ffmpeg binary for image downscaling (bare "ffmpeg" resolves via PATH). */
+  ffmpegBin?: string;
+}
+
+const AUDIO_EXTS = new Set([".mp3", ".m4a", ".wav", ".ogg", ".oga", ".flac"]);
+const AUDIO_MIMES = new Set([
+  "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/m4a",
+  "audio/wav", "audio/x-wav", "audio/ogg", "audio/flac",
+]);
+const MAX_AUDIO = 25 * 1024 * 1024;   // 25 MB
+const MAX_VIDEO = 100 * 1024 * 1024;  // 100 MB
+const MAX_TRANSCRIPT = 8_000;         // chars inlined into the prompt
+
+/**
+ * Transcribe an audio/video attachment to an inline annotation. Buffer sources
+ * are staged to OS tmp for the transcriber; all staging is cleaned in finally.
+ * Failures NEVER throw — they become honest annotations (pipeline convention).
+ */
+async function transcribeToAnnotation(
+  kindLabel: "audio" | "video",
+  buf: Buffer,
+  safeName: string,
+  sizeKb: number,
+  media: MediaDeps | undefined,
+  sourcePath: string | undefined,
+  log?: (line: string) => void,
+): Promise<string> {
+  if (!media?.transcribe || media.available?.() === false) {
+    if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
+    return `[Attachment: ${safeName} — ${kindLabel} file (${sizeKb} KB); transcription unavailable]`;
+  }
+  let path = sourcePath;
+  let stagedTmp: string | undefined;
+  if (!path) {
+    stagedTmp = join(tmpdir(), `aios-med-${randomUUID()}${extname(safeName) || ""}`);
+    writeFileSync(stagedTmp, buf);
+    path = stagedTmp;
+  }
+  try {
+    const text = (await media.transcribe(path)).trim();
+    if (!text) return `[Attachment: ${safeName} — ${kindLabel} (${sizeKb} KB); no speech detected]`;
+    const body = text.slice(0, MAX_TRANSCRIPT);
+    const suffix = text.length > MAX_TRANSCRIPT ? "\n…[transcript truncated]" : "";
+    log?.(`[attachments] ${safeName} → ${kindLabel} transcript, ${body.length} chars`);
+    return `[Attachment: ${safeName} — ${kindLabel} transcript follows]\n${body}${suffix}`;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log?.(`[attachments] ${safeName} — transcription failed: ${msg}`);
+    return `[Attachment: ${safeName} — ${kindLabel} transcription failed: ${msg}]`;
+  } finally {
+    if (stagedTmp) { try { unlinkSync(stagedTmp); } catch {} }
+    if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
+  }
+}
+
 // ── MIME classification helpers ──────────────────────────────────────────────
 
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
@@ -65,6 +130,12 @@ function guessMimeType(fileName: string): string {
     ".gif": "image/gif",
     ".webp": "image/webp",
     ".pdf": "application/pdf",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".flac": "audio/flac",
     ".mp4": "video/mp4",
     ".mov": "video/quicktime",
     ".avi": "video/x-msvideo",
@@ -83,6 +154,7 @@ async function classifyAndProcess(
   vault: VaultWriter,
   sourcePath?: string,
   log?: (line: string) => void,
+  media?: MediaDeps,
 ): Promise<string> {
   const ext = extname(fileName).toLowerCase();
   const sizeKb = Math.round(buf.length / 1024);
@@ -168,10 +240,23 @@ async function classifyAndProcess(
     }
   }
 
-  // ── Video ──────────────────────────────────────────────────────────────────
+  // ── Audio ──────────────────────────────────────────────────────────────────
+  if (AUDIO_EXTS.has(ext) || AUDIO_MIMES.has(mimeType)) {
+    if (buf.length > MAX_AUDIO) {
+      if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
+      return `[Attachment: ${safeName} — audio too large (${Math.round(buf.length / 1024 / 1024)} MB, limit 25 MB); not transcribed]`;
+    }
+    return transcribeToAnnotation("audio", buf, safeName, sizeKb, media, sourcePath, log);
+  }
+
+  // ── Video — transcribe the audio track (ffmpeg inside the transcriber
+  //    handles the container; no keyframe extraction this cycle) ─────────────
   if (VIDEO_EXTS.has(ext) || VIDEO_MIMES.has(mimeType)) {
-    if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
-    return `[Attachment: ${safeName} — video file (${sizeKb} KB); video content extraction is not supported]`;
+    if (buf.length > MAX_VIDEO) {
+      if (sourcePath) { try { unlinkSync(sourcePath); } catch {} }
+      return `[Attachment: ${safeName} — video too large (${Math.round(buf.length / 1024 / 1024)} MB, limit 100 MB); not transcribed]`;
+    }
+    return transcribeToAnnotation("video", buf, safeName, sizeKb, media, sourcePath, log);
   }
 
   // ── Unsupported / unknown ──────────────────────────────────────────────────
@@ -191,6 +276,7 @@ export async function processAttachment(
   source: AttachmentSource,
   vault: VaultWriter,
   log?: (line: string) => void,
+  media?: MediaDeps,
 ): Promise<string> {
   if (source.kind === "file") {
     // m8: reject paths that escape the known downloads directory.
@@ -211,11 +297,11 @@ export async function processAttachment(
     }
     const buf = readFileSync(source.path);
     const mimeType = guessMimeType(source.fileName);
-    return classifyAndProcess(buf, source.fileName, mimeType, vault, source.path, log);
+    return classifyAndProcess(buf, source.fileName, mimeType, vault, source.path, log, media);
   }
 
   // Buffer path (e.g. Gmail).
-  return classifyAndProcess(source.buf, source.fileName, source.mimeType, vault, undefined, log);
+  return classifyAndProcess(source.buf, source.fileName, source.mimeType, vault, undefined, log, media);
 }
 
 /**
@@ -229,11 +315,12 @@ export async function processAttachments(
   attachments: Array<{ path: string; fileName: string }>,
   vault: VaultWriter,
   log?: (line: string) => void,
+  media?: MediaDeps,
 ): Promise<string> {
   if (!attachments.length) return "";
   const parts = await Promise.all(
     attachments.map((att) =>
-      processAttachment({ kind: "file", path: att.path, fileName: att.fileName }, vault, log),
+      processAttachment({ kind: "file", path: att.path, fileName: att.fileName }, vault, log, media),
     ),
   );
   return parts.join("\n");
