@@ -44,7 +44,7 @@ lifeops:
           mcp__lifeops__complete_task, mcp__lifeops__dismiss_task]
 
 # -- client systems ------------------------------------------------------------------
-halalo-aws:  { server: cloudflare, tools: [mcp__halalo_analytics__cloudflare_analytics], guard: halalo-readonly }
+halalo-aws:  { server: cloudflare, tools: [mcp__halalo_analytics__cloudflare_analytics], guard: halalo-readonly, labels: [client.halalo] }
 attach:      { tools: [mcp__aios_attachments__attach_file] }
 
 # -- guard-only modifiers ---------------------------------------------------------------
