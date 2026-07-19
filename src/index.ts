@@ -319,6 +319,7 @@ async function main(): Promise<void> {
       channel: goal.origin_channel,
       chatId: goal.origin_chat_id,
       text: report.slice(0, 300),
+      pushed: true, // server-initiated — ui2 folds this into the web chat (router echoes are not pushed)
       ...(descriptors.length ? { attachments: descriptors } : {}),
     });
   };
@@ -359,7 +360,7 @@ async function main(): Promise<void> {
       primaryChat: config.primaryChat, projectsRoot: config.projectsRoot,
       postPreview: async (origin, text) => {
         await channels.get(origin.channel)?.send(origin.chatId, text);
-        bus.emit({ type: "chat.out", channel: origin.channel, chatId: origin.chatId, text: text.slice(0, 300) });
+        bus.emit({ type: "chat.out", channel: origin.channel, chatId: origin.chatId, text: text.slice(0, 300), pushed: true });
       },
       log,
     }),

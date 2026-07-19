@@ -56,11 +56,12 @@ export function Chat({ state, events, target, setTarget, seed }: {
   useEffect(() => { if (seed) setInput(seed); }, [seed]);
 
   // Server-pushed cockpit messages (goal completions, planner previews) arrive over SSE as
-  // chat.out events; interactive replies return over HTTP and never emit chat.out, so no double.
+  // chat.out events flagged pushed:true. Interactive replies ALSO emit chat.out (router echo, for
+  // the activity log/triage) but unflagged — folding those would double the HTTP reply, so gate on pushed.
   useEffect(() => {
     const pushes = events.filter((e) => {
-      const ev = e.event as unknown as { type: string; channel?: string; chatId?: string };
-      return ev.type === "chat.out" && ev.channel === "web" && ev.chatId === "ui";
+      const ev = e.event as unknown as { type: string; channel?: string; chatId?: string; pushed?: boolean };
+      return ev.type === "chat.out" && ev.pushed === true && ev.channel === "web" && ev.chatId === "ui";
     });
     if (!pushes.length) return;
     setLog((prev) => {
