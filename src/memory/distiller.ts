@@ -264,12 +264,17 @@ export function factDiffLLM(model?: string, log?: (line: string) => void): FactD
       } });
       for await (const msg of q) {
         if (msg.type === "result") {
-          if (msg.subtype !== "success") return [];
+          // Mirror groundLLM: a non-success or unparseable RESULT is a transient failure, not a
+          // clean empty extraction. Return [] ONLY for a successfully-parsed empty array — otherwise
+          // an LLM hiccup on a bootstrapPending run would wrongly stamp distill:bootstrapped:<domain>
+          // and abandon the memo's facts forever (observed live 2026-07-19: general.md).
+          if (msg.subtype !== "success") throw new Error("factDiff returned no result");
           const m = /\[[\s\S]*\]/.exec(msg.result);
-          return m ? (JSON.parse(m[0]) as FactCandidate[]) : [];
+          if (!m) throw new Error("factDiff output unparseable");
+          return JSON.parse(m[0]) as FactCandidate[];
         }
       }
-      return [];
+      throw new Error("factDiff stream ended without result");
     } catch (err) {
       // THROW, don't mask as []: distill's per-domain catch skips this domain (retries next run)
       // and — critically — the bootstrap stamp only fires on a clean empty extraction, never on a

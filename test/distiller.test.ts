@@ -134,6 +134,22 @@ describe("fact-diff distill (memory-v2 §4)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("transient factDiff failure does NOT stamp bootstrapped (retries next run) — regression 2026-07-19", async () => {
+    const { root, store, vault, gate } = setup();
+    vault.writeNote("memos/general.md", "# general\n- prefers window seats");
+    // A pure bootstrap run whose factDiff THROWS (transient LLM hiccup) must leave the domain
+    // un-stamped, or line-83's early-return would abandon general.md's facts forever. This is the
+    // failure observed live: a swallowed [] wrongly stamped bootstrapped:general and dropped teaching 5.
+    await distill({
+      store, vault, gate, nowIso: NOW,
+      factDiff: async () => { throw new Error("transient overload"); },
+      ground: groundAll,
+    });
+    expect(store.kvGet("distill:bootstrapped:general")).toBeUndefined();
+    expect(store.activeMemoFacts("general")).toHaveLength(0);
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("quiet domain with facts already extracted stays a no-op (no LLM churn)", async () => {
     const { root, store, vault, gate } = setup();
     vault.writeNote("memos/general.md", "# general\n- prefers window seats");
