@@ -1,4 +1,5 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { createHash } from "node:crypto";
 import type { Store } from "../store/db.js";
 
 export interface ResumableTurnParams {
@@ -11,9 +12,34 @@ export interface ResumableTurnParams {
   /** Fired once, only on a successful turn (same point the session id is persisted) — used to
    *  commit unread-mail delivery so a crashed/errored turn re-surfaces the mail. */
   onSuccess?: () => void;
+  /** Resolved tool-surface hash — when provided, a stored-hash mismatch (or absence)
+   *  starts a fresh session instead of resuming a stale surface. */
+  surfaceHash?: string;
 }
 
 export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
+
+/** Hash of the resolved tool surface — tools-only scope (spec 2026-07-19): a resumed
+ *  session whose surface changed must NOT resume (it would keep the stale surface). */
+export function surfaceHash(options: Options): string {
+  const payload = JSON.stringify({
+    tools: [...(options.allowedTools ?? [])].sort(),
+    servers: Object.keys(options.mcpServers ?? {}).sort(),
+    mode: options.permissionMode ?? null,
+  });
+  return createHash("sha256").update(payload).digest("hex").slice(0, 16);
+}
+
+const surfaceKey = (sessionKey: string) => `surface:${sessionKey}`;
+
+/** Stored resume id, or undefined when it must not be used. With a hash param, an absent
+ *  stored hash is a mismatch (fail-closed): pre-feature sessions reset once at first turn. */
+export function resumeFor(store: Store, sessionKey: string, hash?: string): string | undefined {
+  const id = store.kvGet(sessionKey);
+  if (!id) return undefined;
+  if (hash !== undefined && store.kvGet(surfaceKey(sessionKey)) !== hash) return undefined;
+  return id;
+}
 
 /**
  * Runs one turn of a persistent conversation: resumes the stored session if any,
@@ -21,9 +47,13 @@ export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
  * stored id no longer exists on disk (retries once with a fresh session).
  */
 export async function resumableTurn(params: ResumableTurnParams): Promise<string> {
-  const existing = params.store.kvGet(params.sessionKey);
+  const stored = params.store.kvGet(params.sessionKey);
+  const resume = resumeFor(params.store, params.sessionKey, params.surfaceHash);
+  if (stored && !resume && params.surfaceHash !== undefined) {
+    params.log?.(`tool surface changed for ${params.sessionKey} — starting fresh session`);
+  }
   try {
-    return await runOnce(params, existing || undefined);
+    return await runOnce(params, resume);
   } catch (err) {
     if (err instanceof Error && LOCKDOWN_RE.test(err.message)) {
       params.log?.(`stale/locked session for ${params.sessionKey}, starting fresh`);
@@ -62,6 +92,9 @@ async function runOnce(params: ResumableTurnParams, resume: string | undefined):
         // completing turn would silently undo the reset.
         if (params.store.kvGet(epochKey(params.sessionKey)) === epochAtStart) {
           params.store.kvSet(params.sessionKey, msg.session_id);
+          if (params.surfaceHash !== undefined) {
+            params.store.kvSet(surfaceKey(params.sessionKey), params.surfaceHash);
+          }
         } else {
           params.log?.(`reset during in-flight turn for ${params.sessionKey} — session id not persisted`);
         }
