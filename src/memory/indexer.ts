@@ -146,14 +146,21 @@ export function indexMailThread(store: Store, registry: LoadedRegistry, threadId
   // wall (deny → doc deleted); the old private-participant visibility loop is gone
   // (wall-deletion spec §3/§4).
   const participantDepts: string[] = [];
+  let hasGhost = false;
   for (const m of rows) {
     for (const p of [m.from_agent, m.to_agent]) {
       if (p === "user") continue;
       const canonical = registry.agentOf.get(p);
       const d = canonical ? registry.agents.get(canonical)?.department : undefined;
       if (d) participantDepts.push(d);
+      else hasGhost = true; // unresolvable agent — see fail-closed note below
     }
   }
+  // Fail closed on a ghost participant: an agent that no longer resolves (a disabled department,
+  // e.g. AIOS_MONEY_DISABLED=1 drops finance) would otherwise contribute NO label to the union,
+  // silently laundering a once-private thread down to org.internal and re-indexing it. Skip +
+  // purge instead — self-healing when the agent returns.
+  if (hasGhost) { store.deleteMemoryDoc("mail", ref); return; }
   const labels = docLabels({ source: "mail", domain, dept, participantDepts });
   const included = rows.filter((m) => m.status !== "refused");
   if (!included.length) { store.deleteMemoryDoc("mail", ref); return; }

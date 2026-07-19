@@ -87,13 +87,25 @@ export async function renderChart(spec: ChartSpec, outDir: string, pythonBin = "
   }
 }
 
+/** Graphviz honors file-referencing attributes (image/imagepath/shapefile/fontpath/labelloc
+ *  file loads) — an agent could embed an arbitrary local image's pixels into the delivered PNG,
+ *  exfiltrating a file past its confinement. Strip those attributes from agent DOT before render
+ *  (belt: also set GV_FILE_PATH to the staging dir so any survivor can't escape it). */
+const GV_FILE_ATTRS = /\b(image|imagepath|shapefile|fontpath|imagescale)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s,;\]]+)/gi;
+export function sanitizeDot(dot: string): string {
+  return dot.replace(GV_FILE_ATTRS, "");
+}
+
 /** Graphviz render — dot is a declarative graph language, not code execution. */
 export async function renderDiagram(dot: string, outDir: string): Promise<RenderResult> {
   const dotPath = join(outDir, "diagram.dot");
   const outPath = join(outDir, "diagram.png");
-  writeFileSync(dotPath, dot);
+  writeFileSync(dotPath, sanitizeDot(dot));
   try {
-    await run("dot", ["-Tpng", dotPath, "-o", outPath], { timeout: TIMEOUT_MS });
+    await run("dot", ["-Tpng", dotPath, "-o", outPath], {
+      timeout: TIMEOUT_MS,
+      env: { ...process.env, GV_FILE_PATH: outDir },
+    });
     return { ok: true, path: outPath };
   } catch (err) {
     return { ok: false, error: `diagram render failed: ${stderrTail(err)}` };

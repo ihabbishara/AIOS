@@ -1,7 +1,7 @@
 // src/voice/tts.ts
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -124,12 +124,19 @@ export class TtsEngine {
   private async viaSay(text: string): Promise<string> {
     const aiff = join(this.deps.tmpDir, `${randomUUID()}.aiff`);
     const ogg = join(this.deps.tmpDir, `${randomUUID()}.ogg`);
+    // Feed text via -f <file>, NEVER as a positional argv string: `say` parses options anywhere
+    // in argv and reads the glued short form `-f<path>` as --input-file, so agent text like
+    // "-f/etc/secret" would make say voice an arbitrary local file (argv injection → file-read
+    // exfil for a file-confined media-gen agent). A temp file keeps agent text out of argv.
+    const txt = join(this.deps.tmpDir, `${randomUUID()}.txt`);
+    writeFileSync(txt, text);
     try {
-      await run(this.deps.sayBin ?? "/usr/bin/say", ["-o", aiff, text]);
+      await run(this.deps.sayBin ?? "/usr/bin/say", ["-o", aiff, "-f", txt]);
       await run(this.deps.ffmpegBin, ["-y", "-i", aiff, "-c:a", "libopus", ogg]);
       return ogg;
     } finally {
       rmSync(aiff, { force: true });
+      rmSync(txt, { force: true });
     }
   }
 }

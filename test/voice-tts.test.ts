@@ -90,4 +90,25 @@ describe("TtsEngine say-fallback path (stub ffmpeg, fake say)", () => {
     });
     await expect(tts.synthesize("hello")).rejects.toThrow();
   });
+
+  it("SECURITY: agent text is passed via -f <file>, never as a positional say arg (argv injection)", async () => {
+    const dir = tmp();
+    // fake say records its full argv; a real `say` would parse a positional "-f/path" as
+    // --input-file. The fix must place text in a temp file, so argv carries "-f <tmpfile>"
+    // and the agent's text string never appears as a bare positional argument.
+    const argvLog = join(dir, "argv.txt");
+    const fakeSay = join(dir, "fake-say.sh");
+    writeFileSync(fakeSay, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvLog}"\nprev=""\nfor a in "$@"; do\n  if [ "$prev" = "-o" ]; then echo aiff-bytes > "$a"; fi\n  prev="$a"\ndone\n`);
+    const { chmodSync, readFileSync } = await import("node:fs");
+    chmodSync(fakeSay, 0o755);
+    const tts = new TtsEngine({ voice: "say", ffmpegBin: FAKE_FFMPEG, sayBin: fakeSay, tmpDir: dir });
+    await tts.synthesize("-f/etc/passwd");
+    const argv = readFileSync(argvLog, "utf8").split("\n");
+    // "-f" is present as a flag followed by a TEMP FILE path, and the malicious text is NOT a
+    // standalone argv entry (it lives inside the temp file, not on the command line).
+    const fIdx = argv.indexOf("-f");
+    expect(fIdx).toBeGreaterThan(-1);
+    expect(argv[fIdx + 1]).toMatch(/\.txt$/); // temp file, not the agent text
+    expect(argv).not.toContain("-f/etc/passwd"); // the injection string is never on argv
+  });
 });

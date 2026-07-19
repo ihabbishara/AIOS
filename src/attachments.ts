@@ -23,6 +23,9 @@ import type { VaultWriter } from "./vault/writer.js";
 
 const run = promisify(execFile);
 
+/** Cap for media subprocesses (ffmpeg) run inside a chat turn under the per-chat lock. */
+const MEDIA_EXEC_TIMEOUT_MS = 60_000;
+
 // pdf-parse is CommonJS; use createRequire for safe interop in ESM context.
 // pdf-parse v1 passes the input directly to pdfjs's getDocument(). On Node v22+,
 // pdfjs requires a Uint8Array — passing a Buffer (which extends Uint8Array but has
@@ -111,7 +114,10 @@ async function transcribeToAnnotation(
 async function downscaleImage(ffmpegBin: string, inPath: string): Promise<string | null> {
   const out = join(tmpdir(), `aios-img-${randomUUID()}.jpg`);
   try {
-    await run(ffmpegBin, ["-y", "-i", inPath, "-vf", "scale='min(2000,iw)':-2", "-q:v", "3", out]);
+    // Timeout: this runs inside Moderator.turn() under the per-chat lock — a pathological
+    // container that makes ffmpeg spin would otherwise hang the chat until the outer 10-min
+    // stream-close. The timeout throws → the catch returns null → original-image fallback.
+    await run(ffmpegBin, ["-y", "-i", inPath, "-vf", "scale='min(2000,iw)':-2", "-q:v", "3", out], { timeout: MEDIA_EXEC_TIMEOUT_MS });
     return existsSync(out) ? out : null;
   } catch {
     try { unlinkSync(out); } catch {}

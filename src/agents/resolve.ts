@@ -211,37 +211,39 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
       mcpServers: { ...(base.mcpServers ?? {}), ...(mcpServers as Options["mcpServers"]) },
     };
 
-    // Capability guards (AND-composed). Shim era: an agent whose extras already installed
-    // toolChecks (via roleQueryOptions above) keeps those; capability guards apply only when
-    // extras carry none — the two sources are the same guards until the extras entries are
-    // deleted in the cleanup task, so this avoids double-wrapping.
+    // Collect every guard that must apply, then wire ONCE — the sandbox guard AND-composes with
+    // the capability/extras guard instead of replacing it. A plain spread on the shared
+    // PreToolUse hook key replaces, so the old code silently dropped a capability guard (e.g.
+    // atlas-mutating's mcp__code__sh mutation fence) exactly in the sandbox branch where it runs.
+    // Shim era: extras toolChecks and capability guards are the same guards until the extras
+    // entries are deleted, so prefer extras when present to avoid double-wrapping.
     const capGuards = caps.filter((c) => c.guard).map((c) => NAMED_GUARDS[c.guard!](guardCfg));
-    if (!def.role.toolChecks && capGuards.length > 0) {
-      const g = combineGuards(capGuards);
-      const wired = guardOptions(g.checks, g.fallback ?? "allow");
-      options = { ...options, canUseTool: wired.canUseTool, hooks: { ...(options.hooks ?? {}), ...(wired.hooks ?? {}) } };
+    const guards: NamedGuard[] = [];
+    if (def.role.toolChecks) {
+      guards.push({ checks: def.role.toolChecks, fallback: def.role.toolCheckFallback === "deny" ? "deny" : undefined });
+    } else {
+      guards.push(...capGuards);
     }
 
     // Sandbox confinement — byte-identical to the pack resolver's branch.
     if (sandbox) {
+      options.permissionMode = "default";
+      delete (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
       if (ctx.workspace) {
         options.mcpServers = { ...(options.mcpServers ?? {}), code: buildCodeServer(ctx.workspace) as never };
-        options.permissionMode = "default";
-        delete (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
-        const g = guardOptions(codeGuard(ctx.workspace.taskDir, ctx.workspace.mode), "deny");
-        options.canUseTool = g.canUseTool;
-        options.hooks = { ...(options.hooks ?? {}), ...(g.hooks ?? {}) };
+        guards.push({ checks: codeGuard(ctx.workspace.taskDir, ctx.workspace.mode), fallback: "deny" });
       } else {
-        options.permissionMode = "default";
-        delete (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
-        // Fallback "allow", NOT "deny": advisory means "strip fs/exec", and the named checks
-        // above are exactly that set. A deny fallback vetoed tools the capability union
-        // deliberately granted (odin's WebSearch/WebFetch died in workspace-less goals —
+        // Advisory fallback "allow" (strip fs/exec only); a deny fallback vetoed tools the
+        // capability union granted (odin's WebSearch/WebFetch died in workspace-less goals —
         // observed live 2026-07-18). allowedTools still bounds what exists at all.
-        const g = guardOptions(advisoryGuard(), "allow");
-        options.canUseTool = g.canUseTool;
-        options.hooks = { ...(options.hooks ?? {}), ...(g.hooks ?? {}) };
+        guards.push({ checks: advisoryGuard() });
       }
+    }
+
+    if (guards.length > 0) {
+      const g = combineGuards(guards);
+      const wired = guardOptions(g.checks, g.fallback ?? "allow");
+      options = { ...options, canUseTool: wired.canUseTool, hooks: { ...(options.hooks ?? {}), ...(wired.hooks ?? {}) } };
     }
 
     // DB grant/revoke overrides LAST among widenings (fail-closed) — observer stays at the seams.

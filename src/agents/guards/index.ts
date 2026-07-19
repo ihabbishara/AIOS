@@ -3,6 +3,7 @@ import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { halaloToolChecks, type ToolCheck } from "./halalo-readonly.js";
 import { ledgerReadCheck } from "./read-confined.js";
 import { atlasMutatingChecks } from "./atlas-mutating.js";
+import { webFetchPublicChecks } from "./web-fetch-public.js";
 
 export type { ToolCheck, GuardVerdict } from "./halalo-readonly.js";
 
@@ -31,6 +32,9 @@ export const NAMED_GUARDS: Record<string, (cfg: GuardConfig) => NamedGuard> = {
     ]),
   }),
   "atlas-mutating": () => ({ checks: atlasMutatingChecks() }),
+  // WebFetch SSRF guard for the fetch-only web-fetch capability (minos). Fallback allow: it only
+  // constrains WebFetch, every other tool stays bounded by allowedTools + other guards.
+  "web-fetch-public": () => ({ checks: webFetchPublicChecks() }),
 };
 
 /**
@@ -54,6 +58,11 @@ export function guardOptions(
     // side-effect tool — a fallback-deny guard must never block it (it silently
     // strips verdicts/plans: observed live with the goal planner).
     if (toolName === "StructuredOutput") return { ok: true as const };
+    // ToolSearch only loads deferred tool SCHEMAS — it has no side effect and grants no access
+    // (using a loaded tool still goes through allowedTools + these same checks). A fallback-deny
+    // guard (halalo) must not veto it, or every deferred tool is unreachable: the agent runs
+    // fully offline (observed live — odin's WebFetch deferred, schema-load denied).
+    if (toolName === "ToolSearch") return { ok: true as const };
     // MCP tools (the role's own SDK tools) are governed by allowedTools.
     if (toolName.startsWith("mcp__")) return { ok: true as const };
     return fallback === "allow"

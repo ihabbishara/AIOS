@@ -7,6 +7,10 @@ import { randomUUID } from "node:crypto";
 
 const run = promisify(execFile);
 
+/** Transcription can run inside a chat turn (video/audio attachment) — cap each subprocess so a
+ *  hanging decode falls through to the failed-annotation path instead of stalling the chat. */
+const STT_EXEC_TIMEOUT_MS = 120_000;
+
 /** Interrupted/corrupt downloads are smaller than any real ggml model. */
 const MIN_MODEL_BYTES = 50 * 1024 * 1024;
 
@@ -56,11 +60,11 @@ export class SttEngine {
   async transcribe(audioPath: string): Promise<string> {
     const wav = join(this.deps.tmpDir, `${randomUUID()}.wav`);
     try {
-      await run(this.deps.ffmpegBin, ["-y", "-i", audioPath, "-ar", "16000", "-ac", "1", wav]);
+      await run(this.deps.ffmpegBin, ["-y", "-i", audioPath, "-ar", "16000", "-ac", "1", wav], { timeout: STT_EXEC_TIMEOUT_MS });
       const { stdout } = await run(
         this.deps.whisperBin,
         ["-m", this.deps.modelPath, "-f", wav, "--no-timestamps"],
-        { maxBuffer: 10 * 1024 * 1024 },
+        { maxBuffer: 10 * 1024 * 1024, timeout: STT_EXEC_TIMEOUT_MS },
       );
       return stdout.trim();
     } finally {

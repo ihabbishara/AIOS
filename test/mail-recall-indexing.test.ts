@@ -99,7 +99,7 @@ describe("indexMailThread", () => {
     }
   });
 
-  it("maps domains: user-ask → asker's dept, unknown → general; finance-dept mail is policy-excluded", () => {
+  it("maps domains: user-ask → asker's dept; finance-dept mail policy-excluded; ghost fails closed", () => {
     const store = new Store(":memory:");
     store.insertMail(mailRow({ id: "a", to_agent: "ledger", body: "quarterly invoice totals", thread_id: "ta" }));
     store.insertMail(mailRow({ id: "b", to_agent: "user", body: "should I archive the legacy repo", thread_id: "tb", status: "awaiting-human" }));
@@ -111,7 +111,9 @@ describe("indexMailThread", () => {
     // spec behavior change: finance MAIL leaves the index; decision previews stay via D2).
     expect(recall(store, "invoice totals", { domain: "money" }).length).toBe(0);
     expect(recall(store, "archive legacy repo", { domain: "code" })[0]?.ref).toBe("thread:tb");
-    expect(recall(store, "orphaned correspondence", { domain: "general" })[0]?.ref).toBe("thread:tc");
+    // tc has an unresolvable participant → fail-closed, NOT indexed (review fix: a ghost no
+    // longer launders a possibly-private thread down to org.internal).
+    expect(recall(store, "orphaned correspondence", { domain: "general" }).length).toBe(0);
   });
 
   it("drops refused messages on rebuild (sweep refusal flips status after insert)", () => {

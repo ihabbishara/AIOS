@@ -126,6 +126,22 @@ describe("resolveAgent", () => {
     }
   });
 
+  it("SECURITY: atlas keeps its atlas-mutating fence on mcp__code__sh inside a sandbox workspace", async () => {
+    const { resolve } = setup();
+    // atlas: engineering dept (code-sandbox) + ops-guardrail capability → atlas-mutating guard.
+    // The sandbox branch must AND-compose the capability guard, not replace it (the old code
+    // dropped atlas-mutating exactly when the workspace gave atlas a shell).
+    const ws = mkdtempSync(join(tmpdir(), "atlas-ws-"));
+    const atlas = resolve("atlas", origin, { workspace: { taskDir: ws, mode: "build" } })!;
+    const can = atlas.options.canUseTool!;
+    // mutating shell command → still fenced by atlas-mutating
+    const mut = await can("mcp__code__sh", { command: "git push origin main" }, {} as never);
+    expect(mut.behavior).toBe("deny");
+    // read-only shell command → allowed (codeGuard permits, atlas-mutating permits)
+    const ro = await can("mcp__code__sh", { command: "ls -la" }, {} as never);
+    expect(ro.behavior).toBe("allow");
+  });
+
   it("media-gen carriers get the media server and its three tools", () => {
     const { resolve } = setup();
     for (const name of ["hermes", "midas", "athena", "odin", "clio", "venus"]) {

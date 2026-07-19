@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { renderChart, renderDiagram, buildMediaServer } from "../src/media/server.js";
+import { renderChart, renderDiagram, sanitizeDot, buildMediaServer } from "../src/media/server.js";
 
 const havePython = (() => {
   try { execFileSync("python3", ["-c", "import matplotlib"], { timeout: 15_000 }); return true; }
@@ -66,6 +66,17 @@ describe("renderDiagram", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/diagram render failed/);
   }, 30_000);
+
+  it("SECURITY: sanitizeDot strips file-referencing attributes (image exfil)", () => {
+    const dirty = `digraph { a [image="/Users/x/private.png"]; b [ shapefile = /etc/passwd ]; c [imagepath="/x", label="ok"] }`;
+    const clean = sanitizeDot(dirty);
+    expect(clean).not.toMatch(/image\s*=/i);
+    expect(clean).not.toMatch(/shapefile\s*=/i);
+    expect(clean).not.toMatch(/imagepath\s*=/i);
+    expect(clean).not.toContain("private.png");
+    expect(clean).not.toContain("/etc/passwd");
+    expect(clean).toContain('label="ok"'); // benign attrs survive
+  });
 });
 
 describe("speak tool", () => {

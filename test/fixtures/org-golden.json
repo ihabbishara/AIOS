@@ -217,7 +217,7 @@
     ],
     "permissionMode": "dontAsk",
     "maxTurns": 20,
-    "guarded": false
+    "guarded": true
   },
   "odin": {
     "tools": [

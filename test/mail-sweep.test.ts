@@ -609,11 +609,13 @@ describe("sweep refusal recall re-index", () => {
     const { store, engine } = harness(okRun);
     store.insertMail(reqMail({ id: "m1", to_agent: "nobody", body: "find the perf regression" }));
     indexMailThread(store, registry, "m1"); // stands in for the live mail.sent listener
-    expect(store.memoryFingerprint("mail", "thread:m1")).toBe("1:m1");
+    // Ghost recipient "nobody" → fail-closed, thread never indexed (wall-deletion review fix:
+    // an unresolvable participant no longer launders to org.internal). The refused-body-drop
+    // path itself is covered by mail-recall-indexing "drops refused messages on rebuild".
+    expect(store.memoryFingerprint("mail", "thread:m1")).toBeUndefined();
     engine.pump();
     await flush();
     expect(store.getMail("m1")!.status).toBe("refused");
-    // single-message thread, now all-refused → doc deleted by the refusal-site re-index
     expect(store.memoryFingerprint("mail", "thread:m1")).toBeUndefined();
   });
 });

@@ -11,7 +11,7 @@ drafting:    { tools: [Write] }
 todo:        { tools: [TodoWrite] }
 shell:       { tools: [Bash] }
 web:         { tools: [WebSearch, WebFetch] }
-web-fetch:   { tools: [WebFetch] }   # fetch-only: citation spot-checks (minos) without search
+web-fetch:   { tools: [WebFetch], guard: web-fetch-public }   # fetch-only citation spot-checks (minos); SSRF host guard
 media-gen:   { server: media, tools: [mcp__media__render_chart, mcp__media__render_diagram, mcp__media__speak] }   # charts/diagrams/speech out (⑤d)
 
 # -- memory / vault (aios-pack server) -----------------------------------------

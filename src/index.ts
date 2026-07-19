@@ -95,9 +95,18 @@ async function main(): Promise<void> {
   );
   // Agent mailbox: onQueued forward-refs `goals` (initialized below) — the closure only fires
   // when mail is sent, long after boot, so the reference is resolved by then.
+  // Information-flow checkpoint (spec §4). Reports violations onto the bus; audit blocks nothing.
+  // Constructed here (ahead of its other uses) so the mailbox's inject seam can gate on it.
+  const infoPolicy = new Policy({
+    mode: config.policyMode,
+    report: (v) => bus.emit({ type: "policy.violation", ...v }),
+  });
+  log(`policy: ${config.policyMode} mode`);
+
   const mailbox = new Mailbox({
     store, registry,
     maxDepth: config.mailMaxDepth, disabled: config.mailDisabled,
+    policy: infoPolicy,
     primaryChat: config.primaryChat,
     onEvent: (e) => bus.emit(e),
     onQueued: () => goals.pump(),
@@ -167,13 +176,6 @@ async function main(): Promise<void> {
   const gate = new ActionGate({
     store, registry: executors, policy: config.trustPolicy, bus, expiryMs: config.actionExpiryMs, log,
   });
-
-  // Information-flow checkpoint (spec §4). Reports violations onto the bus; audit blocks nothing.
-  const infoPolicy = new Policy({
-    mode: config.policyMode,
-    report: (v) => bus.emit({ type: "policy.violation", ...v }),
-  });
-  log(`policy: ${config.policyMode} mode`);
 
   // Startup recovery: actions stuck mid-execution from a previous daemon death.
   // MUST run only here, before any executor can be in flight — never on an interval.

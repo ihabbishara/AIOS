@@ -256,6 +256,36 @@ describe("ask_mail → user", () => {
   });
 });
 
+describe("Mailbox.peekInbound info-flow gate", () => {
+  it("SECURITY: private-dept mail is withheld from an uncleared recipient's prompt (and stays unread)", async () => {
+    const { Policy } = await import("../src/kernel/policy.js");
+    const policy = new Policy({ mode: "enforce", report: () => {} });
+    const { store, mb } = harness({ policy });
+    // midas (finance → personal.finance) → athena (engineering, no finance clearance).
+    store.insertMail({
+      id: "f1", from_agent: "midas", to_agent: "athena", kind: "note", body: "runway is 11 months",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    const { block, ids } = mb.peekInbound("athena");
+    expect(block).toBe("");                                    // withheld from the prompt
+    expect(ids).toHaveLength(0);
+    expect(store.unreadMailFor("athena")).toHaveLength(1);     // NOT consumed — stays unread
+  });
+
+  it("org-internal mail still reaches the recipient prompt (no false positive)", async () => {
+    const { Policy } = await import("../src/kernel/policy.js");
+    const policy = new Policy({ mode: "enforce", report: () => {} });
+    const { store, mb } = harness({ policy });
+    store.insertMail({
+      id: "e1", from_agent: "vulcan", to_agent: "athena", kind: "report", body: "build done",
+      goal_id: null, origin_channel: "telegram", origin_chat_id: "1", chain_depth: 1, status: "unread", error: null,
+    });
+    const { block, ids } = mb.peekInbound("athena");
+    expect(block).toContain("build done");
+    expect(ids).toHaveLength(1);
+  });
+});
+
 describe("Mailbox.peekInbound + markDelivered", () => {
   it("renders unread inbound + own refusals, truncates, caps at 5; peek alone does NOT mark read", () => {
     const { store, mb } = harness();

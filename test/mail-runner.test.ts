@@ -68,4 +68,13 @@ describe("withMailOptions", () => {
     return (g.canUseTool!(MAIL_TOOL, {}, { signal: new AbortController().signal } as never) as Promise<{ behavior: string }>)
       .then((v) => expect(v.behavior).toBe("allow"));
   });
+
+  it("fallback-deny guards do not block ToolSearch (deferred-tool schema loads)", async () => {
+    const g = guardOptions({}, "deny");
+    // A fallback-deny guard (halalo) must let ToolSearch through, or every deferred tool is
+    // unreachable and the agent runs fully offline. Access to a loaded tool is still bounded by
+    // allowedTools + these same checks.
+    const v = await (g.canUseTool!("ToolSearch", {}, { signal: new AbortController().signal } as never) as Promise<{ behavior: string }>);
+    expect(v.behavior).toBe("allow");
+  });
 });

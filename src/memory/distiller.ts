@@ -69,11 +69,15 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
     : store.listUnconsolidatedTeachings(domain).filter((t) => t.kind === "preference" || t.kind === "forget");
 
   const existing = vault.readNote(memoRelPath(domain)) ?? "";
-  // Bootstrap pending = a prose memo whose facts were never extracted. It must count as a
-  // signal source, or a QUIET domain (no new decisions/teachings) never bootstraps — general.md
-  // sat unextracted for two weeks behind this early return. Once facts exist, quiet domains
-  // early-return again (no nightly LLM churn on unchanged prose).
-  const bootstrapPending = !!existing.trim() && !store.activeMemoFacts(domain).length;
+  // A prose memo whose facts were never extracted must count as a signal source, or a QUIET
+  // domain (no new decisions/teachings) never bootstraps — general.md sat unextracted for weeks
+  // behind the early return. But once a bootstrap run has completed with no extractable facts,
+  // stamp a kv marker so it does NOT re-run the LLM every night forever (a prose memo that never
+  // yields a fact). A genuine factDiff error THROWS (never reaches the stamp), so the stamp only
+  // fires on a clean empty extraction; a later fact still lands via the normal decision/teaching
+  // path. The marker clears implicitly once facts exist (bootstrapPending is false anyway).
+  const bootstrapDone = !!store.kvGet(`distill:bootstrapped:${domain}`);
+  const bootstrapPending = !!existing.trim() && !store.activeMemoFacts(domain).length && !bootstrapDone;
   // No-op without bumping the cursor: decisions are deliberately re-read every run until a write
   // succeeds, so the cursor stays write-dependent (do not "fix" it into a write-independent one).
   if (!decisions.length && !teachings.length && !bootstrapPending) return;
@@ -111,8 +115,14 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   if (!active.length && existing.trim()) signals.push({ ref: `memo:${domain}`, text: existing });
   if (!signals.length) return;
 
+  const nowIso = deps.nowIso ?? new Date().toISOString();
   const candidates = await deps.factDiff({ domain, active, signals });
-  if (!candidates.length) return;
+  if (!candidates.length) {
+    // Clean empty extraction on a bootstrap run → stamp so we don't re-hit the LLM nightly. A
+    // real factDiff failure throws before here, so a transient error never stamps.
+    if (bootstrapPending) store.kvSet(`distill:bootstrapped:${domain}`, nowIso);
+    return;
+  }
 
   // Resolve + ground (spec §4, fail-closed): unresolvable refs never reach the verifier.
   // A teaching whose candidate is DROPPED (unresolvable ref or ungrounded) must NOT be marked
@@ -135,7 +145,6 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
     verdicts = resolved.map(() => false);
   }
 
-  const nowIso = deps.nowIso ?? new Date().toISOString();
   const accepted: Array<{ c: FactCandidate; origin: MemoFactRow["origin"] }> = [];
   resolved.forEach((r, i) => {
     if (!verdicts[i]) { emitUngrounded(deps, domain, r.c.fact); noteRetry(r.c.source_ref); return; }
@@ -145,9 +154,13 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
 
   // Render PROSPECTIVELY and persist facts only when the gate write executes — otherwise a
   // queued (non-autonomous) write would re-insert the same facts on every retry run.
+  // Re-read active AFTER the LLM awaits: forgetNow (the moderator's forget tool) can supersede a
+  // fact during the minutes of factDiff/ground latency; the stale `active` snapshot would render
+  // the forgotten fact straight back into a system-prompt memo. The fresh set has it dropped.
+  const freshActive = store.activeMemoFacts(domain);
   const supersededIds = new Set(accepted.map((a) => a.c.supersedes).filter((x): x is number => !!x));
   const prospective: MemoFactRow[] = [
-    ...active.filter((f) => !supersededIds.has(f.id)),
+    ...freshActive.filter((f) => !supersededIds.has(f.id)),
     ...accepted.map((a, i) => ({
       id: -(i + 1), domain, subject: a.c.subject, fact: a.c.fact, ts: nowIso,
       source_ref: a.c.source_ref, status: "active" as const, origin: a.origin, superseded_by: null,
@@ -155,8 +168,12 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
   ];
   const rendered = renderMemo(domain, prospective);
   if (!rendered) return;
+  // Content-hash idempotencyKey: while autonomy is revoked, an identical nightly re-render dedupes
+  // against the still-pending proposal (gate.propose returns the dup) instead of stacking a new
+  // approval every night; a genuinely changed render hashes differently and proposes fresh.
+  const idempotencyKey = `distill:${domain}:${createHash("sha256").update(rendered).digest("hex").slice(0, 12)}`;
   const row = await gate.propose(
-    { type: "vault.write", payload: { path: memoRelPath(domain), content: rendered }, preview: `Update ${domain} memo (${accepted.length} fact${accepted.length === 1 ? "" : "s"})` },
+    { type: "vault.write", idempotencyKey, payload: { path: memoRelPath(domain), content: rendered }, preview: `Update ${domain} memo (${accepted.length} fact${accepted.length === 1 ? "" : "s"})` },
     ORIGIN,
   );
   if (row.status === "executed") {
@@ -254,8 +271,11 @@ export function factDiffLLM(model?: string, log?: (line: string) => void): FactD
       }
       return [];
     } catch (err) {
+      // THROW, don't mask as []: distill's per-domain catch skips this domain (retries next run)
+      // and — critically — the bootstrap stamp only fires on a clean empty extraction, never on a
+      // transient failure that would otherwise permanently skip bootstrap.
       log?.(`factDiffLLM ${domain} failed: ${(err as Error).message}`);
-      return [];
+      throw err;
     }
   };
 }
