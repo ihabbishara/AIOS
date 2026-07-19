@@ -29,6 +29,8 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
 import type { ChannelAdapter } from "./channels/types.js";
 import { dispatchAttachments } from "./channels/dispatch.js";
+import { createAttachmentRegistry } from "./web/attachment-registry.js";
+import { AIOS_TMP_PREFIX } from "./agents/attachment-server.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
 import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor, ledgerWriteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
@@ -287,16 +289,38 @@ async function main(): Promise<void> {
     store.kvSet("cost:backfilled", "1");
   }
 
+  // Serves goal-completion media to the web cockpit by capability token; same safe roots as the
+  // moderator attachment server (projects, downloads, /tmp/aios- render outputs).
+  const attachmentRegistry = createAttachmentRegistry([
+    resolve(config.projectsRoot),
+    resolve(config.dataDir, "downloads"),
+    AIOS_TMP_PREFIX,
+  ]);
+
   const onGoalComplete = async (outcome: GoalOutcome): Promise<void> => {
     const { goal } = outcome;
     const channel = channels.get(goal.origin_channel);
     const notice = outcome.ok
       ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.`
       : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.`;
-    // Goal-completion delivery stays text (⑤d spec scope) — attachments dropped here.
-    const report = (await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice)).text;
+    const { text: report, attachments } = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
     await channel?.send(goal.origin_chat_id, report);
-    bus.emit({ type: "chat.out", channel: goal.origin_channel, chatId: goal.origin_chat_id, text: report.slice(0, 300) });
+    // A real push channel (telegram) gets media via sendVoice/sendFile; web has no ChannelAdapter,
+    // so its media rides the chat.out event as capability-token descriptors (rendered by ui2).
+    if (channel) await dispatchAttachments(channel, goal.origin_chat_id, attachments, log);
+    const descriptors = channel
+      ? []
+      : attachments.flatMap((a) => {
+          try { return [attachmentRegistry.register(a.path, { caption: a.caption, kind: a.kind })]; }
+          catch (err) { log(`goal media register failed (${a.path}): ${(err as Error).message}`); return []; }
+        });
+    bus.emit({
+      type: "chat.out",
+      channel: goal.origin_channel,
+      chatId: goal.origin_chat_id,
+      text: report.slice(0, 300),
+      ...(descriptors.length ? { attachments: descriptors } : {}),
+    });
   };
 
   const prepareGoalSandbox = async (goal: GoalRow, _opts: { playbook?: Playbook }) => {
@@ -794,7 +818,7 @@ async function main(): Promise<void> {
   ];
 
   startWebServer(
-    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, mailbox, senses: sensesStatus, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log },
+    { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, mailbox, senses: sensesStatus, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log, attachments: attachmentRegistry },
     config.uiPort,
   );
   log(`ready — mission control listening on 127.0.0.1:${config.uiPort}`);
