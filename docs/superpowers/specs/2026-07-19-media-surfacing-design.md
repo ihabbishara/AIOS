@@ -93,7 +93,7 @@ opaque token for a short-TTL HMAC-signed URL.
   reused by both call sites (removes the duplication rather than copy-pasting).
 - **Web-origin goal-completion**: `channels.get("web")` is `undefined` (web is not a
   `ChannelAdapter`), so the `send`/dispatch is a no-op. Instead: register each attachment → token,
-  and emit the completion via the extended `chat.out` event carrying `attachmentTokens: string[]`
+  and emit the completion via the extended `chat.out` event carrying `attachments` descriptors
   (see §4). This also fixes the pre-existing gap where web-origin goal completions never appeared
   in the cockpit at all.
 - **narrate()/briefs**: briefs deliver to `config.primaryChat` (telegram) via `sendVia`. If a brief
@@ -102,8 +102,10 @@ opaque token for a short-TTL HMAC-signed URL.
 
 ### 4. `chat.out` event extension + ui2 rendering (`src/kernel/bus` type, `ui2/src/components/Chat.tsx`)
 
-- Extend the `chat.out` event payload with optional `attachmentTokens?: string[]`. No new event
-  type. (Triage/defaultVerdict rules apply to *new types*; extending an existing one is exempt.)
+- Extend the `chat.out` event payload with optional `attachments?` descriptors
+  (`Array<{ token, name, mime, caption?, kind? }>`) so ui2 can pick img/audio/download without extra
+  fetches. No new event type. (Triage/defaultVerdict rules apply to *new types*; extending an
+  existing one is exempt.)
 - `Chat.tsx`: derive inbound pushed messages from `events` where `event.type === "chat.out"` and
   `event.channel === "web"` and `event.chatId === "ui"`, rendered as `who = <agent/coordinator>`
   bubbles with any `attachmentTokens` shown as media (image/audio/download, same switch as §2).
