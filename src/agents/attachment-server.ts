@@ -11,7 +11,7 @@ import type { Attachment } from "./attachment.js";
  * treated as literal string prefixes (e.g. `"/tmp/aios-"` matches any path
  * that starts with `/tmp/aios-`).
  */
-function isSafe(filePath: string, safeDirs: string[]): boolean {
+export function isSafe(filePath: string, safeDirs: string[]): boolean {
   try {
     const real = realpathSync(filePath);
     const st = statSync(real);
