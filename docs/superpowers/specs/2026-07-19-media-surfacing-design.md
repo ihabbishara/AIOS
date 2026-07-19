@@ -106,12 +106,16 @@ opaque token for a short-TTL HMAC-signed URL.
   (`Array<{ token, name, mime, caption?, kind? }>`) so ui2 can pick img/audio/download without extra
   fetches. No new event type. (Triage/defaultVerdict rules apply to *new types*; extending an
   existing one is exempt.)
-- `Chat.tsx`: derive inbound pushed messages from `events` where `event.type === "chat.out"` and
-  `event.channel === "web"` and `event.chatId === "ui"`, rendered as `who = <agent/coordinator>`
-  bubbles with any `attachmentTokens` shown as media (image/audio/download, same switch as §2).
-  Dedup: interactive replies return over HTTP and do **not** emit `chat.out` (only goal-completion
-  and planner-preview push it), so pushed bubbles don't double the locally-echoed send. Merge pushed
-  `chat.out` bubbles into the log by event `id` to avoid re-adding on re-render.
+- `Chat.tsx`: derive inbound pushed messages from `events` where `event.type === "chat.out"`,
+  `event.pushed === true`, `event.channel === "web"`, and `event.chatId === "ui"`, rendered as
+  `who = <agent/coordinator>` bubbles with any `attachments` descriptors shown as media
+  (image/audio/download, same switch as §2).
+  Dedup (CORRECTED — original assumption was wrong): `router.ts` emits a `chat.out` ECHO for **every**
+  handled reply (interactive web replies included — they feed the activity log + triage), so folding
+  all `chat.out` would double the HTTP reply. The gate is `chat.out.pushed === true`, set ONLY at the
+  genuinely server-initiated sites (`onGoalComplete`, planner `postPreview`); router echoes stay
+  unflagged and are not folded. Merge pushed `chat.out` bubbles into the log by event `id` to avoid
+  re-adding on re-render.
 
 ## Untouched
 
