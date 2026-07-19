@@ -15,6 +15,7 @@ import { testRegistry } from "./fixtures/registry.js";
 // evaluation.  Vitest hoists vi.mock() calls automatically.
 vi.mock("../src/agents/resumable.js", () => ({
   resumableTurn: vi.fn().mockResolvedValue("ok"),
+  surfaceHash: () => "stub-hash",
 }));
 
 // Import AFTER vi.mock so we get the stub
