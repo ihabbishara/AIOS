@@ -6,14 +6,14 @@ export type {
   GoalNodeView, GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, RoutineView, AnchorView, ScheduleReminderView, Recurrence,
-  SkillView,
+  SkillView, WebAttachment,
 } from "../../src/web/dto.js";
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
   OrgDepartmentView, AgentProfileInfo, AgentActivityInfo, PermissionInfo, PackView,
   GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
-  ScheduleView, Recurrence, SkillView,
+  ScheduleView, Recurrence, SkillView, WebAttachment,
 } from "../../src/web/dto.js";
 
 export function getToken(): string {
@@ -84,7 +84,7 @@ export const api = {
   events: (since = 0) => request<StoredEvent[]>(`/api/events?since=${since}`),
   costs: () => request<{ byAgent: Record<string, number>; byDay: Record<string, number> }>("/api/costs"),
   chat: (target: string, text: string) =>
-    request<{ reply: string | null }>("/api/chat", { method: "POST", body: JSON.stringify({ target, text }) }),
+    request<{ reply: string | null; attachments: WebAttachment[] }>("/api/chat", { method: "POST", body: JSON.stringify({ target, text }) }),
   playbooks: () => request<Array<{ file: string; yaml: string }>>("/api/playbooks"),
   savePlaybook: (file: string, yaml: string) =>
     request<{ ok: boolean }>(`/api/playbooks/${file}`, { method: "PUT", body: JSON.stringify({ yaml }) }),

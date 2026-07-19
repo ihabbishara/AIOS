@@ -27,6 +27,15 @@ export interface StoredEvent {
   event: Record<string, unknown> & { type: string };
 }
 
+/** Media the browser fetches by capability token from /api/attachment/:token. */
+export interface WebAttachment {
+  token: string;
+  name: string;
+  mime: string;
+  caption?: string;
+  kind?: "voice";
+}
+
 export interface ActionInfo {
   id: string;
   type: string;

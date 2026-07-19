@@ -1,9 +1,34 @@
 // ui2/src/components/Chat.tsx — port of ui/src/views/Chat.tsx in Ember dress + context-aware seed.
 import { useEffect, useRef, useState } from "react";
-import { api, type StateInfo, type StoredEvent } from "../api.js";
+import { api, type StateInfo, type StoredEvent, type WebAttachment } from "../api.js";
 import { Button } from "./ui.js";
 
-interface Msg { who: "you" | string; text: string; pending?: boolean; pendingId?: string; audio?: string }
+interface Msg { who: "you" | string; text: string; pending?: boolean; pendingId?: string; audio?: string; attachments?: WebAttachment[]; srcEventId?: number }
+
+function MediaBlock({ a }: { a: WebAttachment }) {
+  const src = `/api/attachment/${encodeURIComponent(a.token)}`;
+  const el =
+    a.kind === "voice" || a.mime.startsWith("audio/") ? (
+      <button
+        onClick={() => new Audio(src).play().catch(() => {})}
+        className="border border-line rounded text-dim hover:text-fg text-[11px] px-2 py-1 leading-none transition-colors"
+      >
+        ▶ {a.name}
+      </button>
+    ) : a.mime.startsWith("image/") ? (
+      <img src={src} alt={a.caption ?? a.name} className="rounded-lg border border-line max-w-full max-h-[420px]" />
+    ) : (
+      <a href={src} download={a.name} className="text-accent underline text-[12px]">
+        ⬇ {a.name}
+      </a>
+    );
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      {el}
+      {a.caption && <div className="text-dim text-[11px]">{a.caption}</div>}
+    </div>
+  );
+}
 
 const LOG_KEY = "aios_chat_log";
 
@@ -30,10 +55,30 @@ export function Chat({ state, events, target, setTarget, seed }: {
   // Context-aware pre-targeting: an opener can seed the draft ("About approval a1: …").
   useEffect(() => { if (seed) setInput(seed); }, [seed]);
 
+  // Server-pushed cockpit messages (goal completions, planner previews) arrive over SSE as
+  // chat.out events; interactive replies return over HTTP and never emit chat.out, so no double.
+  useEffect(() => {
+    const pushes = events.filter((e) => {
+      const ev = e.event as unknown as { type: string; channel?: string; chatId?: string };
+      return ev.type === "chat.out" && ev.channel === "web" && ev.chatId === "ui";
+    });
+    if (!pushes.length) return;
+    setLog((prev) => {
+      const seen = new Set(prev.map((m) => m.srcEventId).filter((x): x is number => x != null));
+      const add: Msg[] = pushes
+        .filter((e) => !seen.has(e.id))
+        .map((e) => {
+          const ev = e.event as unknown as { text: string; attachments?: WebAttachment[] };
+          return { who: target, text: ev.text, srcEventId: e.id, attachments: ev.attachments };
+        });
+      return add.length ? [...prev, ...add] : prev;
+    });
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Persist across reloads (drop in-flight placeholders, cap at 200 entries; strip audio blobs to keep storage small).
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    localStorage.setItem(LOG_KEY, JSON.stringify(log.filter((m) => !m.pending).slice(-200).map(({ audio, ...m }) => m)));
+    localStorage.setItem(LOG_KEY, JSON.stringify(log.filter((m) => !m.pending).slice(-200).map(({ audio, attachments, ...m }) => m)));
   }, [log]);
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
@@ -55,8 +100,8 @@ export function Chat({ state, events, target, setTarget, seed }: {
     setLog((l) => [...l, { who: "you", text }, { who: target, text: "…", pending: true, pendingId: pid }]);
     setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
     try {
-      const { reply } = await api.chat(target, text);
-      setLog((l) => l.map((m) => (m.pendingId === pid ? { who: target, text: reply ?? "(no reply)" } : m)));
+      const { reply, attachments } = await api.chat(target, text);
+      setLog((l) => l.map((m) => (m.pendingId === pid ? { who: target, text: reply ?? "(no reply)", attachments } : m)));
     } catch (err) {
       setLog((l) => l.map((m) => (m.pendingId === pid ? { who: target, text: `error: ${(err as Error).message}` } : m)));
     } finally {
@@ -143,6 +188,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
               } ${m.pending ? "breathe" : ""}`}
             >
               {m.text}
+              {m.attachments?.map((a, j) => <MediaBlock key={j} a={a} />)}
             </div>
           </div>
         ))}
