@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { LoadedRegistry } from "./registry/loader.js";
 import type { ResolveAgentFn } from "./resolve.js";
-import { resumableTurn, clearSession } from "./resumable.js";
+import { resumableTurn, clearSession, surfaceHash } from "./resumable.js";
 import { withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer, ATTACH_TOOL, AIOS_TMP_PREFIX } from "./attachment-server.js";
 import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
@@ -126,6 +126,10 @@ export class DirectChats {
         (attachmentLines.length ? `${attachmentLines.join("\n")}\n` : "") +
         userText;
 
+      const finalOptions = {
+        ...observed,
+        mcpServers: { ...(observed.mcpServers ?? {}), ...mailServers, aios_attachments: attachmentServer },
+      };
       const text = await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
@@ -135,10 +139,8 @@ export class DirectChats {
         // so the mail re-surfaces next @mention — intended: re-deliver beats losing it (durability
         // favours the safe side; the ≤5-cap block just reappears until a turn succeeds).
         onSuccess: () => this.deps.mailbox?.markDelivered(deliveredIds),
-        options: {
-          ...observed,
-          mcpServers: { ...(observed.mcpServers ?? {}), ...mailServers, aios_attachments: attachmentServer },
-        },
+        surfaceHash: surfaceHash(finalOptions),
+        options: finalOptions,
       });
 
       this.deps.capture?.(userText, text); // post-turn capture (memory-v2 §5), fire-and-forget

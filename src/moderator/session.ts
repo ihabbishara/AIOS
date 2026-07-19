@@ -1,7 +1,7 @@
 import { moderatorBlocks } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
-import { resumableTurn, clearSession } from "../agents/resumable.js";
+import { resumableTurn, clearSession, surfaceHash } from "../agents/resumable.js";
 import { processAttachments, type MediaDeps } from "../attachments.js";
 import { buildAttachmentServer, ATTACH_TOOL, AIOS_TMP_PREFIX } from "../agents/attachment-server.js";
 import type { Attachment } from "../agents/attachment.js";
@@ -169,12 +169,14 @@ export class Moderator {
       env: { ...process.env, CLAUDE_CODE_STREAM_CLOSE_TIMEOUT: String(STREAM_CLOSE_TIMEOUT_MS) },
     };
 
+    const finalOptions = withDenialObserver(moderatorOptions, resolved.canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e }));
     return resumableTurn({
       store,
       sessionKey: `moderator-session:${chatKey}`,
       prompt,
       log: this.deps.log,
-      options: withDenialObserver(moderatorOptions, resolved.canonical, (e) => this.deps.bus.emit({ type: "tool.denied", ...e })),
+      surfaceHash: surfaceHash(finalOptions),
+      options: finalOptions,
     });
   }
 }
