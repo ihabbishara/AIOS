@@ -42,14 +42,18 @@ const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => b
   "personal.finance": (sink, agent) =>
     isPrimaryChat(sink) || (!!promptAgent(sink) && agentCleared("personal.finance", agent)),
   "personal.email": (sink) => sink === "prompt.context:speculate-email",
+  // life/clients standups + halalo brief mail: the "money wall" was finance-only, so these two
+  // labels ride the brief/standup sinks (parity with pre-wall-deletion; the digest is goal
+  // metadata, never personal_* or email bodies). Only personal.finance stays fully walled there.
   "personal.tasks": (sink, agent) =>
-    isPrimaryChat(sink) || sink === "brief" ||
+    isPrimaryChat(sink) || sink === "brief" || sink === "standup" ||
     (!!promptAgent(sink) && agentCleared("personal.tasks", agent)),
   "personal.calendar": (sink, agent) =>
     sink === "brief" || sink === "recall-index" ||
     (!!promptAgent(sink) && (agentCleared("personal.calendar", agent) || isCoordinatorSink(sink))),
   "client.halalo": (sink, agent) =>
-    sink === "file-export" || (!!promptAgent(sink) && agentCleared("client.halalo", agent)),
+    sink === "file-export" || sink === "brief" || sink === "standup" ||
+    (!!promptAgent(sink) && agentCleared("client.halalo", agent)),
   "org.internal": (sink) => sink !== "file-export" && !(isChat(sink) && !isPrimaryChat(sink)),
 };
 

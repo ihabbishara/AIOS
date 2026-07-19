@@ -26,9 +26,10 @@ describe("rawCheck — label × sink table (spec §5)", () => {
     expect(rawCheck({ labels: ["personal.email"], sink: "brief" })).toEqual({ declassify: "D1-email-count" });
   });
 
-  it("personal.tasks: primary chat + brief (title relaxation)", () => {
+  it("personal.tasks: primary chat + brief + standup (money wall is finance-only)", () => {
     expect(rawCheck({ labels: ["personal.tasks"], sink: "chat:primary" })).toBe("allow");
     expect(rawCheck({ labels: ["personal.tasks"], sink: "brief" })).toBe("allow");
+    expect(rawCheck({ labels: ["personal.tasks"], sink: "standup" })).toBe("allow");
     expect(rawCheck({ labels: ["personal.tasks"], sink: "recall-index" })).toBe("deny");
   });
 
@@ -39,9 +40,11 @@ describe("rawCheck — label × sink table (spec §5)", () => {
     expect(rawCheck({ labels: ["personal.calendar"], sink: "file-export" })).toBe("deny");
   });
 
-  it("client.halalo: halalo prompts + export dirs only", () => {
+  it("client.halalo: halalo prompts + export dirs + brief/standup; still walled from recall + foreign prompts", () => {
     expect(rawCheck({ labels: ["client.halalo"], sink: "prompt.system:halalo", agent: { labels: ["client.halalo"] } })).toBe("allow");
     expect(rawCheck({ labels: ["client.halalo"], sink: "file-export" })).toBe("allow");
+    expect(rawCheck({ labels: ["client.halalo"], sink: "brief" })).toBe("allow");
+    expect(rawCheck({ labels: ["client.halalo"], sink: "standup" })).toBe("allow");
     expect(rawCheck({ labels: ["client.halalo"], sink: "recall-index" })).toBe("deny");
     expect(rawCheck({ labels: ["client.halalo"], sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("deny");
   });
