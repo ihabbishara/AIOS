@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync, createReadStream } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
 import { playbookSchema } from "../engine/playbook.js";
@@ -26,6 +26,7 @@ import {
   deleteSkill, skillUsedBy, fetchSkillMd, agentYamlPath, rewriteSkillsField,
 } from "./skills-view.js";
 import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
+import type { AttachmentRegistry, AttachmentDescriptor } from "./attachment-registry.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -86,6 +87,8 @@ export interface WebDeps {
   registry: LoadedRegistry;
   /** Mailbox — compose (sendFromUser) and human read-marking (markDelivered → mail.read). */
   mailbox: Mailbox;
+  /** Serves agent-generated media (charts/diagrams/voice) to the browser by capability token. */
+  attachments: AttachmentRegistry;
   /** Optional senses status provider for /api/health (index.ts wires the real one). */
   senses?: () => Array<{ name: string; ok: boolean; reason?: string }>;
   reloadPacks: () => void;
@@ -136,7 +139,7 @@ function updateEnvFile(envPath: string, key: string, value: string): void {
 }
 
 export function startWebServer(deps: WebDeps, port: number): Server {
-  const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, reloadPacks, log = () => {} } = deps;
+  const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, attachments, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
   let sseClients = 0;
@@ -172,8 +175,11 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           // The stream endpoint authenticates via a one-time ticket (SSE has no headers); every
           // other endpoint uses the Authorization header. No token-in-URL path exists anymore.
           const ticketOk = path === "/api/stream" && consumeStreamTicket(url.searchParams.get("ticket"));
+          // Media served by capability token (an <img src> can't send a bearer header): the
+          // unguessable token IS the auth; an invalid token 404s from the handler, never reaching here.
+          const attachmentOk = path.startsWith("/api/attachment/") && req.method === "GET";
           const auth = req.headers.authorization ?? "";
-          if (!ticketOk && auth !== `Bearer ${token}` && auth !== token) {
+          if (!ticketOk && !attachmentOk && auth !== `Bearer ${token}` && auth !== token) {
             return json(res, 401, { error: "unauthorized" });
           }
         }
@@ -222,6 +228,26 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
           sseClients++;
           req.on("close", () => { off(); clearInterval(ping); sseClients--; });
+          return;
+        }
+
+        // ---- media: capability-token attachment serving (auth-exempt above; token is the capability) ----
+        if (path.startsWith("/api/attachment/") && req.method === "GET") {
+          const attToken = decodeURIComponent(path.slice("/api/attachment/".length));
+          const hit = attachments.get(attToken);
+          if (!hit) return json(res, 404, { error: "not found" });
+          try {
+            const size = statSync(hit.path).size;
+            res.writeHead(200, {
+              "Content-Type": hit.mime,
+              "Content-Length": String(size),
+              "Content-Disposition": `inline; filename="${hit.name.replace(/"/g, "")}"`,
+              "Cache-Control": "private, max-age=3600",
+            });
+            createReadStream(hit.path).pipe(res);
+          } catch {
+            return json(res, 404, { error: "not found" });
+          }
           return;
         }
 
@@ -295,8 +321,13 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           const body = JSON.parse(await readBody(req)) as { target: string; text: string };
           if (!body.text?.trim()) return json(res, 400, { error: "text required" });
           const text = body.target && !toCoordinator(registry, body.target) ? `@${body.target} ${body.text}` : body.text;
-          const reply = (await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } }))?.text ?? null;
-          return json(res, 200, { reply });
+          const result = await router.handle({ channel: "web", chatId: "ui", text, sender: { name: "UI" } });
+          const atts: AttachmentDescriptor[] = [];
+          for (const a of result?.attachments ?? []) {
+            try { atts.push(attachments.register(a.path, { caption: a.caption, kind: a.kind })); }
+            catch (err) { log(`attachment register failed (${a.path}): ${(err as Error).message}`); }
+          }
+          return json(res, 200, { reply: result?.text ?? null, attachments: atts });
         }
 
         // ---- voice ----
