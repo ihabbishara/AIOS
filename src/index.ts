@@ -28,6 +28,7 @@ import { CliChannel } from "./channels/cli.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
 import type { ChannelAdapter } from "./channels/types.js";
+import { dispatchAttachments } from "./channels/dispatch.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
 import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor, ledgerWriteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
@@ -411,16 +412,7 @@ async function main(): Promise<void> {
       const result = await router.handle(msg);
       if (result !== null) {
         await deliverReply({ voice, log }, channels.get(msg.channel), msg, result.text);
-        for (const att of result.attachments) {
-          const ch = channels.get(msg.channel);
-          const deliver =
-            att.kind === "voice" && ch?.sendVoice
-              ? ch.sendVoice(msg.chatId, att.path, att.caption)
-              : ch?.sendFile(msg.chatId, att.path, att.caption);
-          await deliver?.catch((err) =>
-            log(`attachment delivery failed (${att.path}): ${(err as Error).message}`),
-          );
-        }
+        await dispatchAttachments(channels.get(msg.channel), msg.chatId, result.attachments, log);
       }
     } catch (err) {
       log(`handler error: ${(err as Error).stack}`);
