@@ -52,6 +52,9 @@ export interface ResolvedAgent {
   ceiling: string[];
   /** Data-scope labels = union of capability labels (Information-Flow Policy consumes). */
   labels: string[];
+  /** Static prompt half — persona + contextFiles + pillar + mission, memo EXCLUDED. Seams feed
+   *  this to surfaceHash so definition edits invalidate sessions but nightly memo churn never does. */
+  personaSurface: string;
 }
 
 export type ResolveAgentFn = (
@@ -204,6 +207,8 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
     // Base options via the existing role kernel (persona/context-files/skills/extras-guards),
     // then override with the capability-derived surface.
     const base = roleQueryOptions(def.role, { cwd: ctx.cwd ?? deps.config.projectsRoot, model });
+    const personaSurface = [String(base.systemPrompt ?? ""), `## Pillar: ${dept.department}`, dept.mission.trim()]
+      .filter(Boolean).join("\n\n"); // memo deliberately excluded — the no-churn guarantee
     let options: Options = {
       ...base,
       systemPrompt: `${base.systemPrompt}\n\n${contextBlock}`,
@@ -249,6 +254,6 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
     // DB grant/revoke overrides LAST among widenings (fail-closed) — observer stays at the seams.
     options = withEffectiveTools(options, canonical, deps.store);
 
-    return { canonical, kind: def.kind, def, options, ceiling, labels };
+    return { canonical, kind: def.kind, def, options, ceiling, labels, personaSurface };
   };
 }

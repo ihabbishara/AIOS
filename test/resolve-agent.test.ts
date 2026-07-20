@@ -160,4 +160,21 @@ describe("resolveAgent", () => {
     expect(Object.keys(r.options.mcpServers ?? {})).toContain("money");
     expect(Object.keys(r.options.mcpServers ?? {})).toContain("aios-pack");
   });
+
+  it("personaSurface = static half only: memo text reaches systemPrompt but NEVER personaSurface", () => {
+    const { resolve, registry, store } = setup();
+    // Any agent whose department declares a memoDomain; a pending teaching renders into the memo
+    // block ("## Pending (not yet distilled)") via memoContextForDomain.
+    const name = [...registry.agents.keys()].find((n) => {
+      const def = registry.agents.get(n)!;
+      return !!registry.departments.get(def.department)?.memoDomain;
+    })!;
+    const domain = registry.departments.get(registry.agents.get(name)!.department)!.memoDomain;
+    store.addTeaching({ text: "DISTINCTIVE-MEMO-MARKER-9137", domain, kind: "preference", origin: "user-stated" });
+    const r = resolve(name, origin)!;
+    expect(String(r.options.systemPrompt)).toContain("DISTINCTIVE-MEMO-MARKER-9137"); // memo IS in the prompt
+    expect(r.personaSurface).not.toContain("DISTINCTIVE-MEMO-MARKER-9137");           // …but NOT in the hashable surface
+    expect(r.personaSurface).toContain(`## Pillar: ${registry.agents.get(name)!.department}`);
+    expect(String(r.options.systemPrompt)).toContain(r.personaSurface.slice(0, 60)); // surface is a prefix of the real prompt
+  });
 });
