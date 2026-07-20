@@ -52,16 +52,7 @@ export function anchorDue(
 ): string | null {
   const occurrence = now.hhmm >= anchorHHMM ? now.date : yesterdayOf(now.date);
   if ((lastFiredDate ?? "") >= occurrence) return null;
-  if (occurrence < now.date) {
-    // Catch-up scenario: yesterday's occurrence
-    if (!lastFiredDate) {
-      // Never fired before: require strictly after the gate
-      if (now.hhmm <= catchupAfter) return null;
-    } else {
-      // Have history: require at-or-after the gate
-      if (now.hhmm < catchupAfter) return null;
-    }
-  }
+  if (occurrence < now.date && now.hhmm < catchupAfter) return null;
   return occurrence;
 }
 
