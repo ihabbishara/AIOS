@@ -1,0 +1,22 @@
+[
+  {"name":"deadline-obligation","userText":"btw my residence permit renewal is due September 3rd, don't let me forget","replyText":"Noted — I'll track September 3rd.","expect":["september 3"],"reject":[]},
+  {"name":"family-fact-indirect","userText":"can't do early calls, I do school drop-off every weekday morning","replyText":"Understood — no early calls.","expect":["school drop-off"],"reject":[]},
+  {"name":"assistant-surfaced-confirmed","userText":"yes book that one — aisle seat like always","replyText":"Booked the 14:20 flight, aisle 12C as usual.","expect":["aisle"],"reject":[]},
+  {"name":"place-fact","userText":"we moved the office to Rotterdam last month, plan commutes from there","replyText":"Got it — Rotterdam base for commutes.","expect":["rotterdam"],"reject":[]},
+  {"name":"preference-indirect","userText":"stop sending me links to video tutorials, I read docs faster","replyText":"Text docs only from now on.","expect":["docs"],"reject":[]},
+  {"name":"ongoing-personal-project","userText":"I'm renovating the attic this summer, most weekends are gone until it's done","replyText":"I'll keep weekend plans light until the attic is done.","expect":["attic"],"reject":[]},
+  {"name":"health-constraint","userText":"remember I'm lactose intolerant when you plan the team dinner","replyText":"Will do — dairy-free options.","expect":["lactose"],"reject":[]},
+  {"name":"recurring-obligation","userText":"every first Monday I have investor calls all afternoon","replyText":"Blocked monthly.","expect":["investor"],"reject":[]},
+  {"name":"people-fact","userText":"my brother Sami lands on the 28th, he'll stay two weeks","replyText":"Noted — Sami arrives the 28th for two weeks.","expect":["sami"],"reject":[]},
+  {"name":"money-preference","userText":"budget reports always in EUR, never USD","replyText":"EUR only from now on.","expect":["eur"],"reject":[]},
+  {"name":"dev-state-noise","userText":"nice, media surfacing works on telegram now","replyText":"Confirmed — charts render inline on Telegram.","expect":[],"reject":["media surfacing","telegram"]},
+  {"name":"transient-status","userText":"the deploy finished and tests are green","replyText":"All green — 186 files passing.","expect":[],"reject":["*"]},
+  {"name":"small-talk","userText":"good morning, anything urgent?","replyText":"Quiet night. Nothing needs you.","expect":[],"reject":["*"]},
+  {"name":"task-command","userText":"add milk to the shopping list","replyText":"Added milk.","expect":[],"reject":["*"]},
+  {"name":"quoted-email-trap","userText":"what's in the mail from the landlord?","replyText":"The email says: 'Rent increases to 1650 euros from October 1st.' Want me to draft a reply?","expect":[],"reject":["1650","october"]},
+  {"name":"quoted-web-trap","userText":"what did the visa page say?","replyText":"The page states: 'Applicants must book biometrics at least 90 days ahead.'","expect":[],"reject":["90 days","biometrics"]},
+  {"name":"calendar-quote-trap","userText":"read my invites for next week","replyText":"One invite: 'Dentist — Aug 4, 10:00'.","expect":[],"reject":["dentist","aug 4"]},
+  {"name":"speculation-unconfirmed","userText":"maybe we'll move to Lisbon next year, who knows","replyText":"Exciting possibility — say the word and I'll research.","expect":[],"reject":["lisbon"]},
+  {"name":"mixed-durable-plus-noise","userText":"deploys are done for tonight. also FYI I switched to a standing desk, my back's been acting up","replyText":"Noted about the standing desk and your back.","expect":["standing desk"],"reject":["deploy"]},
+  {"name":"known-skip","userText":"as I said before, I'm an espresso guy — filter coffee is a waste","replyText":"Espresso it is.","known":"- Strongly prefers espresso over filter coffee.","expect":[],"reject":["espresso"]}
+]
