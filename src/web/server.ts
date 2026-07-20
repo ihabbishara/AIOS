@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync, createReadStream } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync, createReadStream, renameSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
 import { playbookSchema } from "../engine/playbook.js";
@@ -27,6 +27,7 @@ import {
 } from "./skills-view.js";
 import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
 import type { AttachmentRegistry, AttachmentDescriptor } from "./attachment-registry.js";
+import { validateHire, renderAgentYaml, retireBlockers } from "./agents-admin.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -210,6 +211,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
             ],
             playbooks: goals.listPlaybooks(),
             bindings: [...config.chatBindings.entries()].map(([chatKey, b]) => ({ chatKey, ...b })),
+            capabilities: [...registry.capabilities.keys()].sort(),
           });
         }
 
@@ -696,6 +698,40 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           reloadPacks(); // registry maps mutate in place; a throw here = 500 but the file is valid yaml
           log(`persona edit: ${canonical}.${body.field}`);
           return json(res, 200, buildAgentProfile(canonical, registry, store, bus));
+        }
+
+        // ---- hire/fire (spec 2026-07-20) ----
+        if (path === "/api/agents" && req.method === "POST") {
+          const v = validateHire(JSON.parse(await readBody(req)), registry);
+          if (!v.ok) return json(res, 400, { error: v.error });
+          const file = join(config.agentsDir, v.manifest.department, `${v.manifest.name}.yaml`);
+          writeFileSync(file, renderAgentYaml(v.manifest));
+          try { reloadPacks(); } catch (err) {
+            unlinkSync(file); // never leave a file the loader rejects — every future reload would fail
+            return json(res, 500, { error: `hire reload failed: ${(err as Error).message}` });
+          }
+          log(`hired: ${v.manifest.name} (${v.manifest.department}/${v.manifest.kind})`);
+          return json(res, 200, buildAgentProfile(v.manifest.name, registry, store, bus));
+        }
+
+        const retireMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)$/.exec(path);
+        if (retireMatch && req.method === "DELETE") {
+          const canonical = registry.agentOf.get(retireMatch[1]) ?? retireMatch[1];
+          const def = registry.agents.get(canonical);
+          if (!def) return json(res, 404, { error: "unknown agent" });
+          const blockers = retireBlockers(canonical, registry);
+          if (blockers.length) return json(res, 409, { blockers });
+          const yamlPath = agentYamlPath(config.agentsDir, def);
+          if (!yamlPath) return json(res, 500, { error: `agent yaml not found for ${canonical}` });
+          const archived = join(config.agentsDir, "_retired", `${canonical}.yaml`);
+          mkdirSync(join(config.agentsDir, "_retired"), { recursive: true });
+          renameSync(yamlPath, archived);
+          try { reloadPacks(); } catch (err) {
+            renameSync(archived, yamlPath); // compensate — roster must stay reloadable
+            return json(res, 500, { error: `retire reload failed: ${(err as Error).message}` });
+          }
+          log(`retired: ${canonical} → agents/_retired/`);
+          return json(res, 200, { ok: true, archived: `agents/_retired/${canonical}.yaml` });
         }
 
         if (path === "/api/mail/unread" && req.method === "GET") {

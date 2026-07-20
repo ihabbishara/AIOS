@@ -31,10 +31,15 @@ const fq = (t: string) => (FQ_BARE.includes(t) ? `mcp__aios-pack__${t}` : t);
 describe("resolveAgent", () => {
   it("matches the golden surface for every agent — hermes included (v2 migration landed)", () => {
     const { resolve, registry } = setup();
-    for (const name of [...registry.agents.keys()]) {
+    // Iterate the FIXTURE, not the registry: runtime-hired agents (spec 2026-07-20) are unpinned
+    // until the next dev-session golden regen and must not redden the suite. Clamp invariant
+    // below still covers every registry agent, hired ones included.
+    for (const name of Object.keys(golden)) {
       const r = resolve(name, origin)!;
       expect([...(r.options.allowedTools ?? [])].sort(), name).toEqual(golden[name].tools);
     }
+    const unpinned = [...registry.agents.keys()].filter((n) => !(n in golden));
+    if (unpinned.length) console.warn(`golden: unpinned agents (regen to pin): ${unpinned.join(", ")}`);
   });
 
   it("clamp invariant: no agent ever gains a tool outside its capability union", () => {

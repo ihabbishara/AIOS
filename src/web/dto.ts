@@ -19,6 +19,8 @@ export interface StateInfo {
   agents: AgentInfo[];
   playbooks: Array<{ name: string; description: string }>;
   bindings: Array<{ chatKey: string; agents: string[]; mentionOnly: boolean }>;
+  /** Capability names hire can grant (agents/_capabilities.yaml keys). */
+  capabilities: string[];
 }
 
 export interface StoredEvent {
