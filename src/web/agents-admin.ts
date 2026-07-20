@@ -1,5 +1,7 @@
 // src/web/agents-admin.ts — hire/fire builders (spec 2026-07-20). Pure; routes stay thin.
 import type { LoadedRegistry } from "../agents/registry/loader.js";
+import { deptWallViolations } from "../agents/registry/walls.js";
+import { toolsFromCaps } from "../agents/registry/capabilities.js";
 
 export interface HireBody {
   name: string; department: string; kind: "lead" | "worker" | "critic";
@@ -29,6 +31,13 @@ export function validateHire(
   if (!Array.isArray(b.capabilities)) return fail("capabilities must be an array");
   for (const c of b.capabilities) {
     if (typeof c !== "string" || !registry.capabilities.has(c)) return fail(`unknown capability "${String(c)}"`);
+  }
+  // Dept privacy wall: validate the tool surface the loader will actually grant (dept ∪ requested caps).
+  const dept = registry.departments.get(b.department)!;
+  const capNames = [...new Set([...dept.capabilities, ...(b.capabilities as string[])])];
+  const violations = deptWallViolations(b.department, toolsFromCaps(registry.capabilities, capNames));
+  if (violations.length > 0) {
+    return fail(`capability wall: ${b.department} department agents may not carry ${violations.join(", ")}`);
   }
   const { name, department, kind, title, charter, persona, prompt, capabilities } = b as HireBody;
   return { ok: true, manifest: { name, department, kind, title, charter, persona, prompt, capabilities } };

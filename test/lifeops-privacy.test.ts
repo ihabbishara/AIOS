@@ -5,6 +5,7 @@ import { roleOf } from "./fixtures/registry.js";
 import { isPrivateOrigin, DirectChats } from "../src/agents/direct.js";
 import { testRegistry } from "./fixtures/registry.js";
 import { capabilityTools } from "../src/agents/registry/loader.js";
+import { deptWallViolations } from "../src/agents/registry/walls.js";
 
 // ---------------------------------------------------------------------------
 // Invariant 1: personal_tasks rows NEVER enter the recall index.
@@ -85,10 +86,7 @@ describe("lifeops privacy: life department tools contain no outward/gated tools"
       .flatMap((a) => capabilityTools(reg, a.manifest.name));
     expect(tools).toContain("mcp__lifeops__add_task");
     expect(tools).toContain("mcp__aios-pack__vault_read");
-    expect(tools).not.toContain("mcp__aios-pack__vault_write");
-    expect(tools).not.toContain("mcp__aios-pack__propose_action");
-    for (const t of tools) {
-      expect(t).not.toMatch(/propose|gate|email|git|calendar/i);
-    }
+    // Same predicate validateHire enforces — the test and the hire gate cannot drift.
+    expect(deptWallViolations("life", tools)).toEqual([]);
   });
 });

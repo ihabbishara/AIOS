@@ -110,3 +110,23 @@ describe("loader skips _-prefixed dirs (the _retired/ archive)", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 });
+
+describe("validateHire — dept privacy walls", () => {
+  const base = {
+    name: "wally", department: "life", kind: "worker" as const,
+    title: "T", charter: "C", persona: "P", prompt: "Pr",
+  };
+  it("rejects life + vault-write (the marco scenario)", () => {
+    const r = validateHire({ ...base, capabilities: ["vault-write"] }, reg);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/capability wall: life department agents may not carry mcp__aios-pack__vault_write/);
+  });
+  it("accepts life + web/web-fetch/memory", () => {
+    const r = validateHire({ ...base, capabilities: ["web", "web-fetch", "memory"] }, reg);
+    expect(r.ok).toBe(true);
+  });
+  it("accepts engineering + vault-write (no wall)", () => {
+    const r = validateHire({ ...base, department: "engineering", capabilities: ["vault-write"] }, reg);
+    expect(r.ok).toBe(true);
+  });
+});
