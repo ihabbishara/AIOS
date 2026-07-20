@@ -5,7 +5,7 @@ import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
 import { LANES, laneOf, provenance } from "../lib/goal-buckets.js";
-import { Button, Dot, Empty, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
+import { Button, Dot, Empty, PageHeader, SectionLabel, Segments, Tag, toneOfStatus } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
 import { MiniDag } from "./MiniDag.js";
@@ -15,8 +15,10 @@ export function Goals({ events, route, onOpenChat }: {
 }) {
   const slug = route.section === "goals" ? route.parts[0] : undefined;
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4">
-      {slug ? <GoalDetailView slug={slug} events={events} onOpenChat={onOpenChat} /> : <GoalList events={events} />}
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="page">
+        {slug ? <GoalDetailView slug={slug} events={events} onOpenChat={onOpenChat} /> : <GoalList events={events} />}
+      </div>
     </div>
   );
 }
@@ -41,15 +43,13 @@ export function GoalList({ events }: { events: StoredEvent[] }) {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <h1 className="text-[17px] font-bold text-bright">Goals</h1>
-        <span className="text-[12px] text-dim font-mono">{filtered.length} total · {usd(weekCost)} this week</span>
+      <PageHeader title="Goals" meta={`${filtered.length} total · ${usd(weekCost)} this week`}>
         <select value={dept} onChange={(e) => setDept(e.target.value)}
-          className="ml-auto bg-surface border border-line rounded-md px-2 py-1 text-[12px] text-fg outline-none">
+          className="bg-surface border border-line rounded-md px-2 py-1 text-[12px] text-fg outline-none">
           <option value="">all departments</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-      </div>
+      </PageHeader>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
         {lanes.map(({ key, label, items }) => {
           const capped = key === "done" && !showAllDone ? items.slice(0, DONE_CAP) : items;
@@ -85,11 +85,14 @@ export function GoalList({ events }: { events: StoredEvent[] }) {
   );
 }
 
+const VIA: Record<string, string> = { chat: "via chat", mail: "via mail", speculate: "speculated" };
+
 function GoalCard({ g }: { g: GoalView }) {
   const done = g.nodes.filter((n) => n.status === "done").length;
   const cost = g.nodes.reduce((s, n) => s + n.costCents, 0);
   const failed = g.status === "failed";
   const live = ["planning", "running", "replanning"].includes(g.status);
+  const current = live ? g.nodes.find((n) => ["running", "working", "executing"].includes(n.status)) : undefined;
   return (
     <button onClick={() => navigate(`goals/${g.slug}`)}
       className={`card card-hover w-full text-left p-3 mb-2.5 ${failed ? "!bg-err-bg !border-err-line" : ""} ${g.status === "abandoned" ? "opacity-60" : ""}`}>
@@ -98,9 +101,11 @@ function GoalCard({ g }: { g: GoalView }) {
         <span className={`font-mono text-[10px] uppercase ${failed ? "text-err" : "text-dim"}`}>
           {g.status} · {done}/{g.nodes.length}
         </span>
-        <Tag tone="dim">{provenance(g.originChannel)}</Tag>
+        <Tag tone="dim">{VIA[provenance(g.originChannel)]}</Tag>
       </div>
       <div className={`text-[13px] font-semibold leading-snug ${g.status === "abandoned" ? "text-fg" : "text-bright"}`}>{g.title}</div>
+      {g.nodes.length > 1 && <div className="mt-2"><Segments statuses={g.nodes.map((n) => n.status)} /></div>}
+      {current && <div className="text-[10.5px] text-agent truncate mt-1">→ {current.key} · {current.agent}</div>}
       <div className="flex justify-between items-baseline mt-1.5">
         <span className="text-[10.5px] text-dim truncate">{g.department} · {g.lead} · {ts(g.createdAt)}</span>
         {cost > 0 && <span className="font-mono text-[10.5px] text-dim shrink-0 ml-2">{usd(cost)}</span>}
@@ -186,6 +191,15 @@ function GoalDetailView({ slug, events, onOpenChat }: {
           </div>
         )}
       </div>
+
+      {goal.artifacts.length > 0 && (
+        <div className="mt-6 max-w-3xl">
+          <SectionLabel>Artifacts · {goal.artifacts.length}</SectionLabel>
+          {goal.artifacts.map((a) => (
+            <ArtifactPreview key={a.file} goalArtifacts={goal.artifacts} file={a.file} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

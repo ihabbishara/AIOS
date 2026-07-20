@@ -5,9 +5,9 @@ import { SECTIONS, href } from "../lib/router.js";
 import { usd } from "../lib/format.js";
 import { currentTheme, toggleTheme, subscribeTheme } from "../lib/theme.js";
 
-export function TopBar({ section, budget, connected, needsYou, onPalette }: {
+export function TopBar({ section, budget, connected, needsYou, mailForYou = 0, onPalette, onChat }: {
   section: string; budget: BudgetInfo | undefined; connected: boolean;
-  needsYou: number; onPalette: () => void;
+  needsYou: number; mailForYou?: number; onPalette: () => void; onChat: () => void;
 }) {
   const [theme, setThemeState] = useState(currentTheme());
   // Subscribe so a toggle from ANY entry point (this button, the ⌘K palette) keeps the glyph in
@@ -29,10 +29,19 @@ export function TopBar({ section, budget, connected, needsYou, onPalette }: {
             {s === "home" && needsYou > 0 && (
               <span className="ml-1.5 text-[10px] text-bg bg-accent rounded-full px-1.5 tick">{needsYou}</span>
             )}
+            {s === "mail" && mailForYou > 0 && (
+              <span className="ml-1.5 text-[10px] text-bg bg-info rounded-full px-1.5">{mailForYou}</span>
+            )}
           </a>
         ))}
       </nav>
       <div className="ml-auto flex items-center gap-4">
+        <button
+          onClick={onChat}
+          className="hidden md:flex items-center gap-1.5 border border-line rounded-md px-2.5 py-1 text-[11.5px] text-fg hover:text-strong hover:border-dim transition-colors"
+        >
+          Chat <kbd className="!bg-transparent !border-line">⌘J</kbd>
+        </button>
         {budget && budget.capCents != null && (
           <span className="text-[11px] text-dim" title={`daily budget · ${budget.date}`}>
             {usd(budget.spentCents)} / {usd(budget.capCents)}

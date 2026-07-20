@@ -25,6 +25,7 @@ export function App() {
   const { data: state, unauthorized, reload } = useFetch(() => api.state(), []);
   const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
   const { data: attention } = useLiveQuery(() => api.attention(), events, T.attention);
+  const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatTarget, setChatTarget] = useState("hermes");
   const [chatSeed, setChatSeed] = useState<string | undefined>();
@@ -45,6 +46,7 @@ export function App() {
         setChatOpen((v) => !v);
         return;
       }
+      if (e.key === "Escape") { setChatOpen(false); return; }
       const el = e.target as HTMLElement;
       if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -68,7 +70,8 @@ export function App() {
     <div className="h-full flex flex-col">
       <TopBar
         section={route.section} budget={budget} connected={connected}
-        needsYou={attention?.length ?? 0} onPalette={() => setPaletteSignal((n) => n + 1)}
+        needsYou={attention?.length ?? 0} mailForYou={unread?.userInbox ?? 0}
+        onPalette={() => setPaletteSignal((n) => n + 1)} onChat={() => setChatOpen((v) => !v)}
       />
       <div className={show("home")}><Home events={events} attention={attention} onOpenChat={openChat} /></div>
       <div className={show("goals")}><Goals events={events} route={route} onOpenChat={openChat} /></div>

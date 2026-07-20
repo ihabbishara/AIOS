@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api.js";
 import type { SkillView } from "../api.js";
 import { useFetch } from "../hooks.js";
-import { SectionLabel, Empty, Button, Tag } from "../components/ui.js";
+import { SectionLabel, Empty, Button, PageHeader, Tag } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 
 const TEMPLATE = `---
@@ -101,34 +101,44 @@ export function Skills() {
     api.setAgentSkills(agent, next).then(reload).catch((e) => setErr((e as Error).message));
   };
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3 max-w-4xl w-full mx-auto">
-      <div className="flex items-center gap-2">
-        <SectionLabel>Skills</SectionLabel>
-        <span className="flex-1" />
-        <Button onClick={() => { setSelected(null); setEditorMd(TEMPLATE); }}>New skill</Button>
-      </div>
-      {skills.length === 0 && <Empty>No skills yet.</Empty>}
-      {skills.map((s) => (
-        <div key={s.name} className="flex items-center gap-2 py-1.5 border-b border-line cursor-pointer"
-          onClick={() => open(s)}>
-          <span className="text-bright">{s.name}</span>
-          <span className="text-dim text-xs flex-1 truncate">{s.description}</span>
-          {s.usedBy.map((a) => (
-            <a key={a} href={`#/staff/agents/${encodeURIComponent(a)}`} onClick={(e) => e.stopPropagation()}>
-              <Tag tone="agent">{a}</Tag>
-            </a>
+    <div className="flex-1 overflow-y-auto">
+      <div className="page">
+        <PageHeader title="Skills" meta={`${skills.length} in the library`}>
+          <Button variant="primary" onClick={() => { setSelected(null); setEditorMd(TEMPLATE); }}>New skill</Button>
+        </PageHeader>
+        {skills.length === 0 && (
+          <Empty>No skills yet — a skill is a markdown playbook any agent can load. Start one with New skill.</Empty>
+        )}
+        <div className="grid gap-2.5 md:grid-cols-2">
+          {skills.map((s) => (
+            <div key={s.name} role="button" tabIndex={0}
+              className={`card card-hover px-3.5 py-3 cursor-pointer ${sel?.name === s.name ? "!border-accent" : ""}`}
+              onClick={() => open(s)} onKeyDown={(e) => e.key === "Enter" && open(s)}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-bright font-mono text-[12.5px]">{s.name}</span>
+                <span className="ml-auto flex gap-1">
+                  {s.usedBy.map((a) => (
+                    <a key={a} href={`#/staff/agents/${encodeURIComponent(a)}`} onClick={(e) => e.stopPropagation()}>
+                      <Tag tone="agent">{a}</Tag>
+                    </a>
+                  ))}
+                  {s.usedBy.length === 0 && <Tag tone="dim">unassigned</Tag>}
+                </span>
+              </div>
+              <div className="text-dim text-[11.5px] leading-relaxed line-clamp-2">{s.description}</div>
+            </div>
           ))}
         </div>
-      ))}
-      {editorMd !== null && (
-        <div className="mt-4">
-          <SectionLabel>{sel ? `Edit: ${sel.name}` : "New skill"}</SectionLabel>
-          <Editor key={sel?.name ?? "new"} initialMd={editorMd} usedBy={sel?.usedBy ?? []} agents={agents} onToggle={toggle}
-            onSaved={() => { setEditorMd(null); setSelected(null); reload(); }}
-            onDeleted={() => { setEditorMd(null); setSelected(null); reload(); }} />
-        </div>
-      )}
-      {err && <div className="text-err text-xs mt-2">{err}</div>}
+        {editorMd !== null && (
+          <div className="panel p-4 mt-4">
+            <SectionLabel>{sel ? `Edit: ${sel.name}` : "New skill"}</SectionLabel>
+            <Editor key={sel?.name ?? "new"} initialMd={editorMd} usedBy={sel?.usedBy ?? []} agents={agents} onToggle={toggle}
+              onSaved={() => { setEditorMd(null); setSelected(null); reload(); }}
+              onDeleted={() => { setEditorMd(null); setSelected(null); reload(); }} />
+          </div>
+        )}
+        {err && <div className="text-err text-xs mt-2">{err}</div>}
+      </div>
     </div>
   );
 }

@@ -12,6 +12,19 @@ body {
 /* 10px uppercase section labels (spec §3 typography ramp). */
 .label { @apply text-[10px] uppercase tracking-[0.14em] text-dim; }
 
+/* One shared page shell — every section view uses this instead of inventing its own container. */
+.page { @apply w-full max-w-[1160px] mx-auto px-5 py-5; }
+
+/* Keyboard focus is visible everywhere; inputs keep their border treatment. */
+:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-info) 70%, transparent); outline-offset: 1px; border-radius: 4px; }
+
+/* Segmented sub-nav (System tabs, Staff org/governance). */
+.seg { @apply flex items-center gap-1 bg-raised border border-line rounded-lg p-0.5; }
+.seg-item { @apply px-2.5 py-1 rounded-md text-[11px] text-dim hover:text-fg transition-colors capitalize; }
+.seg-item-active { @apply text-strong bg-surface border border-line; }
+
+kbd { @apply font-mono text-[10px] text-dim border border-line rounded px-1 py-px bg-raised; }
+
 /* Command Deck depth: bg page → .panel (surface) → .card (raised). Light theme
    swaps glow-less borders for a soft shadow via --t-card-shadow. */
 .panel { @apply bg-surface border border-line rounded-xl; box-shadow: var(--t-card-shadow); }

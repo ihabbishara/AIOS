@@ -4,14 +4,16 @@ import { api, type StoredEvent } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { Button, Empty, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
+import { Button, Dot, Empty, PageHeader, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
 import { ts } from "../lib/format.js";
 
 export function Mail({ events, route }: { events: StoredEvent[]; route: Route }) {
   const threadId = route.parts[0];
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4">
-      {threadId ? <Thread threadId={threadId} events={events} /> : <Threads events={events} />}
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="page">
+        {threadId ? <Thread threadId={threadId} events={events} /> : <Threads events={events} />}
+      </div>
     </div>
   );
 }
@@ -20,24 +22,27 @@ function Threads({ events }: { events: StoredEvent[] }) {
   const { data: mine } = useLiveQuery(() => api.mailMine(), events, T.agentMail);
   const [composing, setComposing] = useState(false);
   if (!mine) return <Empty>Loading…</Empty>;
+  const unreadCount = mine.threads.reduce((s, t) => s + t.unread, 0);
   return (
     <div className="max-w-3xl">
-      <div className="flex items-center mb-4">
-        <h1 className="text-[17px] font-bold text-bright">Mail</h1>
-        <Button variant="primary" className="ml-auto" onClick={() => setComposing(true)}>Compose</Button>
-      </div>
+      <PageHeader title="Mail" meta={unreadCount > 0 ? `${unreadCount} unread` : "all read"}>
+        <Button variant="primary" onClick={() => setComposing(true)}>Compose</Button>
+      </PageHeader>
       {composing && <Compose onDone={() => setComposing(false)} />}
       {mine.threads.map((t) => (
         <button key={t.threadId} onClick={() => navigate(`mail/${t.threadId}`)}
-          className="card card-hover w-full text-left px-3 py-2.5 mb-2 flex items-baseline gap-2 min-h-11">
-          <span className={t.unread > 0 ? "text-accent font-medium" : "text-strong"}>{t.lastFrom}</span>
-          {t.pendingAsk > 0 && <span title="waiting on your answer">🙋</span>}
-          {t.refused > 0 && <span title="refused">⚠</span>}
+          className="card card-hover w-full text-left px-3 py-2.5 mb-2 flex items-center gap-2 min-h-11">
+          {t.unread > 0 && <Dot tone="info" />}
+          <span className={t.unread > 0 ? "text-bright font-semibold" : "text-strong"}>{t.lastFrom}</span>
+          {t.pendingAsk > 0 && <Tag tone="accent">needs answer</Tag>}
+          {t.refused > 0 && <span title="a message in this thread was refused">⚠</span>}
           <span className="text-dim truncate">{t.lastBody}</span>
-          <span className="text-[10px] text-dim ml-auto shrink-0">{ts(t.lastTs)}</span>
+          <span className="text-[10px] text-dim ml-auto shrink-0 font-mono">{ts(t.lastTs)}</span>
         </button>
       ))}
-      {mine.threads.length === 0 && <Empty>No mail yet.</Empty>}
+      {mine.threads.length === 0 && (
+        <Empty>No mail yet — agents write here when they finish work or need an answer.</Empty>
+      )}
     </div>
   );
 }

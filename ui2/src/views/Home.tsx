@@ -88,6 +88,13 @@ export function Home({ events, attention, onOpenChat }: {
       <div className="flex-1 min-h-0 flex">
         <div className="w-[360px] shrink-0 border-r border-line py-2 hidden md:flex flex-col">
           <Queue groups={groups} selected={selected} onSelect={setSelected} onAct={act} rowErrors={rowErrors} busy={busy} />
+          <div className="mt-auto px-3 pt-3 pb-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-dim border-t border-line-soft">
+            <span><kbd>j</kbd>/<kbd>k</kbd> walk</span>
+            <span><kbd>a</kbd> approve</span>
+            <span><kbd>r</kbd> reject</span>
+            <span><kbd>d</kbd> discuss</span>
+            <span><kbd>g</kbd>+<kbd>h·g·s·m·y</kbd> jump</span>
+          </div>
         </div>
         {/* Phone: queue-first; a selection pushes a full-screen detail with back (spec §7). */}
         <div className="flex-1 min-h-0 md:hidden flex flex-col py-2">

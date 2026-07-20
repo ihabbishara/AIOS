@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../api.js";
 import type { Recurrence, RoutineView } from "../api.js";
 import { useFetch } from "../hooks.js";
-import { SectionLabel, Empty, Button, Tag } from "../components/ui.js";
+import { SectionLabel, Empty, Button, PageHeader, Tag } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -136,31 +136,47 @@ export function Schedule() {
   if (error) return <Empty>{error}</Empty>;
   if (!data) return <Empty>Loading…</Empty>;
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3 max-w-3xl w-full mx-auto">
-      <SectionLabel>Anchors</SectionLabel>
-      {data.anchors.map((a) => (
-        // key includes hhmm so the row remounts (re-seeds its input) when the persisted value
-        // changes — e.g. the server normalizes 9:00→09:00 — instead of showing stale local text.
-        <AnchorRow key={`${a.name}:${a.hhmm}`} {...a}
-          onSave={(hhmm) => api.setAnchor(a.name, hhmm).then(reload).catch((e) => setAnchorErr((e as Error).message))} />
-      ))}
-      {anchorErr && <div className="text-err text-xs mt-1">{anchorErr}</div>}
+    <div className="flex-1 overflow-y-auto">
+      <div className="page">
+        <PageHeader title="Schedule" meta={`${data.routines.length} routine${data.routines.length === 1 ? "" : "s"} · ${data.reminders.length} reminder${data.reminders.length === 1 ? "" : "s"}`} />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start">
+          <div className="panel p-4">
+            <SectionLabel>Routines</SectionLabel>
+            <div className="text-[11px] text-dim mb-2">Recurring prompts the org runs on its own — hermes picks them up on schedule.</div>
+            {data.routines.length === 0 && <Empty>No routines yet — create one below.</Empty>}
+            {data.routines.map((r) => <RoutineRowView key={r.id} r={r} onChanged={reload} />)}
+            <div className="mt-3"><SectionLabel>New routine</SectionLabel></div>
+            <CreateRoutine onCreated={reload} />
+          </div>
 
-      <div className="mt-6"><SectionLabel>Routines</SectionLabel></div>
-      {data.routines.length === 0 && <Empty>No routines yet.</Empty>}
-      {data.routines.map((r) => <RoutineRowView key={r.id} r={r} onChanged={reload} />)}
-      <CreateRoutine onCreated={reload} />
+          <div className="flex flex-col gap-4">
+            <div className="panel p-4">
+              <SectionLabel>Anchors</SectionLabel>
+              <div className="text-[11px] text-dim mb-2">The daemon's daily heartbeats — briefs, memory distillation, speculation fire at these times.</div>
+              {data.anchors.map((a) => (
+                // key includes hhmm so the row remounts (re-seeds its input) when the persisted value
+                // changes — e.g. the server normalizes 9:00→09:00 — instead of showing stale local text.
+                <AnchorRow key={`${a.name}:${a.hhmm}`} {...a}
+                  onSave={(hhmm) => api.setAnchor(a.name, hhmm).then(reload).catch((e) => setAnchorErr((e as Error).message))} />
+              ))}
+              {anchorErr && <div className="text-err text-xs mt-1">{anchorErr}</div>}
+            </div>
 
-      <div className="mt-6"><SectionLabel>Reminders</SectionLabel></div>
-      {data.reminders.length === 0 && <Empty>No pending reminders.</Empty>}
-      {data.reminders.map((rem) => (
-        <div key={rem.id} className="flex items-center gap-3 py-1.5 border-b border-line">
-          <span className="text-bright flex-1">{rem.text}</span>
-          <span className="text-dim text-xs">{rem.dueAt}</span>
-          <span className="text-dim text-xs">{rem.origin}</span>
-          <TwoStepButton label="Cancel" onConfirm={() => api.cancelReminder(rem.id).then(reload).catch(() => {})} />
+            <div className="panel p-4">
+              <SectionLabel>Reminders</SectionLabel>
+              {data.reminders.length === 0 && <Empty>No pending reminders — ask any agent to "remind me…".</Empty>}
+              {data.reminders.map((rem) => (
+                <div key={rem.id} className="flex items-center gap-3 py-1.5 border-b border-line last:border-0">
+                  <span className="text-bright flex-1">{rem.text}</span>
+                  <span className="text-dim text-xs font-mono">{rem.dueAt}</span>
+                  <span className="text-dim text-xs">{rem.origin}</span>
+                  <TwoStepButton label="Cancel" onConfirm={() => api.cancelReminder(rem.id).then(reload).catch(() => {})} />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      ))}
+      </div>
     </div>
   );
 }

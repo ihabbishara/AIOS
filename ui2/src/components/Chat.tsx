@@ -148,7 +148,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 max-w-4xl">
+    <div className="flex flex-col h-full min-h-0 max-w-4xl w-full mx-auto">
       <div className="flex gap-1 mb-3 flex-wrap">
         {targets.map((t) => (
           <button

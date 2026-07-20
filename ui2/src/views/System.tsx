@@ -4,7 +4,9 @@ import { api, type StoredEvent } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { Button, Dot, Empty, SectionLabel } from "../components/ui.js";
+import { Button, Dot, Empty, PageHeader, SectionLabel } from "../components/ui.js";
+import { TwoStepButton } from "../components/TwoStepButton.js";
+import { describeEvent } from "../lib/activity.js";
 import { tsTime, usdFloat, usd } from "../lib/format.js";
 
 const TABS = ["health", "events", "costs", "config"] as const;
@@ -12,18 +14,30 @@ const TABS = ["health", "events", "costs", "config"] as const;
 export function System({ events, route }: { events: StoredEvent[]; route: Route }) {
   const tab = (TABS as readonly string[]).includes(route.parts[0]) ? route.parts[0] : "health";
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col">
-      <div className="flex gap-3 mb-4 items-center shrink-0">
-        <h1 className="text-[17px] font-bold text-bright">System</h1>
-        {TABS.map((t) => (
-          <button key={t} onClick={() => navigate(t === "health" ? "system" : `system/${t}`)}
-            className={`label hover:text-fg ${tab === t ? "text-strong" : ""}`}>{t}</button>
-        ))}
+    <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+      <div className="page flex-1 min-h-0 flex flex-col">
+        <PageHeader title="System">
+          <span className="seg">
+            {TABS.map((t) => (
+              <button key={t} onClick={() => navigate(t === "health" ? "system" : `system/${t}`)}
+                className={`seg-item ${tab === t ? "seg-item-active" : ""}`}>{t}</button>
+            ))}
+          </span>
+        </PageHeader>
+        {tab === "health" && <Health events={events} />}
+        {tab === "events" && <EventsTail live={events} />}
+        {tab === "costs" && <Costs events={events} />}
+        {tab === "config" && <ConfigEditor />}
       </div>
-      {tab === "health" && <Health events={events} />}
-      {tab === "events" && <EventsTail live={events} />}
-      {tab === "costs" && <Costs events={events} />}
-      {tab === "config" && <ConfigEditor />}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "accent" | "err" }) {
+  return (
+    <div className="card px-3.5 py-3">
+      <div className="label mb-1">{label}</div>
+      <div className={`text-[15px] font-semibold font-mono ${tone === "err" ? "text-err" : tone === "accent" ? "text-accent" : "text-strong"}`}>{value}</div>
     </div>
   );
 }
@@ -34,17 +48,19 @@ function Health({ events }: { events: StoredEvent[] }) {
   const hours = Math.floor(h.uptimeMs / 3_600_000);
   const mins = Math.floor((h.uptimeMs % 3_600_000) / 60_000);
   return (
-    <div className="max-w-xl flex flex-col gap-4">
-      <div className="panel p-4 grid grid-cols-2 gap-3 text-[12px]">
-        <span className="text-dim">Daemon uptime</span><span>{hours ? `${hours}h ${mins}m` : `${mins}m`}</span>
-        <span className="text-dim">Voice</span><span>{h.voice ? "available" : "off"}</span>
-        <span className="text-dim">SSE clients</span><span>{h.sseClients}</span>
-        <span className="text-dim">DB size</span><span>{(h.dbBytes / 1_048_576).toFixed(1)} MB</span>
-        <span className="text-dim">Info-flow policy</span>
-        <span className={h.policyMode === "audit" && h.policyViolations > 0 ? "text-accent" : ""}>
-          {h.policyMode} · {h.policyViolations} violation{h.policyViolations === 1 ? "" : "s"}
-        </span>
+    <div className="max-w-3xl flex flex-col gap-5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+        <Stat label="Uptime" value={hours ? `${hours}h ${mins}m` : `${mins}m`} />
+        <Stat label="Voice" value={h.voice ? "on" : "off"} />
+        <Stat label="Live clients" value={String(h.sseClients)} />
+        <Stat label="DB" value={`${(h.dbBytes / 1_048_576).toFixed(1)} MB`} />
+        <Stat label="Policy" value={h.policyMode} tone={h.policyMode === "audit" && h.policyViolations > 0 ? "accent" : undefined} />
       </div>
+      {h.policyViolations > 0 && (
+        <div className="text-[11.5px] text-dim">
+          {h.policyViolations} info-flow violation{h.policyViolations === 1 ? "" : "s"} recorded — each one is a wall doing its job; the count resets on rebuild.
+        </div>
+      )}
       <div>
         <SectionLabel>Senses</SectionLabel>
         {h.senses.length === 0 && <Empty>No senses configured.</Empty>}
@@ -71,6 +87,35 @@ const PRESETS: Record<string, string[]> = {
   mail: ["mail."],
   policy: ["policy."],
 };
+
+const FAMILY_TONE: Array<[string, string]> = [
+  ["goal.", "text-agent"], ["node.", "text-agent"], ["mail.", "text-info"], ["chat.", "text-dim"],
+  ["action.", "text-ok"], ["agent.", "text-ok"], ["policy.", "text-accent"], ["tool.denied", "text-err"],
+  ["trust.", "text-accent"], ["route.", "text-dim"], ["triage.", "text-dim"],
+];
+const typeClass = (t: string) => FAMILY_TONE.find(([p]) => (p.endsWith(".") ? t.startsWith(p) : t === p))?.[1] ?? "text-fg";
+
+function EventRow({ e }: { e: StoredEvent }) {
+  const [open, setOpen] = useState(false);
+  const line = describeEvent(e);
+  return (
+    <div className="border-b border-line-soft last:border-0">
+      <button onClick={() => setOpen((v) => !v)}
+        className="w-full text-left flex gap-2.5 items-baseline px-2 py-[3px] hover:bg-raised rounded-sm">
+        <span className="font-mono text-[10px] text-dim shrink-0">{tsTime(e.ts)}</span>
+        <span className={`font-mono text-[10.5px] shrink-0 w-32 truncate ${typeClass(e.event.type)}`}>{e.event.type}</span>
+        <span className="text-[11.5px] text-fg truncate min-w-0 flex-1">
+          {line?.text ?? JSON.stringify({ ...e.event, type: undefined }).slice(0, 140)}
+        </span>
+      </button>
+      {open && (
+        <pre className="font-mono text-[10.5px] text-dim whitespace-pre-wrap px-2 py-2 mx-2 mb-1.5 card overflow-x-auto">
+          {JSON.stringify(e.event, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 function EventsTail({ live }: { live: StoredEvent[] }) {
   const { data: history } = useFetch(() => api.events(), []);
@@ -100,23 +145,21 @@ function EventsTail({ live }: { live: StoredEvent[] }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex gap-2 mb-2 items-center shrink-0 flex-wrap">
-        {Object.keys(PRESETS).map((p) => (
-          <button key={p} onClick={() => setPreset(p)} className={`label hover:text-fg ${preset === p ? "text-strong" : ""}`}>{p}</button>
-        ))}
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search…"
+        <span className="seg">
+          {Object.keys(PRESETS).map((p) => (
+            <button key={p} onClick={() => setPreset(p)} className={`seg-item ${preset === p ? "seg-item-active" : ""}`}>{p}</button>
+          ))}
+        </span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search events…"
           className="bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim w-48" />
         <Button className="ml-auto" onClick={() => setPaused((v) => !v)}>{paused ? "Resume" : "Pause"}</Button>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto font-mono text-[11px] text-dim border border-line rounded-lg bg-bg p-2">
-        {shown.map((e) => (
-          <div key={e.id} className="whitespace-nowrap">
-            <span className="text-line">{tsTime(e.ts)}</span>{" "}
-            <span className="text-fg">{e.event.type}</span>{" "}
-            {JSON.stringify({ ...e.event, type: undefined }).slice(0, 180)}
-          </div>
-        ))}
+      <div className="flex-1 min-h-0 overflow-y-auto panel !rounded-lg p-1.5">
+        {shown.map((e) => <EventRow key={e.id} e={e} />)}
+        {shown.length === 0 && <Empty>No events match.</Empty>}
         <div ref={bottom} />
       </div>
+      <div className="text-[10px] text-dim mt-1.5 shrink-0">Click a row for the raw payload · newest at the bottom · {shown.length} shown</div>
     </div>
   );
 }
@@ -140,28 +183,34 @@ function Costs({ events }: { events: StoredEvent[] }) {
 
   return (
     <div className="max-w-3xl flex flex-col gap-6">
-      <div className="flex gap-6 text-[13px]">
-        <span><span className="text-dim">today </span><span className="text-strong">{usdFloat(today)}</span></span>
-        <span><span className="text-dim">7d </span><span className="text-strong">{usdFloat(week)}</span></span>
-        <span><span className="text-dim">14d </span><span className="text-strong">{usdFloat(window14)}</span></span>
-      </div>
-      <div>
-        <SectionLabel>Per agent</SectionLabel>
-        {agents.map(([name, v]) => (
-          <div key={name} className="flex items-center gap-2 py-0.5 text-[12px]">
-            <span className="w-24 text-dim truncate">{name}</span>
-            <div className="flex-1 h-2 bg-raised rounded-sm"><div className="h-full bg-line rounded-sm" style={{ width: `${(v / maxAgent) * 100}%` }} /></div>
-            <span className="w-14 text-right">{usdFloat(v)}</span>
-          </div>
-        ))}
+      <div className="grid grid-cols-3 gap-2.5 max-w-md">
+        <Stat label="Today" value={usdFloat(today)} />
+        <Stat label="7 days" value={usdFloat(week)} />
+        <Stat label="14 days" value={usdFloat(window14)} />
       </div>
       <div>
         <SectionLabel>Last 14 days</SectionLabel>
         <div className="flex items-end gap-1 h-24">
           {days.map(([d, v]) => (
-            <div key={d} title={`${d} · ${usdFloat(v)}`} className="flex-1 bg-line rounded-sm" style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
+            <div key={d} title={`${d} · ${usdFloat(v)}`} className="flex-1 flex flex-col items-center gap-1 group">
+              <div className="w-full bg-info/60 group-hover:bg-info rounded-sm transition-colors"
+                style={{ height: `${Math.max(3, (v / maxDay) * 88)}px` }} />
+              <span className="text-[8.5px] font-mono text-dim">{"SMTWTFS"[new Date(d).getDay()]}</span>
+            </div>
           ))}
         </div>
+      </div>
+      <div>
+        <SectionLabel>Per agent · all time</SectionLabel>
+        {agents.map(([name, v]) => (
+          <div key={name} className="flex items-center gap-2 py-0.5 text-[12px]">
+            <span className="w-28 text-dim truncate">{name}</span>
+            <div className="flex-1 h-2">
+              <div className="h-full bg-agent/50 rounded-sm min-w-px" style={{ width: `${(v / maxAgent) * 100}%` }} />
+            </div>
+            <span className="w-16 text-right font-mono">{usdFloat(v)}</span>
+          </div>
+        ))}
       </div>
       <div>
         <SectionLabel>Top goals by spend</SectionLabel>
@@ -169,7 +218,7 @@ function Costs({ events }: { events: StoredEvent[] }) {
           <button key={g.id} onClick={() => navigate(`goals/${g.slug}`)}
             className="w-full text-left flex gap-2 py-1 text-[12px] hover:text-strong">
             <span className="truncate">{g.title}</span>
-            <span className="text-dim ml-auto shrink-0">{usd(cents)}</span>
+            <span className="text-dim ml-auto shrink-0 font-mono">{usd(cents)}</span>
           </button>
         ))}
         {topGoals.length === 0 && <Empty>No goal spend yet.</Empty>}
@@ -246,8 +295,11 @@ function ConfigEditor() {
       {/* Any UI-editable key the groups above miss still shows up (server owns the list). */}
       {cfg.filter((c) => !grouped.has(c.key)).map(row)}
       <div className="flex items-center gap-3 mt-4">
-        <Button variant="danger" disabled={restarting} onClick={restart}>{restarting ? "Restarting…" : "Restart daemon"}</Button>
+        {restarting
+          ? <Button variant="danger" disabled>Restarting…</Button>
+          : <TwoStepButton label="Restart daemon" onConfirm={restart} />}
         {note && <span className="text-[12px] text-dim">{note}</span>}
+        {!note && !restarting && <span className="text-[11px] text-dim">Saved changes apply after a restart.</span>}
       </div>
     </div>
   );

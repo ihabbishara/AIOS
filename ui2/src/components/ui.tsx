@@ -33,7 +33,8 @@ export function Dot({ tone, breathing }: { tone: "ok" | "err" | "accent" | "agen
   return <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${bg} ${breathing ? "breathe" : ""}`} />;
 }
 
-/** Initials avatar — violet ring while working, amber only when the agent owns a needs-you item. */
+/** Initials avatar — violet ring while working, amber only when the agent owns a needs-you item.
+ *  Three letters: two never disambiguate this roster (athena/atlas, minos/midas, juno/jasmine). */
 export function Avatar({ name, tone = "dim" }: { name: string; tone?: "dim" | "agent" | "accent" | "ok" | "err" }) {
   const color = {
     dim: "text-dim bg-raised border-line", agent: "text-agent bg-agent/10 border-agent/30",
@@ -41,8 +42,32 @@ export function Avatar({ name, tone = "dim" }: { name: string; tone?: "dim" | "a
     err: "text-err bg-err/10 border-err/30",
   }[tone];
   return (
-    <span className={`inline-flex items-center justify-center w-[22px] h-[22px] rounded-full border text-[9px] font-bold uppercase shrink-0 ${color}`}>
-      {name.slice(0, 2)}
+    <span className={`inline-flex items-center justify-center w-[26px] h-[26px] rounded-full border font-mono text-[8.5px] font-bold lowercase tracking-tight shrink-0 ${color}`}>
+      {name.slice(0, 3)}
+    </span>
+  );
+}
+
+/** Shared page header: title · mono meta · right-aligned actions. Keeps every section's
+ *  first line identical so the app reads as one product. */
+export function PageHeader({ title, meta, children }: { title: string; meta?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-5 flex-wrap min-h-8">
+      <h1 className="text-[19px] font-bold text-bright tracking-tight">{title}</h1>
+      {meta && <span className="text-[11.5px] text-dim font-mono">{meta}</span>}
+      {children && <span className="ml-auto flex items-center gap-2">{children}</span>}
+    </div>
+  );
+}
+
+/** Plan progress at a glance: one segment per node, colored by that node's status. */
+export function Segments({ statuses }: { statuses: string[] }) {
+  const bg: Record<string, string> = { ok: "bg-ok", err: "bg-err", accent: "bg-accent", agent: "bg-agent breathe", dim: "bg-line" };
+  return (
+    <span className="flex gap-[3px] items-center">
+      {statuses.map((st, i) => (
+        <span key={i} title={st} className={`h-[5px] flex-1 min-w-1.5 max-w-6 rounded-[2px] ${bg[toneOfStatus(st)]}`} />
+      ))}
     </span>
   );
 }

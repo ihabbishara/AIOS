@@ -9,9 +9,11 @@ export function ChatDrawer({ open, onClose, state, events, target, setTarget, se
 }) {
   return (
     <Sheet open={open} onClose={onClose}>
-      <div className="flex items-center px-4 h-10 border-b border-line shrink-0">
+      <div className="flex items-center gap-3 px-4 h-10 border-b border-line shrink-0">
         <span className="label">Chat · {target}</span>
-        <span className="label ml-auto">⌘J to close</span>
+        {target === "hermes" && <span className="text-[10.5px] text-dim">chief of staff — routes work to the right specialist</span>}
+        <span className="label ml-auto hidden md:inline">⌘J or esc closes</span>
+        <button onClick={onClose} aria-label="Close chat" className="text-dim hover:text-strong text-[14px] leading-none px-1">✕</button>
       </div>
       <div className="flex-1 min-h-0 p-4">
         <Chat state={state} events={events} target={target} setTarget={setTarget} seed={seed} />
