@@ -1,16 +1,23 @@
 // src/voice/tts.ts
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const run = promisify(execFile);
 
-export const MAX_TTS_CHARS = 3000;
+/** Spoken cap. Local q8 kokoro runs near realtime warm — 1200 chars ≈ ~90s of audio is the
+ *  honest upper bound for a voice note; the full text always accompanies it in the chat.
+ *  (The old 3000 was fiction: generate() truncated at the model window ≈30s regardless.) */
+export const MAX_TTS_CHARS = 1200;
 
 const KOKORO_LOAD_TIMEOUT_MS = 120_000;
-const KOKORO_GENERATE_TIMEOUT_MS = 60_000;
+/** Per-sentence-chunk watchdog. Generous on purpose: a warm chunk takes seconds, a cold first
+ *  chunk can take a minute+. This must only fire on a genuinely wedged inference — timing out a
+ *  LIVE onnx run and abandoning it can abort the whole process natively (observed: libc++abi
+ *  "mutex lock failed" SIGABRT), so a trigger-happy timeout is worse than a slow reply. */
+const KOKORO_GENERATE_TIMEOUT_MS = 180_000;
 
 /** A network stall must reject (→ say fallback), never hang the reply path. */
 export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -44,10 +51,15 @@ export function cleanForSpeech(text: string): string {
     .trim();
 }
 
-/** Voice notes shouldn't be podcasts — the full text is always sent alongside. */
+/** Voice notes shouldn't be podcasts — the full text is always sent alongside.
+ *  Clips at the last sentence end inside the cap so the voice never stops mid-sentence;
+ *  hard-cuts only when there is no sentence boundary to use. */
 export function clipForSpeech(text: string): string {
   if (text.length <= MAX_TTS_CHARS) return text;
-  return `${text.slice(0, MAX_TTS_CHARS)}… full text below.`;
+  const window = text.slice(0, MAX_TTS_CHARS);
+  const lastEnd = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "));
+  const cut = lastEnd > MAX_TTS_CHARS / 2 ? window.slice(0, lastEnd + 1) : window;
+  return `${cut} Full text below.`;
 }
 
 export interface TtsDeps {
@@ -58,10 +70,27 @@ export interface TtsDeps {
   sayBin?: string;
   tmpDir: string;
   log?: (line: string) => void;
+  /** Injectable kokoro engine — tests stub the stream without loading the model. */
+  kokoro?: KokoroLike;
+  /** Injectable splitter class (tests record push/close; real path uses kokoro's own). */
+  splitterCtor?: new () => SplitterLike;
+  /** Plausibility floor for output audio bytes (tests with stub binaries set 0). */
+  minPlausibleBytes?: number;
+}
+
+export interface SplitterLike {
+  push(text: string): void;
+  close(): void;
 }
 
 interface KokoroLike {
-  generate(text: string, opts: { voice: string }): Promise<{ save(path: string): Promise<void> }>;
+  /** Sentence-splitting stream — the ONLY safe entry point for long text. generate() tokenizes
+   *  with truncation:true against the model's ~510-phoneme window (~30s) and silently drops the
+   *  rest, which is exactly the "voice cuts mid-dictation" bug.
+   *  MUST be fed a splitter we pushed AND CLOSED ourselves: kokoro-js's string overload never
+   *  closes its internal splitter, so the iterator hangs forever on the terminal next() and the
+   *  last buffered sentence is never spoken (observed live: chunks in 7s, then a 180s timeout). */
+  stream(input: SplitterLike, opts?: { voice: string }): AsyncIterable<{ audio: { save(path: string): Promise<void> } }>;
 }
 
 /**
@@ -71,30 +100,50 @@ interface KokoroLike {
 export class TtsEngine {
   private kokoro?: KokoroLike;
   private kokoroFailed = false;
+  private splitterCtor?: new () => SplitterLike;
 
   constructor(private deps: TtsDeps) {
     mkdirSync(deps.tmpDir, { recursive: true });
+    this.kokoro = deps.kokoro;
+    this.splitterCtor = deps.splitterCtor;
   }
 
   async synthesize(text: string): Promise<string> {
     const speech = clipForSpeech(cleanForSpeech(text));
     if (this.deps.voice !== "say" && !this.kokoroFailed) {
       try {
-        return await this.viaKokoro(speech);
+        return this.checkPlausible(await this.viaKokoro(speech), speech);
       } catch (err) {
-        this.kokoroFailed = true; // don't retry a broken model every message
+        // Latch say-fallback ONLY on model-load failure (broken install stays broken). A
+        // generation timeout is usually transient CPU contention — latching it would strand
+        // the daemon on the fallback voice until restart.
+        if (!this.kokoro) this.kokoroFailed = true;
         this.deps.log?.(`kokoro failed (${(err as Error).message}) — falling back to say`);
       }
     }
-    return this.viaSay(speech);
+    return this.checkPlausible(await this.viaSay(speech), speech);
+  }
+
+  /** A voice note that is a fraction of a second for a real sentence is garbage (observed:
+   *  a broken `say -o` writes a near-empty aiff → 12ms ogg). Better no audio — the caller
+   *  degrades to text-only — than shipping a blip. */
+  private checkPlausible(ogg: string, speech: string): string {
+    const bytes = statSync(ogg).size;
+    if (speech.length > 40 && bytes < (this.deps.minPlausibleBytes ?? 2048)) {
+      rmSync(ogg, { force: true });
+      throw new Error(`tts produced implausibly small audio (${bytes}B for ${speech.length} chars)`);
+    }
+    return ogg;
   }
 
   private async viaKokoro(text: string): Promise<string> {
     if (!this.kokoro) {
       // Lazy dynamic import: onnxruntime + model load only when first needed.
-      const { KokoroTTS } = (await import("kokoro-js")) as {
+      const { KokoroTTS, TextSplitterStream } = (await import("kokoro-js")) as {
         KokoroTTS: { from_pretrained(id: string, o: { dtype: string; device: string }): Promise<KokoroLike> };
+        TextSplitterStream: new () => SplitterLike;
       };
+      this.splitterCtor ??= TextSplitterStream;
       this.deps.log?.("loading kokoro tts model (one-time download ~80MB)…");
       this.kokoro = await withTimeout(
         KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
@@ -105,19 +154,41 @@ export class TtsEngine {
         "kokoro model load",
       );
     }
-    const wav = join(this.deps.tmpDir, `${randomUUID()}.wav`);
+    if (!this.splitterCtor) throw new Error("no splitter available for kokoro stream");
+    // Stream per sentence — each chunk fits the model window — then stitch. The per-chunk
+    // timeout wraps each generation step so a mid-stream stall still rejects into say-fallback.
     const ogg = join(this.deps.tmpDir, `${randomUUID()}.ogg`);
+    const wavs: string[] = [];
+    const listFile = join(this.deps.tmpDir, `${randomUUID()}.txt`);
+    const t0 = Date.now();
     try {
-      const audio = await withTimeout(
-        this.kokoro.generate(text, { voice: this.deps.voice }),
-        KOKORO_GENERATE_TIMEOUT_MS,
-        "kokoro generation",
-      );
-      await audio.save(wav);
-      await run(this.deps.ffmpegBin, ["-y", "-i", wav, "-c:a", "libopus", ogg]);
+      this.deps.log?.(`tts: streaming ${text.length} chars`);
+      // Push-then-CLOSE before iterating: close() flushes the final buffered sentence and lets
+      // the stream terminate — kokoro's string overload does neither.
+      const splitter = new this.splitterCtor();
+      splitter.push(text);
+      splitter.close();
+      const it = this.kokoro.stream(splitter, { voice: this.deps.voice })[Symbol.asyncIterator]();
+      for (;;) {
+        const step = await withTimeout(it.next(), KOKORO_GENERATE_TIMEOUT_MS, "kokoro generation");
+        if (step.done) break;
+        const wav = join(this.deps.tmpDir, `${randomUUID()}.wav`);
+        await step.value.audio.save(wav);
+        wavs.push(wav);
+        this.deps.log?.(`tts: chunk ${wavs.length} at ${Date.now() - t0}ms`);
+      }
+      if (wavs.length === 0) throw new Error("kokoro produced no audio");
+      if (wavs.length === 1) {
+        await run(this.deps.ffmpegBin, ["-y", "-i", wavs[0], "-c:a", "libopus", ogg]);
+      } else {
+        // ffmpeg concat demuxer: all chunks are same-format model output (24kHz mono wav).
+        writeFileSync(listFile, wavs.map((w) => `file '${w}'\n`).join(""));
+        await run(this.deps.ffmpegBin, ["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-c:a", "libopus", ogg]);
+      }
       return ogg;
     } finally {
-      rmSync(wav, { force: true });
+      for (const w of wavs) rmSync(w, { force: true });
+      rmSync(listFile, { force: true });
     }
   }
 

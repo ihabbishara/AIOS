@@ -17,11 +17,21 @@ describe("clipForSpeech", () => {
   it("passes short text through", () => {
     expect(clipForSpeech("hello")).toBe("hello");
   });
-  it("clips long text with the marker", () => {
+  it("clips long text with the marker (hard cut when no sentence boundary exists)", () => {
     const long = "x".repeat(MAX_TTS_CHARS + 500);
     const clipped = clipForSpeech(long);
     expect(clipped.length).toBeLessThan(long.length);
-    expect(clipped.endsWith("… full text below.")).toBe(true);
+    expect(clipped.endsWith(" Full text below.")).toBe(true);
+  });
+  it("clips at a sentence boundary — the voice never stops mid-sentence", () => {
+    const sentence = "This is a complete sentence about a finished goal. ";
+    const long = sentence.repeat(Math.ceil((MAX_TTS_CHARS + 500) / sentence.length));
+    const clipped = clipForSpeech(long);
+    expect(clipped.endsWith(". Full text below.")).toBe(true);
+    // Everything before the marker is whole sentences — no dangling fragment.
+    const spoken = clipped.replace(" Full text below.", "");
+    expect(spoken.endsWith(".")).toBe(true);
+    expect(spoken.length).toBeLessThanOrEqual(MAX_TTS_CHARS);
   });
 });
 
@@ -63,6 +73,84 @@ describe("cleanForSpeech", () => {
     // underscores for speech. Backtick-quoted dunders are out of reach here because
     // inline code is unwrapped earlier in the chain.
     expect(cleanForSpeech("call __init__ now")).toBe("call init now");
+  });
+});
+
+describe("TtsEngine kokoro path — long text is chunked, never truncated", () => {
+  // Root cause of the "voice cuts mid-dictation" bug: kokoro-js generate() tokenizes with
+  // truncation:true against the model's ~510-phoneme window, silently dropping everything
+  // past ~30s. The engine must use the library's sentence-stream API and stitch ALL chunks.
+  class RecSplitter {
+    static instances: RecSplitter[] = [];
+    pushed = "";
+    closed = false;
+    constructor() { RecSplitter.instances.push(this); }
+    push(t: string) { this.pushed += t; }
+    close() { this.closed = true; }
+  }
+
+  function fakeKokoro(sentencesPerCall: string[][]) {
+    const inputs: RecSplitter[] = [];
+    return {
+      inputs,
+      async *stream(input: RecSplitter) {
+        inputs.push(input);
+        for (const s of sentencesPerCall.shift() ?? []) {
+          yield {
+            text: s,
+            audio: { save: async (p: string) => writeFileSync(p, `wav-of:${s}`) },
+          };
+        }
+      },
+    };
+  }
+
+  it("stitches every streamed sentence chunk into the final ogg (concat list carries all wavs)", async () => {
+    const dir = tmp();
+    const kokoro = fakeKokoro([["Sentence one.", "Sentence two.", "Sentence three."]]);
+    const tts = new TtsEngine({ voice: "af_heart", ffmpegBin: FAKE_FFMPEG, tmpDir: dir, kokoro, splitterCtor: RecSplitter, minPlausibleBytes: 0 });
+    const out = await tts.synthesize("Sentence one. Sentence two. Sentence three.");
+    expect(out.endsWith(".ogg")).toBe(true);
+    const { readFileSync } = await import("node:fs");
+    // fake ffmpeg copies its -i input to the output: for a multi-chunk run that input is the
+    // concat list — it must reference one wav per streamed sentence.
+    const list = readFileSync(out, "utf8");
+    expect(list.match(/\.wav/g)?.length).toBe(3);
+  });
+
+  it("single-chunk replies still produce a direct ogg conversion", async () => {
+    const dir = tmp();
+    const kokoro = fakeKokoro([["Just one sentence."]]);
+    const tts = new TtsEngine({ voice: "af_heart", ffmpegBin: FAKE_FFMPEG, tmpDir: dir, kokoro, splitterCtor: RecSplitter, minPlausibleBytes: 0 });
+    const out = await tts.synthesize("Just one sentence.");
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(out, "utf8")).toBe("wav-of:Just one sentence.");
+  });
+
+  it("pushes the full text and CLOSES the splitter before streaming (terminal-hang regression)", async () => {
+    // kokoro-js's string overload never closes its internal splitter: the terminal next() hangs
+    // forever and the last buffered sentence is never spoken. The engine must own the splitter.
+    const dir = tmp();
+    const kokoro = fakeKokoro([["A."]]);
+    const tts = new TtsEngine({ voice: "af_heart", ffmpegBin: FAKE_FFMPEG, tmpDir: dir, kokoro, splitterCtor: RecSplitter, minPlausibleBytes: 0 });
+    await tts.synthesize("A.");
+    const splitter = kokoro.inputs[0];
+    expect(splitter).toBeInstanceOf(RecSplitter);
+    expect(splitter.pushed).toBe("A.");
+    expect(splitter.closed).toBe(true);
+  });
+
+  it("rejects implausibly small audio instead of shipping a blip (broken `say -o` gotcha)", async () => {
+    const dir = tmp();
+    // Fake say writes a near-empty aiff (the observed macOS failure mode); fake ffmpeg copies
+    // it through. For a real sentence this must throw so the caller degrades to text-only.
+    const fakeSay = join(dir, "fake-say.sh");
+    writeFileSync(fakeSay, `#!/bin/sh\nprev=""\nfor a in "$@"; do\n  if [ "$prev" = "-o" ]; then printf x > "$a"; fi\n  prev="$a"\ndone\n`);
+    const { chmodSync } = await import("node:fs");
+    chmodSync(fakeSay, 0o755);
+    const tts = new TtsEngine({ voice: "say", ffmpegBin: FAKE_FFMPEG, sayBin: fakeSay, tmpDir: dir });
+    await expect(tts.synthesize("A real sentence long enough to deserve actual audio output."))
+      .rejects.toThrow(/implausibly small/);
   });
 });
 

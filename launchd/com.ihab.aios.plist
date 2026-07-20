@@ -19,6 +19,12 @@
   <key>RunAtLoad</key>
   <true/>
 
+  <!-- Without this, launchd spawns the agent as background/daemon QoS: onnxruntime inference
+       lands on efficiency cores and kokoro TTS chunks take 30x longer (observed: 6s -> 180s+).
+       Interactive = app-like scheduling; this daemon serves live chat and voice. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+
   <key>StandardOutPath</key>
   <string>/Users/ihabbishara/projects/AIOS/data/aios.log</string>
   <key>StandardErrorPath</key>
