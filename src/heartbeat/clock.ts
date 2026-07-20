@@ -31,13 +31,38 @@ export function localParts(d: Date): { date: string; hhmm: string } {
   };
 }
 
-/** Due when the local clock has passed the anchor time and it hasn't fired today. */
+/** Local date one day before `date` ("YYYY-MM-DD"), month/year rollover included. */
+export function yesterdayOf(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return localParts(new Date(y, m - 1, d - 1)).date;
+}
+
+/**
+ * Returns the occurrence date this fire covers, or null when not due.
+ * Occurrence is today once the anchor time has passed, else yesterday —
+ * so an outage spanning midnight catches up exactly once. Yesterday
+ * occurrences (catch-ups) are additionally held until `catchupAfter`
+ * local time so brief anchors never ping in the small hours.
+ */
 export function anchorDue(
   now: { date: string; hhmm: string },
   anchorHHMM: string,
   lastFiredDate: string | undefined,
-): boolean {
-  return now.hhmm >= anchorHHMM && lastFiredDate !== now.date;
+  catchupAfter = "08:00",
+): string | null {
+  const occurrence = now.hhmm >= anchorHHMM ? now.date : yesterdayOf(now.date);
+  if ((lastFiredDate ?? "") >= occurrence) return null;
+  if (occurrence < now.date) {
+    // Catch-up scenario: yesterday's occurrence
+    if (!lastFiredDate) {
+      // Never fired before: require strictly after the gate
+      if (now.hhmm <= catchupAfter) return null;
+    } else {
+      // Have history: require at-or-after the gate
+      if (now.hhmm < catchupAfter) return null;
+    }
+  }
+  return occurrence;
 }
 
 /**

@@ -1,7 +1,7 @@
 // test/clock.test.ts
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
-import { localParts, anchorDue, Clock } from "../src/heartbeat/clock.js";
+import { localParts, anchorDue, yesterdayOf, Clock } from "../src/heartbeat/clock.js";
 import type { ReminderRow } from "../src/store/db.js";
 
 describe("localParts", () => {
@@ -11,20 +11,50 @@ describe("localParts", () => {
   });
 });
 
+describe("yesterdayOf", () => {
+  it("handles plain, month-rollover, and year-rollover dates", () => {
+    expect(yesterdayOf("2026-06-12")).toBe("2026-06-11");
+    expect(yesterdayOf("2026-07-01")).toBe("2026-06-30");
+    expect(yesterdayOf("2026-01-01")).toBe("2025-12-31");
+  });
+});
+
 describe("anchorDue", () => {
   const now = { date: "2026-06-12", hhmm: "07:30" };
-  it("due when time reached and not yet fired today", () => {
-    expect(anchorDue(now, "07:30", undefined)).toBe(true);
-    expect(anchorDue(now, "07:30", "2026-06-11")).toBe(true);
+  it("due when time reached and not yet fired today — returns today's occurrence", () => {
+    expect(anchorDue(now, "07:30", undefined)).toBe("2026-06-12");
+    expect(anchorDue(now, "07:30", "2026-06-11")).toBe("2026-06-12");
   });
-  it("not due before the anchor time", () => {
-    expect(anchorDue({ ...now, hhmm: "07:29" }, "07:30", undefined)).toBe(false);
+  it("not due before the anchor time (last fired yesterday — that occurrence is covered)", () => {
+    expect(anchorDue({ ...now, hhmm: "07:29" }, "07:30", "2026-06-11")).toBeNull();
   });
   it("not due when already fired today (fire-once)", () => {
-    expect(anchorDue(now, "07:30", "2026-06-12")).toBe(false);
+    expect(anchorDue(now, "07:30", "2026-06-12")).toBeNull();
   });
-  it("catch-up: hours past the anchor still fires once", () => {
-    expect(anchorDue({ ...now, hhmm: "23:59" }, "07:30", undefined)).toBe(true);
+  it("same-day catch-up: hours past the anchor still fires once", () => {
+    expect(anchorDue({ ...now, hhmm: "23:59" }, "07:30", undefined)).toBe("2026-06-12");
+  });
+  it("cross-midnight catch-up: missed yesterday's occurrence fires after the gate", () => {
+    // evening 21:00 missed on 06-12; daemon back 06-13 09:00
+    expect(anchorDue({ date: "2026-06-13", hhmm: "09:00" }, "21:00", "2026-06-11")).toBe("2026-06-12");
+  });
+  it("cross-midnight catch-up is gated before catchupAfter", () => {
+    expect(anchorDue({ date: "2026-06-13", hhmm: "03:00" }, "21:00", "2026-06-11")).toBeNull();
+    expect(anchorDue({ date: "2026-06-13", hhmm: "08:00" }, "21:00", "2026-06-11")).toBe("2026-06-12"); // boundary: >= fires
+  });
+  it("the gate never blocks a today-occurrence fire", () => {
+    // dream 02:00, daemon restarts 03:00 — occurrence is today, fires despite hhmm < 08:00
+    expect(anchorDue({ date: "2026-06-13", hhmm: "03:00" }, "02:00", "2026-06-12")).toBe("2026-06-13");
+  });
+  it("multi-day outage catches up a single occurrence (yesterday), never stacks", () => {
+    expect(anchorDue({ date: "2026-06-13", hhmm: "09:00" }, "21:00", "2026-06-01")).toBe("2026-06-12");
+  });
+  it("undefined lastFiredDate before anchor time still catches up yesterday after the gate", () => {
+    expect(anchorDue({ date: "2026-06-13", hhmm: "09:00" }, "21:00", undefined)).toBe("2026-06-12");
+  });
+  it("custom catchupAfter is honored", () => {
+    expect(anchorDue({ date: "2026-06-13", hhmm: "09:00" }, "21:00", "2026-06-11", "10:00")).toBeNull();
+    expect(anchorDue({ date: "2026-06-13", hhmm: "10:00" }, "21:00", "2026-06-11", "10:00")).toBe("2026-06-12");
   });
 });
 
