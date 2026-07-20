@@ -139,7 +139,7 @@ export class DirectChats {
         // so the mail re-surfaces next @mention — intended: re-deliver beats losing it (durability
         // favours the safe side; the ≤5-cap block just reappears until a turn succeeds).
         onSuccess: () => this.deps.mailbox?.markDelivered(deliveredIds),
-        surfaceHash: surfaceHash(finalOptions),
+        surfaceHash: surfaceHash(finalOptions, resolved.personaSurface),
         options: finalOptions,
       });
 

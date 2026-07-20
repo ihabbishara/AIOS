@@ -175,7 +175,7 @@ export class Moderator {
       sessionKey: `moderator-session:${chatKey}`,
       prompt,
       log: this.deps.log,
-      surfaceHash: surfaceHash(finalOptions),
+      surfaceHash: surfaceHash(finalOptions, resolved.personaSurface),
       options: finalOptions,
     });
   }
