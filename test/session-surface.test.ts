@@ -27,6 +27,21 @@ describe("surfaceHash", () => {
     const h = surfaceHash(base);
     expect(surfaceHash(opts({ ...base, systemPrompt: "different", model: "other" }))).toBe(h);
   });
+
+  it("personaSurface changes the hash; omitting it matches today's callers", () => {
+    const base = opts({ allowedTools: ["A"], permissionMode: "dontAsk" });
+    const h = surfaceHash(base);
+    expect(surfaceHash(base, "persona v1")).not.toBe(h);
+    expect(surfaceHash(base, "persona v1")).toBe(surfaceHash(base, "persona v1")); // stable
+    expect(surfaceHash(base, "persona v2")).not.toBe(surfaceHash(base, "persona v1")); // edit invalidates
+  });
+
+  it("skills change the hash, order-insensitively", () => {
+    const base = opts({ allowedTools: ["A"], permissionMode: "dontAsk" });
+    const h = surfaceHash(opts({ ...base, skills: ["s1", "s2"] }), "p");
+    expect(surfaceHash(opts({ ...base, skills: ["s2", "s1"] }), "p")).toBe(h);
+    expect(surfaceHash(opts({ ...base, skills: ["s1"] }), "p")).not.toBe(h);
+  });
 });
 
 describe("resumeFor", () => {

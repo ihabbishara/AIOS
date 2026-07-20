@@ -19,13 +19,16 @@ export interface ResumableTurnParams {
 
 export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
 
-/** Hash of the resolved tool surface — tools-only scope (spec 2026-07-19): a resumed
- *  session whose surface changed must NOT resume (it would keep the stale surface). */
-export function surfaceHash(options: Options): string {
+/** Hash of the resolved surface — tools + static persona scope (specs 2026-07-19 + 2026-07-20):
+ *  a resumed session whose tool surface OR static persona changed must NOT resume. The dynamic
+ *  memo/moderator blocks stay excluded — nightly re-renders never invalidate (hermes continuity). */
+export function surfaceHash(options: Options, personaSurface?: string): string {
   const payload = JSON.stringify({
     tools: [...(options.allowedTools ?? [])].sort(),
     servers: Object.keys(options.mcpServers ?? {}).sort(),
     mode: options.permissionMode ?? null,
+    persona: personaSurface ?? null,
+    skills: [...(options.skills ?? [])].sort(),
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
