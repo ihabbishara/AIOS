@@ -81,11 +81,12 @@ describe("Clock.tick", () => {
 
   it("fires a due anchor once and stamps kv", async () => {
     const { store, clock, anchorsFired } = setup(new Date(2026, 5, 12, 8, 0));
+    store.kvSet("anchor:evening:last", "2026-06-11"); // yesterday's evening already covered — isolate morning
     await clock.tick();
-    expect(anchorsFired).toEqual(["morning", "evening"]);
+    expect(anchorsFired).toEqual(["morning"]);
     expect(store.kvGet("anchor:morning:last")).toBe("2026-06-12");
     await clock.tick();
-    expect(anchorsFired).toEqual(["morning", "evening"]); // no refire
+    expect(anchorsFired).toEqual(["morning"]); // no refire
   });
 
   it("double catch-up fires morning first, then evening", async () => {
@@ -211,11 +212,12 @@ describe("Clock.tick — anchor kv override", () => {
       onReminderDue: () => {},
       nowFn: () => new Date(2026, 6, 15, 8, 0), // 08:00
     });
+    store.kvSet("anchor:morning:last", "2026-07-14"); // yesterday covered — no catch-up noise
     store.kvSet("anchor:morning:hhmm", "09:00"); // pushed later than now
     await clock.tick();
-    expect(anchorsFired).toEqual(["morning"]); // 08:00 < 09:00 override, but fires catch-up of 07-14
+    expect(anchorsFired).toEqual([]); // 08:00 < 09:00 override
     store.kvSet("anchor:morning:hhmm", "07:00"); // pulled earlier
     await clock.tick();
-    expect(anchorsFired).toEqual(["morning"]); // still only one fire (fire-once)
+    expect(anchorsFired).toEqual(["morning"]);
   });
 });
