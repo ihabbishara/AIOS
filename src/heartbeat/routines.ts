@@ -59,9 +59,10 @@ export function parseRecurrence(raw: unknown): Recurrence | null {
 }
 
 /**
- * Due-test, pure. Time-of-day kinds mirror anchorDue (time passed + not fired
- * today → catch-up after downtime fires once, not N times); interval fires when
- * the gap since last_fired_at has elapsed.
+ * Due-test, pure. Time-of-day kinds use same-day-only semantics (time passed +
+ * not fired today → same-day catch-up fires once, not N times) — unlike anchors,
+ * routines do NOT catch up across midnight; interval fires when the gap since
+ * last_fired_at has elapsed.
  */
 export function routineDue(now: Date, r: RoutineLike): boolean {
   if (!r.enabled) return false;
