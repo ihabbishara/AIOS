@@ -73,6 +73,18 @@ progress), `PageHeader`, `SectionLabel`, `Empty`, plus `TwoStepButton` and `Shee
 - Every event rendered as text goes through `lib/activity.ts describeEvent` — raw JSON is
   click-to-expand detail, never the default presentation.
 
+### Chat conventions
+
+- Agent text renders through `lib/markdown.tsx` — a safe markdown-lite subset built as React
+  nodes, never `innerHTML`; unknown syntax and raw HTML stay literal; only http(s) links link.
+- The composer is a textarea: **Enter sends, Shift+Enter breaks the line**, auto-grows to a cap.
+- Voice is first-class when available: the `VoiceOrb` (in Chat.tsx) is idle mic → red recording
+  orb scaled by live mic RMS with pulse rings + elapsed clock → breathing while transcribing.
+  Red-while-recording is the one sanctioned use of `err` for a non-failure (universal recording
+  convention).
+- Bubbles: agent = avatar + left-anchored `rounded-2xl rounded-tl-md`; you = right-anchored
+  `rounded-br-md` with `agent/40` border; mono timestamp under the bubble.
+
 ## 6. Interaction rules
 
 - **Destructive or irreversible → `TwoStepButton`.** No single-click abandon/delete/restart.

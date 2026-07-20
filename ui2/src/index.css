@@ -51,7 +51,21 @@ kbd { @apply font-mono text-[10px] text-dim border border-line rounded px-1 py-p
 @keyframes tick { 50% { transform: scale(1.25); } }
 .tick { animation: tick 150ms ease-out; }
 
+/* Voice orb pulse — expanding rings while recording (liveness, §6). */
+@keyframes orb-pulse {
+  from { transform: scale(1); opacity: 0.5; }
+  to { transform: scale(2.1); opacity: 0; }
+}
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid var(--color-err);
+  animation: orb-pulse 1.2s ease-out infinite;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .breathe, .arrive, .shimmer, .tick { animation: none !important; }
+  .breathe, .arrive, .shimmer, .tick, .orb-ring { animation: none !important; }
   * { transition-duration: 0s !important; }
 }
