@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { loadPlaybook, type Playbook } from "../../engine/playbook.js";
 import { agentSchema, departmentSchema, type AgentManifest, type DepartmentManifest } from "./types.js";
-import { capabilitySchema, loadCapabilities, fqPackTool, type CapabilityDef } from "./capabilities.js";
+import { capabilitySchema, loadCapabilities, fqPackTool, toolsFromCaps, type CapabilityDef } from "./capabilities.js";
 import { VERDICT_SCHEMA, TEST_REPORT_SCHEMA, type RoleDef } from "../roles/index.js";
 import { NAMED_GUARDS } from "../guards/index.js";
 import type { ToolCheck } from "../guards/halalo-readonly.js";
@@ -160,7 +160,7 @@ export function loadRegistry(
             throw new Error(`unknown guard "${capDef.guard}" in capability "${c}" (agent ${m.name})`);
           }
         }
-        const tools = [...new Set(capNames.flatMap((c) => capabilities.get(c)!.tools).map(fqPackTool))];
+        const tools = toolsFromCaps(capabilities, capNames);
 
         const def: AgentDef = {
           manifest: m, role: compile(m, extras[m.name], tools), department: dept.department,

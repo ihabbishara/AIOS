@@ -24,6 +24,12 @@ export const AIOS_PACK_BARE = ["recall", "vault_read", "vault_write", "propose_a
 export const fqPackTool = (t: string): string =>
   AIOS_PACK_BARE.includes(t) ? `mcp__aios-pack__${t}` : t;
 
+/** Deduped, fully-qualified tool list for a set of capability names.
+ *  Shared by the loader and the hire gate so both resolve identically. */
+export function toolsFromCaps(capabilities: Map<string, CapabilityDef>, capNames: string[]): string[] {
+  return [...new Set(capNames.flatMap((c) => capabilities.get(c)?.tools ?? []).map(fqPackTool))];
+}
+
 export function loadCapabilities(path: string): Map<string, CapabilityDef> {
   const out = new Map<string, CapabilityDef>();
   if (!existsSync(path)) return out;
