@@ -81,6 +81,16 @@ export function App() {
       <div className={show("skills")}><Skills /></div>
       <div className={show("system")}><System events={events} route={route} /></div>
       <BottomTabs section={route.section} needsYou={attention?.length ?? 0} />
+      {/* Phone has no top-bar chat button — floating entry above the tabs. */}
+      {!chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          aria-label="Open chat"
+          className="md:hidden fixed right-4 bottom-[76px] z-30 rounded-full border border-line bg-surface px-4 py-2.5 text-[13px] text-strong shadow-lg shadow-black/30"
+        >
+          Chat
+        </button>
+      )}
       <ChatDrawer
         open={chatOpen} onClose={() => setChatOpen(false)} state={state} events={events}
         target={chatTarget} setTarget={setChatTarget} seed={chatSeed}

@@ -1,7 +1,9 @@
 // ui2/src/components/Chat.tsx — port of ui/src/views/Chat.tsx in Ember dress + context-aware seed.
 import { useEffect, useRef, useState } from "react";
 import { api, type StateInfo, type StoredEvent, type WebAttachment } from "../api.js";
-import { Button } from "./ui.js";
+import { useLiveQuery } from "../hooks.js";
+import { T } from "../lib/topics.js";
+import { Button, Dot } from "./ui.js";
 
 interface Msg { who: "you" | string; text: string; pending?: boolean; pendingId?: string; audio?: string; attachments?: WebAttachment[]; srcEventId?: number }
 
@@ -86,6 +88,11 @@ export function Chat({ state, events, target, setTarget, seed }: {
 
   const targets = ["hermes", ...(state?.agents.filter((a) => a.kind !== "moderator").map((a) => a.name) ?? [])];
 
+  // Live picker state: violet dot = agent working right now, count = unread mail from it.
+  const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
+  const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
+  const statusOf = new Map((org ?? []).flatMap((d) => d.agents.map((a) => [a.name, a.status] as const)));
+
   // Inline routing trail — decisions made for this web cockpit chat.
   const trail = events.filter(
     (e) => e.event.type === "route.decision" && e.event.channel === "web" && e.event.chatId === "ui",
@@ -154,11 +161,15 @@ export function Chat({ state, events, target, setTarget, seed }: {
           <button
             key={t}
             onClick={() => setTarget(t)}
-            className={`px-2.5 py-1 text-[11px] border rounded-md transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] border rounded-md transition-colors ${
               target === t ? "border-accent text-accent" : "border-line text-dim hover:text-fg"
             }`}
           >
+            {statusOf.get(t) === "working" && <Dot tone="agent" breathing />}
             {t}
+            {(unread?.byAgent[t] ?? 0) > 0 && (
+              <span className="font-mono text-[9px] text-bg bg-info rounded-full px-1">{unread!.byAgent[t]}</span>
+            )}
           </button>
         ))}
       </div>

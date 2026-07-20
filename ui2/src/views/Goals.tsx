@@ -124,7 +124,12 @@ function GoalDetailView({ slug, events, onOpenChat }: {
   const [askError, setAskError] = useState("");
   if (error) return <Empty>{error}</Empty>;
   if (!goal) return <Empty>Loading…</Empty>;
-  const node: GoalNodeView | undefined = goal.nodes.find((n) => n.key === nodeKey) ?? goal.nodes.find((n) => n.status === "failed");
+  // Inspector never starts empty: explicit pick → the failure → the node in flight → the first.
+  const node: GoalNodeView | undefined =
+    goal.nodes.find((n) => n.key === nodeKey)
+    ?? goal.nodes.find((n) => n.status === "failed")
+    ?? goal.nodes.find((n) => ["running", "working", "executing"].includes(n.status))
+    ?? goal.nodes[0];
   const cost = goal.nodes.reduce((s, n) => s + n.costCents, 0);
   const failedKey = goal.nodes.find((n) => n.status === "failed")?.key;
 
