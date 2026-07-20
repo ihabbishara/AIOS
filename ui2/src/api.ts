@@ -50,6 +50,10 @@ export const api = {
   health: () => request<HealthInfo>("/api/health"),
   org: () => request<OrgDepartmentView[]>("/api/org"),
   agent: (name: string) => request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}`),
+  hireAgent: (body: { name: string; department: string; kind: string; title: string; charter: string; persona: string; prompt: string; capabilities: string[] }) =>
+    request<AgentProfileInfo>("/api/agents", { method: "POST", body: JSON.stringify(body) }),
+  retireAgent: (name: string) =>
+    request<{ ok: true; archived: string }>(`/api/agents/${encodeURIComponent(name)}`, { method: "DELETE" }),
   agentActivity: (name: string) =>
     request<AgentActivityInfo>(`/api/agents/${encodeURIComponent(name)}/activity`),
   patchAgentManifest: (name: string, field: string, value: string | number) =>

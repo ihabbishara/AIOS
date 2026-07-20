@@ -1,11 +1,11 @@
 // ui2/src/views/Staff.tsx — org columns + governance + department admin (spec §6 Staff).
 // The rich per-agent profile lives in StaffProfile.tsx (persona explorer).
 import { useState } from "react";
-import { api, type StoredEvent } from "../api.js";
+import { api, type PackView, type StoredEvent } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { Button, Dot, Empty, SectionLabel, Tag } from "../components/ui.js";
+import { Avatar, Button, Dot, Empty, PageHeader, SectionLabel, Tag } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usdFloat } from "../lib/format.js";
 import { StaffProfile } from "./StaffProfile.js";
@@ -15,19 +15,24 @@ export function Staff({ events, route, onOpenChat }: {
 }) {
   const sub = route.parts[0];
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4">
-      <div className="flex gap-3 mb-4 items-center">
-        <h1 className="text-[17px] font-bold text-bright">Staff</h1>
-        <button onClick={() => navigate("staff")}
-          className={`label hover:text-fg ${!sub ? "text-strong" : ""}`}>org</button>
-        <button onClick={() => navigate("staff/governance")}
-          className={`label hover:text-fg ${sub === "governance" ? "text-strong" : ""}`}>governance</button>
-      </div>
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="page">
+      {sub !== "agents" && (
+        <PageHeader title="Staff">
+          <span className="seg">
+            <button onClick={() => navigate("staff")}
+              className={`seg-item ${!sub ? "seg-item-active" : ""}`}>org</button>
+            <button onClick={() => navigate("staff/governance")}
+              className={`seg-item ${sub === "governance" ? "seg-item-active" : ""}`}>governance</button>
+          </span>
+        </PageHeader>
+      )}
       {sub === "agents" && route.parts[1]
         ? <StaffProfile name={route.parts[1]} events={events} route={route} onOpenChat={onOpenChat} />
         : sub === "governance"
           ? <Governance events={events} />
           : <OrgColumns events={events} />}
+      </div>
     </div>
   );
 }
@@ -35,44 +40,103 @@ export function Staff({ events, route, onOpenChat }: {
 function OrgColumns({ events }: { events: StoredEvent[] }) {
   const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
   const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
+  const { data: packs, reload: reloadPacks } = useFetch(() => api.packs(), []);
+  const { data: state } = useFetch(() => api.state(), []);
+  const [hiring, setHiring] = useState(false);
   if (!org) return <Empty>Loading…</Empty>;
   return (
-    <div className="flex gap-6 overflow-x-auto items-start">
+    <>
+    <div className="flex justify-end mb-3">
+      <Button onClick={() => setHiring((v) => !v)}>{hiring ? "cancel" : "+ hire"}</Button>
+    </div>
+    {hiring && (
+      <HireForm departments={org.map((d) => d.department)} capabilities={state?.capabilities ?? []}
+        onDone={(name) => { setHiring(false); navigate(`staff/agents/${name}`); }} />
+    )}
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 items-start">
       {org.map((d) => (
-        <div key={d.department} className="panel min-w-56 p-3">
-          <div className="flex items-center mb-2">
-            <SectionLabel>{d.department}</SectionLabel>
-            <DeptMenu department={d.department} />
-          </div>
-          <div className="text-[11px] text-dim mb-3">{d.mission}</div>
+        <div key={d.department} className="panel p-3.5">
+          <SectionLabel>{d.department}</SectionLabel>
+          <div className="text-[11px] text-dim mb-3 leading-relaxed">{d.mission}</div>
           {d.agents.map((a) => (
             <button key={a.name} onClick={() => navigate(`staff/agents/${a.name}`)}
-              className="card card-hover w-full text-left px-2 py-2 mb-1.5 flex flex-col gap-0.5 min-h-11">
+              className="card card-hover w-full text-left px-2.5 py-2 mb-1.5 flex flex-col gap-0.5 min-h-11">
               <span className="flex items-center gap-2">
-                <Dot tone={a.status === "working" ? "agent" : a.status === "waiting" ? "accent" : "dim"} breathing={a.status === "working"} />
+                <Avatar name={a.name} tone={a.status === "working" ? "agent" : a.status === "waiting" ? "accent" : "dim"} />
                 <span className="text-strong">{a.name}</span>
-                <span className="text-[10px] text-dim">{a.title}</span>
-                <span className="ml-auto flex gap-1 text-[10px]">
-                  {a.visibility === "private" && <span title="private">🔒</span>}
-                  {a.guarded && <span title="guarded">🛡</span>}
+                <span className="text-[10px] text-dim truncate">{a.title}</span>
+                <span className="ml-auto flex gap-1 items-center text-[10px]">
+                  {a.status === "working" && <Dot tone="agent" breathing />}
+                  {a.visibility === "private" && <span title="private — only you can reach this agent">🔒</span>}
+                  {a.guarded && <span title="guarded — extra approval gates">🛡</span>}
                   {(unread?.byAgent[a.name] ?? 0) > 0 && <Tag tone="accent">{unread!.byAgent[a.name]}</Tag>}
                 </span>
               </span>
               {a.currentTask && <span className="text-[11px] text-agent truncate">{a.currentTask}</span>}
-              {a.costTodayUsd > 0 && <span className="text-[10px] text-dim">{usdFloat(a.costTodayUsd)} today</span>}
+              {a.costTodayUsd > 0 && <span className="text-[10px] text-dim font-mono">{usdFloat(a.costTodayUsd)} today</span>}
             </button>
           ))}
+          <DeptManage pack={packs?.find((p) => p.pillar === d.department)} reload={reloadPacks} />
         </div>
       ))}
+    </div>
+    </>
+  );
+}
+
+/** Hire form (spec 2026-07-20): minimal fields + capability checkboxes; tools derive from capabilities. */
+function HireForm({ departments, capabilities, onDone }: {
+  departments: string[]; capabilities: string[]; onDone: (name: string) => void;
+}) {
+  const [f, setF] = useState({ name: "", title: "", department: departments[0] ?? "", kind: "worker", charter: "", persona: "", prompt: "" });
+  const [caps, setCaps] = useState<Set<string>>(new Set());
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((v) => ({ ...v, [k]: e.target.value }));
+  const submit = async () => {
+    setError(""); setBusy(true);
+    try { await api.hireAgent({ ...f, capabilities: [...caps] }); onDone(f.name); }
+    catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
+  };
+  const input = "bg-bg border border-line rounded-md px-2.5 py-1.5 text-[13px] text-fg outline-none focus:border-dim";
+  return (
+    <div className="panel p-4 mb-4 flex flex-col gap-2.5">
+      <SectionLabel>Hire an agent</SectionLabel>
+      <div className="flex gap-2 flex-wrap">
+        <input placeholder="name (kebab-case)" value={f.name} onChange={set("name")} className={`${input} w-44`} />
+        <input placeholder="title" value={f.title} onChange={set("title")} className={`${input} w-44`} />
+        <select value={f.department} onChange={set("department")} className={input}>
+          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={f.kind} onChange={set("kind")} className={input}>
+          {["worker", "lead", "critic"].map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </div>
+      <textarea placeholder="charter — what this agent is for, and what it hands off" value={f.charter} onChange={set("charter")} className={`${input} h-16`} />
+      <textarea placeholder="persona — voice and working style" value={f.persona} onChange={set("persona")} className={`${input} h-16`} />
+      <textarea placeholder="prompt — full system instructions" value={f.prompt} onChange={set("prompt")} className={`${input} h-28`} />
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {capabilities.map((c) => (
+          <label key={c} className="flex items-center gap-1 text-[12px] text-dim hover:text-fg cursor-pointer">
+            <input type="checkbox" checked={caps.has(c)}
+              onChange={() => setCaps((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; })} />
+            {c}
+          </label>
+        ))}
+      </div>
+      {error && <div className="text-[12px] text-err">{error}</div>}
+      <div className="flex justify-end">
+        <Button variant="primary" disabled={busy} onClick={() => void submit()}>{busy ? "…" : "Hire"}</Button>
+      </div>
     </div>
   );
 }
 
-/** ⋯ department admin: enable/disable, playbook YAML editor, run playbook (spec §6 — a menu, not a section). */
-function DeptMenu({ department }: { department: string }) {
+/** Department operations, in the open: playbooks with Run, config files, enable toggle.
+ *  Collapsed by default but visibly present — no more hunting through a ⋯ popover. */
+function DeptManage({ pack, reload }: { pack: PackView | undefined; reload: () => void }) {
   const [open, setOpen] = useState(false);
-  const { data: packs, reload } = useFetch(() => api.packs(), []);
-  const pack = packs?.find((p) => p.pillar === department);
   const [editing, setEditing] = useState<{ file: string; yaml: string } | null>(null);
   const [note, setNote] = useState("");
   if (!pack) return null;
@@ -86,31 +150,36 @@ function DeptMenu({ department }: { department: string }) {
   };
 
   return (
-    <span className="ml-auto relative">
-      <button onClick={() => setOpen((v) => !v)} className="text-dim hover:text-fg px-1">⋯</button>
+    <div className="border-t border-line-soft mt-2 pt-2">
+      <button onClick={() => setOpen((v) => !v)} className="label hover:text-fg flex items-center gap-1.5 w-full">
+        <span>{open ? "▾" : "▸"}</span>
+        playbooks & settings
+        {!pack.enabled && <Tag tone="err">disabled</Tag>}
+        <span className="ml-auto font-mono normal-case tracking-normal">{pack.playbooks.length}</span>
+      </button>
       {open && (
-        <div className="card absolute right-0 top-6 z-30 w-72 p-3 flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[12px]">{pack.enabled ? "enabled" : "disabled"}</span>
-            <TwoStepButton label={pack.enabled ? "Disable" : "Enable"} className="ml-auto"
-              onConfirm={() => void api.setPackEnabled(pack.pillar, !pack.enabled).then(() => reload())} />
-          </div>
-          <SectionLabel>Playbooks</SectionLabel>
+        <div className="mt-2 flex flex-col gap-1.5">
           {pack.playbooks.map((pb) => (
             <div key={pb.name} className="flex items-center gap-2 text-[12px]">
-              <span className="truncate">{pb.name}</span>
-              <Button className="ml-auto" onClick={() => void run(pb.name)}>Run</Button>
+              <span className="truncate text-fg">{pb.name}</span>
+              <Button className="ml-auto !py-0.5" onClick={() => void run(pb.name)}>Run</Button>
             </div>
           ))}
+          {pack.playbooks.length === 0 && <span className="text-[11px] text-dim">No playbooks in this pack.</span>}
           <SectionLabel>Files</SectionLabel>
           <FileList pillar={pack.pillar} onEdit={setEditing} />
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11px] text-dim">{pack.enabled ? "Department enabled" : "Department disabled"}</span>
+            <TwoStepButton label={pack.enabled ? "Disable" : "Enable"} className="ml-auto !py-0.5"
+              onConfirm={() => void api.setPackEnabled(pack.pillar, !pack.enabled).then(() => reload())} />
+          </div>
           {note && <div className="text-[11px] text-dim">{note}</div>}
         </div>
       )}
       {editing && (
         <YamlEditor pillar={pack.pillar} file={editing.file} initial={editing.yaml} onClose={() => setEditing(null)} />
       )}
-    </span>
+    </div>
   );
 }
 

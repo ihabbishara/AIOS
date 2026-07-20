@@ -5,7 +5,8 @@ import { api, type AgentProfileInfo, type StoredEvent } from "../api.js";
 import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { Button, Dot, Empty, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
+import { Avatar, Button, Dot, Empty, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
+import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usdFloat } from "../lib/format.js";
 
 export function StaffProfile({ name, events, route, onOpenChat }: {
@@ -24,16 +25,23 @@ export function StaffProfile({ name, events, route, onOpenChat }: {
   };
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       <button onClick={() => navigate("staff")} className="label hover:text-fg mb-3">← staff</button>
       <div className="flex items-center gap-3 flex-wrap mb-1">
-        <h2 className="text-[17px] font-bold text-bright">{p.name}</h2>
+        <Avatar name={p.name} tone="agent" />
+        <h2 className="text-[19px] font-bold text-bright tracking-tight">{p.name}</h2>
         <span className="text-dim">{p.title} · {p.department}</span>
         {p.model && <Tag>{p.model}</Tag>}
         <Tag>{p.kind}</Tag>
         {p.visibility === "private" && <Tag>🔒 private</Tag>}
         {p.guarded && <Tag>🛡 guarded</Tag>}
-        <Button className="ml-auto" variant="primary" onClick={() => onOpenChat(p.name)}>Chat ⌘J</Button>
+        <span className="ml-auto flex gap-2 items-center">
+          <TwoStepButton label="retire" confirmLabel="confirm retire?" onConfirm={() => {
+            void api.retireAgent(name).then(() => navigate("staff"))
+              .catch((e) => setNote(`retire blocked: ${(e as Error).message}`));
+          }} />
+          <Button variant="primary" onClick={() => onOpenChat(p.name)}>Chat ⌘J</Button>
+        </span>
       </div>
       {p.aliases.length > 0 && <div className="text-[11px] text-dim mb-2">aka {p.aliases.join(", ")}</div>}
       <div className="flex gap-3 mb-4">
@@ -55,86 +63,93 @@ function Overview({ p, note, propose }: {
   p: AgentProfileInfo; note: string; propose: (tool: string, action: "grant" | "revoke") => void;
 }) {
   return (
-    <>
-      <p className="text-fg leading-relaxed mb-2 whitespace-pre-wrap">{p.charter}</p>
-      <p className="text-[13px] text-dim leading-relaxed mb-4 whitespace-pre-wrap">{p.persona}</p>
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-10 items-start">
+      {/* Who this agent is. */}
+      <div>
+        <p className="text-fg leading-relaxed mb-2 whitespace-pre-wrap">{p.charter}</p>
+        <p className="text-[13px] text-dim leading-relaxed mb-4 whitespace-pre-wrap">{p.persona}</p>
 
-      {p.capabilities.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {p.capabilities.map((c) => <Tag key={c}>{c}</Tag>)}
-        </div>
-      )}
-
-      {p.skills.length > 0 && (
-        <>
-          <SectionLabel>Skills</SectionLabel>
+        {p.capabilities.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {p.skills.map((s) => (
-              <button key={s} onClick={() => navigate(`skills/${s}`)}><Tag tone="ok">{s}</Tag></button>
-            ))}
+            {p.capabilities.map((c) => <Tag key={c}>{c}</Tag>)}
           </div>
-        </>
-      )}
+        )}
 
-      <details className="mb-5">
-        <summary className="label cursor-pointer hover:text-fg">system prompt</summary>
-        <pre className="font-mono text-[11px] text-dim whitespace-pre-wrap mt-2 p-3 card">{p.prompt}</pre>
-      </details>
+        {p.skills.length > 0 && (
+          <>
+            <SectionLabel>Skills</SectionLabel>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {p.skills.map((s) => (
+                <button key={s} onClick={() => navigate(`skills/${s}`)}><Tag tone="ok">{s}</Tag></button>
+              ))}
+            </div>
+          </>
+        )}
 
-      <SectionLabel>Access</SectionLabel>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {p.tools.map((t) => (
-          <button key={t.name} title={`${t.source} — click to queue revoke`} onClick={() => void propose(t.name, "revoke")}>
-            <Tag tone={t.source === "granted" ? "ok" : "dim"}>{t.name}</Tag>
-          </button>
-        ))}
-        {p.revoked.map((t) => (
-          <button key={t.name} title="revoked — click to queue grant" onClick={() => void propose(t.name, "grant")}>
-            <Tag tone="err">{t.name}</Tag>
-          </button>
-        ))}
-      </div>
-      <GrantBox onGrant={(tool) => void propose(tool, "grant")} />
-      {note && <div className="text-[11px] text-accent mb-4">{note}</div>}
+        <details className="mb-5">
+          <summary className="label cursor-pointer hover:text-fg">system prompt</summary>
+          <pre className="font-mono text-[11px] text-dim whitespace-pre-wrap mt-2 p-3 card">{p.prompt}</pre>
+        </details>
 
-      <SectionLabel>Trust — {p.department} action types</SectionLabel>
-      <div className="flex flex-wrap gap-1.5 mb-5">
-        {p.trust.length === 0 && <span className="text-[12px] text-dim">no tracked action types</span>}
-        {p.trust.map((t) => (
-          <Tag key={t.actionType} tone={t.state === "autonomous" ? "ok" : t.state === "graduating" ? "agent" : "dim"}>
-            {t.actionType} · {t.state} · streak {t.streak}
-          </Tag>
-        ))}
-      </div>
+        <SectionLabel>Recent runs</SectionLabel>
+        <div className="mb-5">
+          {p.recentRuns.slice(0, 10).map((r, i) => (
+            <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
+              <Dot tone={r.ok ? "ok" : "err"} />
+              <span className="text-dim">{ts(r.ts)}</span>
+              <span className="truncate">{r.context}</span>
+              {r.costUsd != null && <span className="text-dim ml-auto font-mono">{usdFloat(r.costUsd)}</span>}
+            </div>
+          ))}
+          {p.recentRuns.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
+        </div>
 
-      <SectionLabel>Recent runs</SectionLabel>
-      <div className="mb-5">
-        {p.recentRuns.slice(0, 10).map((r, i) => (
-          <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
-            <Dot tone={r.ok ? "ok" : "err"} />
-            <span className="text-dim">{ts(r.ts)}</span>
-            <span className="truncate">{r.context}</span>
-            {r.costUsd != null && <span className="text-dim ml-auto">{usdFloat(r.costUsd)}</span>}
-          </div>
-        ))}
-        {p.recentRuns.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
+        <SectionLabel>Handoffs</SectionLabel>
+        <div className="mb-5">
+          {p.handoffs.slice(0, 10).map((h, i) => (
+            <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
+              <span className="text-dim">{ts(h.ts)}</span>
+              <span className="truncate">{h.reason}</span>
+              <span className="text-dim ml-auto">{h.channel}</span>
+            </div>
+          ))}
+          {p.handoffs.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
+        </div>
       </div>
 
-      <SectionLabel>Handoffs</SectionLabel>
-      <div className="mb-5">
-        {p.handoffs.slice(0, 10).map((h, i) => (
-          <div key={i} className="flex gap-3 text-[12px] py-1 items-center">
-            <span className="text-dim">{ts(h.ts)}</span>
-            <span className="truncate">{h.reason}</span>
-            <span className="text-dim ml-auto">{h.channel}</span>
-          </div>
-        ))}
-        {p.handoffs.length === 0 && <span className="text-[12px] text-dim">none yet</span>}
-      </div>
+      {/* What this agent may do — governance rail. */}
+      <div className="panel p-4 mt-4 lg:mt-0">
+        <SectionLabel>Access</SectionLabel>
+        <div className="flex flex-wrap gap-1.5 mb-1.5">
+          {p.tools.map((t) => (
+            <button key={t.name} title={`${t.source} — click to queue revoke`} onClick={() => void propose(t.name, "revoke")}>
+              <Tag tone={t.source === "granted" ? "ok" : "dim"}>{t.name}</Tag>
+            </button>
+          ))}
+          {p.revoked.map((t) => (
+            <button key={t.name} title="revoked — click to queue grant" onClick={() => void propose(t.name, "grant")}>
+              <Tag tone="err">{t.name}</Tag>
+            </button>
+          ))}
+        </div>
+        <div className="text-[10px] text-dim mb-2">Click a tool to queue a revoke for approval; red = revoked, click to re-grant.</div>
+        <GrantBox onGrant={(tool) => void propose(tool, "grant")} />
+        {note && <div className="text-[11px] text-accent mb-3">{note}</div>}
 
-      <SectionLabel>Cost by day</SectionLabel>
-      <Sparkline data={p.costByDay} />
-    </>
+        <SectionLabel>Trust — {p.department} action types</SectionLabel>
+        <div className="flex flex-wrap gap-1.5 mb-5">
+          {p.trust.length === 0 && <span className="text-[12px] text-dim">no tracked action types</span>}
+          {p.trust.map((t) => (
+            <Tag key={t.actionType} tone={t.state === "autonomous" ? "ok" : t.state === "graduating" ? "agent" : "dim"}>
+              {t.actionType} · {t.state} · streak {t.streak}
+            </Tag>
+          ))}
+        </div>
+
+        <SectionLabel>Cost by day</SectionLabel>
+        <Sparkline data={p.costByDay} />
+      </div>
+    </div>
   );
 }
 

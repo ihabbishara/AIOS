@@ -720,7 +720,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           const def = registry.agents.get(canonical);
           if (!def) return json(res, 404, { error: "unknown agent" });
           const blockers = retireBlockers(canonical, registry);
-          if (blockers.length) return json(res, 409, { blockers });
+          if (blockers.length) return json(res, 409, { blockers, error: blockers.join("; ") });
           const yamlPath = agentYamlPath(config.agentsDir, def);
           if (!yamlPath) return json(res, 500, { error: `agent yaml not found for ${canonical}` });
           const archived = join(config.agentsDir, "_retired", `${canonical}.yaml`);
