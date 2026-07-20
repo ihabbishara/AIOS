@@ -10,4 +10,4 @@ prompt: >
 maxTurns: 25
 permissionMode: dontAsk
 kind: worker
-capabilities: [web, web-fetch, memory, vault-write]
+capabilities: [web, web-fetch, memory]

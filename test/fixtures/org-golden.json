@@ -149,8 +149,7 @@
       "WebFetch",
       "WebSearch",
       "mcp__aios-pack__recall",
-      "mcp__aios-pack__vault_read",
-      "mcp__aios-pack__vault_write"
+      "mcp__aios-pack__vault_read"
     ],
     "permissionMode": "dontAsk",
     "maxTurns": 25,

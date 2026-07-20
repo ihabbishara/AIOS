@@ -21,10 +21,10 @@ const reg = loadRegistry(
 
 
 describe("live agents/ tree", () => {
-  it("loads 6 departments and 15 agents", () => {
+  it("loads 6 departments and 16 agents", () => {
     expect([...reg.departments.keys()].sort()).toEqual(
       ["clients", "engineering", "finance", "life", "operations", "research"]);
-    expect(reg.agents.size).toBe(15);
+    expect(reg.agents.size).toBe(16);
   });
 
   it("legacy @role aliases resolve to mythic canonical names", () => {
