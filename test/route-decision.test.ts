@@ -13,12 +13,12 @@ function setup() {
   // Stub directChats: supports names(), canonical(), handle(), resetSession()
   const resetCalls: Array<{ role: string; channel: string; chatId: string }> = [];
   const directChats = {
-    names: () => ["vulcan", "developer", "hermes"],
+    names: () => ["vulcan", "developer", "neo"],
     canonical: (nameOrAlias: string) => {
       const map: Record<string, string> = {
         vulcan: "vulcan",
         developer: "vulcan", // alias -> canonical
-        hermes: "hermes",
+        neo: "neo",
       };
       return map[nameOrAlias];
     },
@@ -76,7 +76,7 @@ describe("route.decision", () => {
     const { router, events } = ctx;
     await router.handle({ channel: "cli", chatId: "c", text: "hello" });
     const ev = events.find((e) => e.event.type === "route.decision")!.event as any;
-    expect(ev.to).toBe("hermes");
+    expect(ev.to).toBe("neo");
     expect(ev.via).toBe("default");
     expect(ev.reason).toBe("no mention — chief of staff");
   });
@@ -125,7 +125,7 @@ describe("route.decision", () => {
       resetSession: () => {},
     };
     const chatBindings = new Map([
-      ["tg:g", { agents: ["vulcan", "hermes"], mentionOnly: false }],
+      ["tg:g", { agents: ["vulcan", "neo"], mentionOnly: false }],
     ]);
     const router = new MessageRouter({
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,

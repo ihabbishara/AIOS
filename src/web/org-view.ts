@@ -95,7 +95,7 @@ export function buildAgentProfile(
   if (!def) return null;
   const dept = registry.departments.get(def.department);
 
-  // Capabilities are the base truth for every agent — hermes included (no pseudo-role).
+  // Capabilities are the base truth for every agent — neo included (no pseudo-role).
   const base = capabilityTools(registry, def.manifest.name);
   const overrides = store.listRolePermissions(def.manifest.name);
   const granted = new Set(overrides.filter((o) => o.allow === 1).map((o) => o.tool));

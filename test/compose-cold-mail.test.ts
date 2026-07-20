@@ -106,7 +106,7 @@ describe("isUserReportEvent", () => {
     expect(isUserReportEvent({ type: "mail.sent", id: "a", from: "vulcan", to: "user", kind: "report" })).toBe(true);
     expect(isUserReportEvent({ type: "mail.sent", id: "a", from: "vulcan", to: "user", kind: "request" })).toBe(false);
     expect(isUserReportEvent({ type: "mail.sent", id: "a", from: "user", to: "vulcan", kind: "report" })).toBe(false);
-    expect(isUserReportEvent({ type: "mail.sent", id: "a", from: "athena", to: "hermes", kind: "standup" })).toBe(false);
+    expect(isUserReportEvent({ type: "mail.sent", id: "a", from: "athena", to: "neo", kind: "standup" })).toBe(false);
     expect(isUserReportEvent({ type: "mail.read", ids: ["a"] })).toBe(false);
   });
 });

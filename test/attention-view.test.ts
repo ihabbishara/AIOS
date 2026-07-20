@@ -45,7 +45,7 @@ describe("buildAttentionView", () => {
     store.insertGoal(goal("g1"));
     store.updateGoalStatus("g1", "failed", "boom");
     store.insertMail({
-      id: "n1", from_agent: "hermes", to_agent: "user", kind: "note", body: "FYI note",
+      id: "n1", from_agent: "neo", to_agent: "user", kind: "note", body: "FYI note",
       goal_id: null, origin_channel: "engine", origin_chat_id: "x",
       chain_depth: 0, status: "unread", error: null,
     });

@@ -71,7 +71,7 @@ export interface ModeratorToolsDeps {
   google: GoogleAccounts;
   /** memory-v2 retrieval knobs — embedder is undefined when AIOS_EMBEDDINGS=0 or latched. */
   memory: { embedder?: Embedder; halfLifeDays: number; stalePenalty: number };
-  /** Agent mailbox — hermes can send work mail to staff (undefined = disabled). */
+  /** Agent mailbox — neo can send work mail to staff (undefined = disabled). */
   mailbox?: Mailbox;
   /** Media understanding for email attachments — transcription + downscale (spec 2026-07-18). */
   media?: import("../attachments.js").MediaDeps;
@@ -215,7 +215,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     { to: z.enum(deps.agentNames as [string, ...string[]]), kind: z.enum(["request", "note"]), body: z.string() },
     async (a) =>
       text(deps.mailbox
-        ? deps.mailbox.send({ from: "hermes", origin: deps.origin, goalDepth: 0 }, a)
+        ? deps.mailbox.send({ from: "neo", origin: deps.origin, goalDepth: 0 }, a)
         : "Refused: the mailbox is disabled."),
   );
 

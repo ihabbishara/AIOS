@@ -102,7 +102,7 @@ async function distillDomain(deps: DistillDeps, domain: Domain): Promise<void> {
     kept = typed.filter((s) => {
       if (s.origin === "trusted") return true;
       deps.policy?.check(
-        { labels: [domainLabel(domain)], origin: "untrusted", sink: "prompt.system:hermes" },
+        { labels: [domainLabel(domain)], origin: "untrusted", sink: "prompt.system:neo" },
         `distiller:${domain}`, s.text,
       );
       return false;

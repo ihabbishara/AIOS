@@ -27,7 +27,7 @@ export function App() {
   const { data: attention } = useLiveQuery(() => api.attention(), events, T.attention);
   const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatTarget, setChatTarget] = useState("hermes");
+  const [chatTarget, setChatTarget] = useState("neo");
   const [chatSeed, setChatSeed] = useState<string | undefined>();
   const [paletteSignal, setPaletteSignal] = useState(0);
   const pendingG = useRef(false);

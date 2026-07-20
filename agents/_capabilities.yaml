@@ -53,7 +53,7 @@ attach:      { tools: [mcp__aios_attachments__attach_file] }
 ops-guardrail:  { guard: atlas-mutating }
 ledger-confine: { guard: ledger-read-confine }
 
-# -- coordination (hermes; the aios moderator server itself is seam-attached) -------------
+# -- coordination (neo; the aios moderator server itself is seam-attached) -------------
 coordination:
   tools: [mcp__aios__run_playbook, mcp__aios__goal_status, mcp__aios__plan_goal,
           mcp__aios__list_playbooks, mcp__aios__hand_off, mcp__aios__send_mail,

@@ -10,8 +10,8 @@ describe("moderator coordinator cwd", () => {
   it("resolves the coordinator with process.cwd(), never projectsRoot", async () => {
     let capturedCwd: string | undefined;
     const registry = {
-      agents: new Map([["hermes", { manifest: { name: "hermes", title: "CoS", charter: "" }, department: "exec" }]]),
-      coordinator: "hermes",
+      agents: new Map([["neo", { manifest: { name: "neo", title: "CoS", charter: "" }, department: "exec" }]]),
+      coordinator: "neo",
       departments: new Map(),
       agentOf: new Map(),
     };

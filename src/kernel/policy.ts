@@ -30,9 +30,9 @@ const promptAgent = (s: Sink): string | null => {
 /** The reader agent holds this confidentiality label as clearance. */
 const agentCleared = (label: Label, agent?: CheckInput["agent"]) => !!agent?.labels.includes(label);
 
-/** Coordinator (hermes) prompts may carry calendar context (spec §5 "private + coordinator prompts"). */
+/** Coordinator (neo) prompts may carry calendar context (spec §5 "private + coordinator prompts"). */
 function isCoordinatorSink(sink: Sink): boolean {
-  return sink === "prompt.system:hermes" || sink === "prompt.context:hermes";
+  return sink === "prompt.system:neo" || sink === "prompt.context:neo";
 }
 
 // Per-label allowed-sink predicate (spec §5). Returns true=allow, false=deny; declassification is

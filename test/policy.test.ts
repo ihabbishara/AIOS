@@ -4,7 +4,7 @@ import { rawCheck, wallVerdict, Policy, type Label, type Sink, type Violation } 
 
 describe("rawCheck — label × sink table (spec §5)", () => {
   it("shared goes everywhere", () => {
-    for (const sink of ["recall-index", "vault", "brief", "standup", "chat:primary", "mail:iris", "prompt.system:hermes", "file-export"] as Sink[]) {
+    for (const sink of ["recall-index", "vault", "brief", "standup", "chat:primary", "mail:iris", "prompt.system:neo", "file-export"] as Sink[]) {
       expect(rawCheck({ labels: ["shared"], sink })).toBe("allow");
     }
   });
@@ -17,7 +17,7 @@ describe("rawCheck — label × sink table (spec §5)", () => {
     expect(rawCheck({ labels: ["personal.finance"], sink: "recall-index" })).toBe("deny");
     expect(rawCheck({ labels: ["personal.finance"], sink: "vault" })).toBe("deny");
     expect(rawCheck({ labels: ["personal.finance"], sink: "brief" })).toBe("deny");
-    expect(rawCheck({ labels: ["personal.finance"], sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("deny");
+    expect(rawCheck({ labels: ["personal.finance"], sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
   });
 
   it("personal.email: prompt.context:speculate-email only; declassify D1 → brief", () => {
@@ -36,7 +36,7 @@ describe("rawCheck — label × sink table (spec §5)", () => {
   it("personal.calendar: brief + recall-index + private/coordinator prompts", () => {
     expect(rawCheck({ labels: ["personal.calendar"], sink: "brief" })).toBe("allow");
     expect(rawCheck({ labels: ["personal.calendar"], sink: "recall-index" })).toBe("allow");
-    expect(rawCheck({ labels: ["personal.calendar"], sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("allow"); // coordinator
+    expect(rawCheck({ labels: ["personal.calendar"], sink: "prompt.system:neo", agent: { labels: [] } })).toBe("allow"); // coordinator
     expect(rawCheck({ labels: ["personal.calendar"], sink: "file-export" })).toBe("deny");
   });
 
@@ -46,7 +46,7 @@ describe("rawCheck — label × sink table (spec §5)", () => {
     expect(rawCheck({ labels: ["client.halalo"], sink: "brief" })).toBe("allow");
     expect(rawCheck({ labels: ["client.halalo"], sink: "standup" })).toBe("allow");
     expect(rawCheck({ labels: ["client.halalo"], sink: "recall-index" })).toBe("deny");
-    expect(rawCheck({ labels: ["client.halalo"], sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("deny");
+    expect(rawCheck({ labels: ["client.halalo"], sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
   });
 
   it("org.internal: all sinks except file-export and non-primary chat", () => {
@@ -58,10 +58,10 @@ describe("rawCheck — label × sink table (spec §5)", () => {
   });
 
   it("untrusted origin: never prompt.system, regardless of label", () => {
-    expect(rawCheck({ labels: ["personal.calendar"], origin: "untrusted", sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("deny");
-    expect(rawCheck({ labels: ["shared"], origin: "untrusted", sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("deny");
+    expect(rawCheck({ labels: ["personal.calendar"], origin: "untrusted", sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
+    expect(rawCheck({ labels: ["shared"], origin: "untrusted", sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
     // context is allowed (fenced data) for untrusted
-    expect(rawCheck({ labels: ["shared"], origin: "untrusted", sink: "prompt.context:hermes" })).toBe("allow");
+    expect(rawCheck({ labels: ["shared"], origin: "untrusted", sink: "prompt.context:neo" })).toBe("allow");
   });
 
   it("multi-label = strictest wins (union of inputs, no laundering)", () => {
@@ -176,6 +176,6 @@ describe("personal.tasks prompt clearance (wall-deletion spec table fix)", () =>
     expect(rawCheck({ labels: ["personal.tasks"], sink: "prompt.system:jasmine", agent: { labels: ["personal.tasks"] } })).toBe("allow");
   });
   it("an uncleared prompt agent stays denied", () => {
-    expect(rawCheck({ labels: ["personal.tasks"], sink: "prompt.system:hermes", agent: { labels: [] } })).toBe("deny");
+    expect(rawCheck({ labels: ["personal.tasks"], sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
   });
 });

@@ -32,7 +32,7 @@ export interface ModeratorDeps {
   handOff: (agent: string, task: string, origin: { channel: string; chatId: string }) => Promise<{ text: string }>;
   registry: LoadedRegistry;
   projectsRoot: string;
-  /** THE one resolution path — hermes is a normal coordinator agent (org-model spec §5). */
+  /** THE one resolution path — neo is a normal coordinator agent (org-model spec §5). */
   resolveAgent: ResolveAgentFn;
   log?: (line: string) => void;
   gate: ActionGate;
@@ -115,7 +115,7 @@ export class Moderator {
       department: a.department,
     }));
 
-    // hermes is a normal coordinator agent — resolveAgent supplies YAML prompt + dept context
+    // neo is a normal coordinator agent — resolveAgent supplies YAML prompt + dept context
     // + capability tools + tiered model; the generated blocks (roster/playbooks/paths/memo)
     // are appended here because they cannot live in YAML.
     // cwd MUST stay the daemon cwd: SDK sessions are stored per project dir, and the
@@ -152,7 +152,7 @@ export class Moderator {
     });
 
     // Turn-scoped attachment collector — same safe dirs as the direct seam (direct.ts):
-    // hermes can deliver rendered media/files from these roots to the chat.
+    // neo can deliver rendered media/files from these roots to the chat.
     const attachmentServer = buildAttachmentServer(collected, [
       resolvePath(projectsRoot),
       resolvePath("data/downloads"),

@@ -76,8 +76,8 @@ describe("toCoordinator predicate (web sentinel, registry-derived)", () => {
     expect(toCoordinator(reg, undefined)).toBe(true);
   });
 
-  it("returns true for the coordinator's name and every alias (moderator/rami are hermes aliases)", () => {
-    expect(toCoordinator(reg, "hermes")).toBe(true);
+  it("returns true for the coordinator's name and every alias (moderator/rami are neo aliases)", () => {
+    expect(toCoordinator(reg, "neo")).toBe(true);
     expect(toCoordinator(reg, "moderator")).toBe(true);
     expect(toCoordinator(reg, "rami")).toBe(true);
   });

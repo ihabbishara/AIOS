@@ -1,5 +1,5 @@
 // src/moderator/prompt.ts — GENERATED blocks only. The static Chief-of-Staff prompt lives in
-// agents/operations/hermes.yaml (org-model spec §5); these blocks are appended at session build.
+// agents/operations/neo.yaml (org-model spec §5); these blocks are appended at session build.
 export type RosterEntry = { name: string; title: string; charter: string; department: string };
 
 function firstSentence(text: string): string {

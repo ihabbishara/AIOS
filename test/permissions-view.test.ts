@@ -7,31 +7,31 @@ import { testRegistry } from "./fixtures/registry.js";
 const reg = testRegistry();
 
 describe("buildPermissionsView", () => {
-  it("includes every registry agent (canonical names) plus the hermes pseudo-role", () => {
+  it("includes every registry agent (canonical names) plus the neo pseudo-role", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
     const view = buildPermissionsView(store, bus, reg);
     const names = view.map((r) => r.role);
-    expect(names).toContain("hermes");
+    expect(names).toContain("neo");
     expect(names).toContain("odin"); // a canonical registry agent
     expect(names).toContain("juno");
-    // aliases are NOT catalog keys — only canonical names + the hermes pseudo-role
+    // aliases are NOT catalog keys — only canonical names + the neo pseudo-role
     expect(names).not.toContain("researcher"); // odin's alias
     expect(names).not.toContain("finance");    // juno's alias
-    // hermes appears exactly once (pseudo-role, not its empty manifest)
-    expect(names.filter((n) => n === "hermes")).toHaveLength(1);
+    // neo appears exactly once (pseudo-role, not its empty manifest)
+    expect(names.filter((n) => n === "neo")).toHaveLength(1);
   });
 
   it("tags base tools 'default', grants 'granted', and revoked defaults 'revoked'", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
-    store.setRolePermission("hermes", "Bash", 1, "ihab"); // grant a non-default
-    store.setRolePermission("hermes", "mcp__aios__recall", 0, "ihab"); // revoke a default
-    const hermes = buildPermissionsView(store, bus, reg).find((r) => r.role === "hermes")!;
-    const byName = Object.fromEntries(hermes.tools.map((t) => [t.name, t.source]));
+    store.setRolePermission("neo", "Bash", 1, "ihab"); // grant a non-default
+    store.setRolePermission("neo", "mcp__aios__recall", 0, "ihab"); // revoke a default
+    const neo = buildPermissionsView(store, bus, reg).find((r) => r.role === "neo")!;
+    const byName = Object.fromEntries(neo.tools.map((t) => [t.name, t.source]));
     expect(byName["Bash"]).toBe("granted");
     expect(byName["mcp__aios__recall"]).toBeUndefined(); // revoked → not in effective list
-    expect(hermes.revoked).toContainEqual({ name: "mcp__aios__recall", source: "revoked" });
+    expect(neo.revoked).toContainEqual({ name: "mcp__aios__recall", source: "revoked" });
   });
 
   it("aggregates tool.denied events per role+tool with count and last ts", () => {
@@ -48,15 +48,15 @@ describe("buildPermissionsView", () => {
   it("exposes knownTools = built-ins ∪ the role's own tools (for grant autocomplete)", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
-    const hermes = buildPermissionsView(store, bus, reg).find((r) => r.role === "hermes")!;
-    // built-ins hermes does NOT have are still suggested (so you can grant them)
-    expect(hermes.knownTools).toContain("Bash");
-    expect(hermes.knownTools).toContain("Edit");
-    expect(hermes.knownTools).toContain("Skill");
+    const neo = buildPermissionsView(store, bus, reg).find((r) => r.role === "neo")!;
+    // built-ins neo does NOT have are still suggested (so you can grant them)
+    expect(neo.knownTools).toContain("Bash");
+    expect(neo.knownTools).toContain("Edit");
+    expect(neo.knownTools).toContain("Skill");
     // the role's own MCP tools are suggested too
-    expect(hermes.knownTools).toContain("mcp__aios__recall");
-    // no duplicates (Read is both a built-in and a hermes default)
-    expect(hermes.knownTools.filter((t) => t === "Read")).toHaveLength(1);
+    expect(neo.knownTools).toContain("mcp__aios__recall");
+    // no duplicates (Read is both a built-in and a neo default)
+    expect(neo.knownTools.filter((t) => t === "Read")).toHaveLength(1);
   });
 });
 

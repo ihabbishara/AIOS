@@ -108,7 +108,7 @@ describe("standupDigest", () => {
 });
 
 describe("runStandups", () => {
-  it("runs the lead once per active dept and mails the standup to hermes", async () => {
+  it("runs the lead once per active dept and mails the standup to neo", async () => {
     const store = new Store(":memory:");
     goalRow(store);
     const calls: string[] = [];
@@ -120,7 +120,7 @@ describe("runStandups", () => {
     const n = await runStandups({ store, registry, run, spendGuard: new SpendGuard({ store }) });
     expect(n).toBe(1);
     expect(calls).toEqual(["athena"]);
-    const m = store.unreadMailFor("hermes")[0];
+    const m = store.unreadMailFor("neo")[0];
     expect(m).toMatchObject({ kind: "standup", from_agent: "athena" });
     expect(m.body).toContain("blockers: none");
   });
@@ -145,6 +145,6 @@ describe("runStandups", () => {
     const run: SpecialistRunFn = async () => { throw new Error("nope"); };
     expect(await runStandups({ store, registry, run, spendGuard: new SpendGuard({ store, capUsd: 1 }) })).toBe(0);
     expect(await runStandups({ store, registry, run, spendGuard: new SpendGuard({ store }) })).toBe(0); // failure contained
-    expect(store.unreadMailFor("hermes")).toEqual([]);
+    expect(store.unreadMailFor("neo")).toEqual([]);
   });
 });

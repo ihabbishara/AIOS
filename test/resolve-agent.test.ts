@@ -29,7 +29,7 @@ const FQ_BARE = ["recall", "vault_read", "vault_write", "propose_action"];
 const fq = (t: string) => (FQ_BARE.includes(t) ? `mcp__aios-pack__${t}` : t);
 
 describe("resolveAgent", () => {
-  it("matches the golden surface for every agent — hermes included (v2 migration landed)", () => {
+  it("matches the golden surface for every agent — neo included (v2 migration landed)", () => {
     const { resolve, registry } = setup();
     // Iterate the FIXTURE, not the registry: runtime-hired agents (spec 2026-07-20) are unpinned
     // until the next dev-session golden regen and must not redden the suite. Clamp invariant
@@ -149,7 +149,7 @@ describe("resolveAgent", () => {
 
   it("media-gen carriers get the media server and its three tools", () => {
     const { resolve } = setup();
-    for (const name of ["hermes", "midas", "athena", "odin", "clio", "venus"]) {
+    for (const name of ["neo", "midas", "athena", "odin", "clio", "venus"]) {
       const r = resolve(name, origin)!;
       expect(Object.keys(r.options.mcpServers ?? {}), name).toContain("media");
       for (const t of ["mcp__media__render_chart", "mcp__media__render_diagram", "mcp__media__speak"]) {

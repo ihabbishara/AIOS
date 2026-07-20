@@ -142,7 +142,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
     return () => clearInterval(t);
   }, [recording]);
 
-  const targets = ["hermes", ...(state?.agents.filter((a) => a.kind !== "moderator").map((a) => a.name) ?? [])];
+  const targets = ["neo", ...(state?.agents.filter((a) => a.kind !== "moderator").map((a) => a.name) ?? [])];
 
   // Live picker state: violet dot = agent working right now, count = unread mail from it.
   const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
@@ -271,7 +271,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
         {log.length === 0 && (
           <div className="text-dim text-[12px] m-auto text-center flex flex-col gap-1.5 items-center">
             <Avatar name={target} tone="agent" />
-            <div>Channel open to <span className="text-strong">{target}</span>{target === "hermes" ? " — describe what you need; hermes routes it." : "."}</div>
+            <div>Channel open to <span className="text-strong">{target}</span>{target === "neo" ? " — describe what you need; neo routes it." : "."}</div>
             <div className="text-[10.5px]">Enter sends · Shift+Enter for a new line{state?.voice ? " · or hold a thought and press the mic" : ""}</div>
           </div>
         )}
@@ -313,7 +313,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
               const v = e.event as unknown as { to: string; via: string; reason: string };
               return (
                 <div key={e.id} className="text-[10px] text-dim self-center">
-                  ⇢ hermes → <span className="text-fg">{v.to}</span> ({v.via}) — {v.reason}
+                  ⇢ neo → <span className="text-fg">{v.to}</span> ({v.via}) — {v.reason}
                 </div>
               );
             })}

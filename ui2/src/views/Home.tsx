@@ -68,7 +68,7 @@ export function Home({ events, attention, onOpenChat }: {
       if (!selected) return;
       if (e.key === "a" && selected.actions.includes("approve")) void act(selected, "approve");
       if (e.key === "r" && selected.actions.includes("reject")) void act(selected, "reject");
-      if (e.key === "d") onOpenChat("hermes", `About "${selected.title}" (${selected.kind} ${selected.id}): `);
+      if (e.key === "d") onOpenChat("neo", `About "${selected.title}" (${selected.kind} ${selected.id}): `);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

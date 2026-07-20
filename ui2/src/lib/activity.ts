@@ -29,7 +29,7 @@ export function describeEvent(e: StoredEvent): { text: string; tone: ActivityTon
   switch (type) {
     case "chat.in": return { text: `you → ${s(ev, "channel")}: ${clip(s(ev, "text"))}`, tone };
     case "chat.out": return { text: `reply on ${s(ev, "channel")}: ${clip(s(ev, "text"))}`, tone };
-    case "route.decision": return { text: `hermes routed to ${s(ev, "to")} — ${clip(s(ev, "reason"), 60)}`, tone: "dim" };
+    case "route.decision": return { text: `routed to ${s(ev, "to")} — ${clip(s(ev, "reason"), 60)}`, tone: "dim" };
     case "agent.start": return { text: `${agent} started ${s(ev, "context")}`, tone: "agent" };
     case "agent.end": return { text: `${agent} finished ${s(ev, "context")}${ev.ok === false ? " — failed" : ""}`, tone };
     case "goal.created": return { text: `goal created: ${clip(s(ev, "title") || s(ev, "slug"), 60)}`, tone };

@@ -21,7 +21,7 @@ export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
 
 /** Hash of the resolved surface — tools + static persona scope (specs 2026-07-19 + 2026-07-20):
  *  a resumed session whose tool surface OR static persona changed must NOT resume. The dynamic
- *  memo/moderator blocks stay excluded — nightly re-renders never invalidate (hermes continuity). */
+ *  memo/moderator blocks stay excluded — nightly re-renders never invalidate (neo continuity). */
 export function surfaceHash(options: Options, personaSurface?: string): string {
   const payload = JSON.stringify({
     tools: [...(options.allowedTools ?? [])].sort(),

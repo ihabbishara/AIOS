@@ -37,7 +37,7 @@ interface CatalogEntry {
   base: string[];
 }
 
-/** Every controllable role: the live registry agents, uniformly — hermes included (org-model
+/** Every controllable role: the live registry agents, uniformly — neo included (org-model
  *  spec §5: the pseudo-role special case is gone; capabilities are the base truth). */
 export function permissionRoleCatalog(registry: LoadedRegistry): CatalogEntry[] {
   return [...registry.agents.values()].map((a) => ({

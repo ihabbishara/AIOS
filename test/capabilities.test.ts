@@ -16,7 +16,7 @@ function tree(files: Record<string, string>): string {
 }
 
 const HERMES = `
-name: hermes
+name: neo
 title: Chief of Staff
 department: operations
 charter: routes
@@ -28,7 +28,7 @@ capabilities: [files-ro]
 const OPS_DEPT = `
 department: operations
 mission: front door
-lead: hermes
+lead: neo
 memoDomain: general
 `;
 const CAPS = `
@@ -60,7 +60,7 @@ describe("loader v2", () => {
     const dir = tree({
       "_capabilities.yaml": CAPS,
       "operations/department.yaml": OPS_DEPT,
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
       "operations/a.yaml": agentYaml("aaa", "aliases: [shared]\ncapabilities: [files-ro]\nkind: worker"),
       "operations/b.yaml": agentYaml("bbb", "aliases: [shared]\ncapabilities: [files-ro]\nkind: worker"),
     });
@@ -70,7 +70,7 @@ describe("loader v2", () => {
   it("boot error on unknown capability and unknown guard", () => {
     const base = {
       "operations/department.yaml": OPS_DEPT,
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
     };
     const d1 = tree({ ...base, "_capabilities.yaml": CAPS,
       "operations/x.yaml": agentYaml("xxx", "capabilities: [nope]\nkind: worker") });
@@ -78,7 +78,7 @@ describe("loader v2", () => {
     const d2 = tree({
       "_capabilities.yaml": "files-ro: { tools: [Read] }\nbad: { tools: [Bash], guard: ghost }\n",
       "operations/department.yaml": OPS_DEPT,
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
       "operations/x.yaml": agentYaml("xxx", "capabilities: [bad]\nkind: worker"),
     });
     expect(() => loadRegistry(d2, join(d2, "nopb"), {}, () => {})).toThrow(/guard/i);
@@ -91,7 +91,7 @@ describe("loader v2", () => {
     expect(() => loadRegistry(d1, join(d1, "nopb"), {}, () => {})).toThrow(/coordinator/i);
     const d2 = tree({ "_capabilities.yaml": CAPS,
       "operations/department.yaml": OPS_DEPT,
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
       "operations/dup.yaml": agentYaml("dup", "kind: coordinator\ncapabilities: [files-ro]") });
     expect(() => loadRegistry(d2, join(d2, "nopb"), {}, () => {})).toThrow(/coordinator/i);
   });
@@ -105,24 +105,24 @@ mission: m
 lead: leader
 memoDomain: general
 `,
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
       "operations/leader.yaml": agentYaml("leader"), // dept lead WITHOUT kind → worker (no inference)
       "operations/judge.yaml": agentYaml("judge", "outputSchema: verdict\nkind: critic\n"),
       "operations/pleb.yaml": agentYaml("pleb"),
     });
     const reg = loadRegistry(dir, join(dir, "nopb"), {}, () => {});
-    expect(reg.agents.get("hermes")!.kind).toBe("coordinator");
+    expect(reg.agents.get("neo")!.kind).toBe("coordinator");
     expect(reg.agents.get("leader")!.kind).toBe("worker");
     expect(reg.agents.get("judge")!.kind).toBe("critic");
     expect(reg.agents.get("pleb")!.kind).toBe("worker");
-    expect(reg.coordinator).toBe("hermes");
+    expect(reg.coordinator).toBe("neo");
   });
 
   it("no __legacy synthesis: v1 fields are ignored; dept capabilities are inherited", () => {
     const dir = tree({
       "_capabilities.yaml": CAPS,
       "operations/department.yaml": OPS_DEPT + "capabilities: [web]\n",
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
       "operations/old.yaml": agentYaml("old", "tools: [Read, Bash]\nkind: worker\n"), // v1 tools stripped by zod
     });
     const reg = loadRegistry(dir, join(dir, "nopb"), {}, () => {});
@@ -132,10 +132,10 @@ memoDomain: general
     expect([...reg.capabilities.keys()].some((k) => k.startsWith("__legacy"))).toBe(false);
   });
 
-  it("live tree is fully v2: no __legacy shims, hermes coordinates, critics inferred right", () => {
+  it("live tree is fully v2: no __legacy shims, neo coordinates, critics inferred right", () => {
     const reg = loadRegistry("agents", "playbooks", {}, () => {});
     expect([...reg.capabilities.keys()].filter((k) => k.startsWith("__legacy"))).toEqual([]);
-    expect(reg.coordinator).toBe("hermes");
+    expect(reg.coordinator).toBe("neo");
     expect(reg.agents.get("argus")!.kind).toBe("critic");
     expect(reg.agents.get("minos")!.kind).toBe("critic");
     expect(reg.agents.get("athena")!.kind).toBe("lead");
@@ -147,7 +147,7 @@ memoDomain: general
     const dir = tree({
       "_capabilities.yaml": CAPS,
       "operations/department.yaml": OPS_DEPT,
-      "operations/hermes.yaml": HERMES,
+      "operations/neo.yaml": HERMES,
       "operations/m.yaml": agentYaml("mmm", "model: claude-haiku-4-5-20251001\nkind: worker\ncapabilities: [files-ro]"),
     });
     expect(loadRegistry(dir, join(dir, "nopb"), {}, () => {}).agents.get("mmm")!.role.model)

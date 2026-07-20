@@ -196,12 +196,12 @@ export function startWebServer(deps: WebDeps, port: number): Server {
             voice: deps.voice.available(),
             agents: [
               {
-                name: "hermes", kind: "moderator",
+                name: "neo", kind: "moderator",
                 description: "Chief of Staff — discusses, routes, runs playbooks, hands off, reports.",
                 tools: ["run_playbook", "hand_off", "job_status", "vault"], guarded: false,
               },
               ...[...registry.agents.values()]
-                .filter((a) => a.manifest.name !== "hermes")
+                .filter((a) => a.manifest.name !== "neo")
                 .map((a) => ({
                   name: a.manifest.name, kind: "specialist",
                   title: a.manifest.title, description: a.role.description,

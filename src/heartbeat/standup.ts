@@ -1,5 +1,5 @@
 // src/heartbeat/standup.ts — daily lead standups (spec §6). Deterministic digest, one lead
-// one-shot per ACTIVE department, result lands as standup mail to hermes.
+// one-shot per ACTIVE department, result lands as standup mail to neo.
 import { randomUUID } from "node:crypto";
 import type { Store, GoalRow } from "../store/db.js";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
@@ -70,7 +70,7 @@ const PROMPT =
   "Write your department's daily standup for the chief of staff — exactly 3 lines: " +
   "done / today / blockers. Max 60 words total, plain text. Your department's last-24h data:\n\n";
 
-/** One lead one-shot per active dept; standup lands as mail lead→hermes. Returns count written. */
+/** One lead one-shot per active dept; standup lands as mail lead→neo. Returns count written. */
 export async function runStandups(deps: StandupDeps): Promise<number> {
   const now = (deps.nowFn ?? (() => new Date()))();
   const since = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
@@ -88,11 +88,11 @@ export async function runStandups(deps: StandupDeps): Promise<number> {
       });
       const id = randomUUID();
       deps.store.insertMail({
-        id, from_agent: lead, to_agent: "hermes", kind: "standup", body: res.text.slice(0, 1200),
+        id, from_agent: lead, to_agent: "neo", kind: "standup", body: res.text.slice(0, 1200),
         goal_id: null, origin_channel: "system", origin_chat_id: "standup",
         chain_depth: 1, status: "unread", error: null,
       });
-      deps.onEvent?.({ type: "mail.sent", id, from: lead, to: "hermes", kind: "standup" });
+      deps.onEvent?.({ type: "mail.sent", id, from: lead, to: "neo", kind: "standup" });
       written++;
     } catch (err) {
       deps.log?.(`standup for ${dept} failed: ${(err as Error).message}`); // fail-silent per dept

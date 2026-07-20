@@ -56,11 +56,25 @@ describe("legacy role_permissions rename migration", () => {
     s.close();
   });
 
-  it("chains moderator → rami → hermes across both migration waves", () => {
+  it("chains moderator → rami → hermes → neo across all three migration waves", () => {
     const s = withReopen((s1) => s1.setRolePermission("moderator", "Bash", 1, "legacy"));
     expect(s.listRolePermissions("moderator")).toEqual([]);
     expect(s.listRolePermissions("rami")).toEqual([]);      // wave 2 consumed it
-    expect(s.listRolePermissions("hermes").map((r) => r.tool)).toContain("Bash");
+    expect(s.listRolePermissions("hermes")).toEqual([]);    // wave 3 consumed it
+    expect(s.listRolePermissions("neo").map((r) => r.tool)).toContain("Bash");
+    s.close();
+  });
+
+  it("wave 3 moves the coordinator's mail identity and goal leads to neo", () => {
+    const s = withReopen((s1) => {
+      s1.insertMail({ id: "m1", from_agent: "athena", to_agent: "hermes", kind: "standup", body: "b",
+        goal_id: null, origin_channel: "web", origin_chat_id: "ui", chain_depth: 0, status: "unread", error: null });
+      s1.insertGoal({ id: "g1", slug: "g1", title: "t", request: "r", department: "operations", lead: "hermes",
+        origin_channel: "web", origin_chat_id: "ui", status: "done", project_dir: null, goal_dir: null,
+        plan_summary: "", replans_used: 0, chain_depth: 0, error: null });
+    });
+    expect(s.unreadMailFor("neo").map((m) => m.id)).toContain("m1");
+    expect(s.getGoal("g1")?.lead).toBe("neo");
     s.close();
   });
 

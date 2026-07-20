@@ -357,7 +357,7 @@ export class GoalEngine {
       });
     }
     const dept = this.deps.registry.ownerOfPlaybook.get(params.playbook) ?? "operations";
-    const lead = this.deps.registry.departments.get(dept)?.lead ?? "hermes";
+    const lead = this.deps.registry.departments.get(dept)?.lead ?? "neo";
     return this.createGoal({
       title: params.title, request: params.request, department: dept, lead,
       origin: { channel: params.channel, chatId: params.chatId },
@@ -589,7 +589,7 @@ export class GoalEngine {
   }
 
   private spawnFromMail(m: MailRow, canonical: string, department: string): void {
-    const lead = this.deps.registry.departments.get(department)?.lead ?? "hermes";
+    const lead = this.deps.registry.departments.get(department)?.lead ?? "neo";
     const title = (m.body.split("\n")[0] ?? "").slice(0, 80) || `mail from ${m.from_agent}`;
     const goal = this.createGoal({
       title, request: m.body, department, lead,

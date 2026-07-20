@@ -35,7 +35,7 @@ export const ATTACH_TOOL = "mcp__aios_attachments__attach_file";
 
 /** Realpath-resolved /tmp/aios- prefix for safeDirs. isSafe() realpaths the candidate file,
  *  and on macOS /tmp is a symlink to /private/tmp — a literal "/tmp/aios-" prefix never
- *  matches a resolved path (observed live: hermes chart attach refused). */
+ *  matches a resolved path (observed live: neo chart attach refused). */
 export const AIOS_TMP_PREFIX = `${realpathSync("/tmp")}/aios-`;
 
 /**

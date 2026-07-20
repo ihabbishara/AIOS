@@ -8,9 +8,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-function hermesMail(store: Store, over: Record<string, unknown> = {}) {
+function coordinatorMail(store: Store, over: Record<string, unknown> = {}) {
   store.insertMail({
-    id: (over.id as string) ?? "s1", from_agent: (over.from as string) ?? "athena", to_agent: "hermes",
+    id: (over.id as string) ?? "s1", from_agent: (over.from as string) ?? "athena", to_agent: "neo",
     kind: (over.kind as never) ?? "standup", body: (over.body as string) ?? "done: X / today: Y / blockers: none",
     goal_id: null, origin_channel: "system", origin_chat_id: "standup",
     chain_depth: 1, status: "unread", error: null,
@@ -18,13 +18,13 @@ function hermesMail(store: Store, over: Record<string, unknown> = {}) {
 }
 
 describe("brief standups + mailroom", () => {
-  it("morning brief carries standups and hermes mail lines; counts as non-empty", () => {
+  it("morning brief carries standups and neo mail lines; counts as non-empty", () => {
     const store = new Store(":memory:");
-    hermesMail(store);
-    hermesMail(store, { id: "r1", from: "vulcan", kind: "report", body: "Done: mail goal X\nArtifacts: ..." });
+    coordinatorMail(store);
+    coordinatorMail(store, { id: "r1", from: "vulcan", kind: "report", body: "Done: mail goal X\nArtifacts: ..." });
     const d = assembleBrief(store, "morning", new Date().toISOString(), null);
     expect(d.standups).toEqual([{ lead: "athena", text: "done: X / today: Y / blockers: none" }]);
-    expect(d.hermesMail).toEqual([{ from: "vulcan", kind: "report", line: "Done: mail goal X" }]);
+    expect(d.coordinatorMail).toEqual([{ from: "vulcan", kind: "report", line: "Done: mail goal X" }]);
     expect(isEmptyBrief(d)).toBe(false);
     const note = renderBriefNote(d, "narration");
     expect(note).toContain("## Standups");
@@ -34,11 +34,11 @@ describe("brief standups + mailroom", () => {
 
   it("private-dept senders are excluded from the vaulted brief AND left unread (money wall)", async () => {
     const store = new Store(":memory:");
-    hermesMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
-    hermesMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
+    coordinatorMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
+    coordinatorMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
     const priv = new Set(["midas"]);
     const d = assembleBrief(store, "morning", new Date().toISOString(), null, priv);
-    expect(d.hermesMail).toEqual([{ from: "athena", kind: "report", line: "Done: public thing" }]);
+    expect(d.coordinatorMail).toEqual([{ from: "athena", kind: "report", line: "Done: public thing" }]);
     expect(renderBriefNote(d, "n")).not.toContain("12345");
 
     // runBrief marks briefed (public) mail read but leaves the private note unread (not consumed).
@@ -56,14 +56,14 @@ describe("brief standups + mailroom", () => {
 
   it("mail arriving during narration is NOT marked read by the brief (M2)", async () => {
     const store = new Store(":memory:");
-    hermesMail(store, { id: "early", from: "athena", kind: "report", body: "Done: early thing" });
+    coordinatorMail(store, { id: "early", from: "athena", kind: "report", body: "Done: early thing" });
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-race-")), "AIOS");
     vault.init();
     await runBrief({
       store, bus: new EventBus(store), vault,
       narrate: async () => {
         // Simulates a report landing mid-narration (the race window).
-        hermesMail(store, { id: "late", from: "vulcan", kind: "report", body: "Done: late thing" });
+        coordinatorMail(store, { id: "late", from: "vulcan", kind: "report", body: "Done: late thing" });
         return "n";
       },
       send: async () => {}, primary: { channel: "cli", chatId: "local" },
@@ -73,10 +73,10 @@ describe("brief standups + mailroom", () => {
     expect(store.getMail("late")!.status).toBe("unread");  // NOT briefed → must resurface tomorrow
   });
 
-  it("morning brief emits mail.read for briefed mail (clears hermes badge); none when nothing briefed", async () => {
+  it("morning brief emits mail.read for briefed mail (clears neo badge); none when nothing briefed", async () => {
     const store = new Store(":memory:");
-    hermesMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
-    hermesMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
+    coordinatorMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
+    coordinatorMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
     const priv = new Set(["midas"]);
     const bus = new EventBus(store);
     const mailRead: string[][] = [];
@@ -103,9 +103,9 @@ describe("brief standups + mailroom", () => {
     expect(mailRead2).toEqual([]);
   });
 
-  it("evening brief ignores hermes mail; empty morning stays empty", () => {
+  it("evening brief ignores neo mail; empty morning stays empty", () => {
     const store = new Store(":memory:");
-    hermesMail(store);
+    coordinatorMail(store);
     const evening = assembleBrief(store, "evening", new Date().toISOString(), null);
     expect(evening.standups).toBeUndefined();
     const emptyStore = new Store(":memory:");

@@ -46,7 +46,7 @@ export interface LoadedRegistry {
   playbooks: Map<string, Playbook>;
   /** v2: capability definitions (agents/_capabilities.yaml + migration-shim synthetics). */
   capabilities: Map<string, CapabilityDef>;
-  /** v2: canonical name of the single kind: coordinator agent (hermes). */
+  /** v2: canonical name of the single kind: coordinator agent (neo). */
   coordinator: string;
 }
 

@@ -38,7 +38,7 @@ describe("live agents/ tree", () => {
       omar: "atlas", ziad: "odin", lina: "clio", sami: "janus",
       dalia: "venus", yara: "minos", faris: "midas", salim: "juno",
       // chief-of-staff aliases
-      rami: "hermes", moderator: "hermes",
+      rami: "neo", moderator: "neo",
     })) expect(reg.agentOf.get(alias), alias).toBe(name);
   });
 

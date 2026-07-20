@@ -28,11 +28,11 @@ export interface BriefData {
   emailDraftsPending?: number;
   /** Private task list — morning brief only; overdue + due-today + open count. */
   openLoops?: OpenLoops;
-  /** Department lead standups (standup mail to hermes) — morning brief only. Lead name identifies the dept. */
+  /** Department lead standups (standup mail to neo) — morning brief only. Lead name identifies the dept. */
   standups?: Array<{ lead: string; text: string }>;
   /** Hermes's other unread mail (reports/notes), one line each — morning brief only. */
-  hermesMail?: Array<{ from: string; kind: string; line: string }>;
-  /** Ids of the hermes mail consumed by THIS brief — runBrief marks exactly these read. */
+  coordinatorMail?: Array<{ from: string; kind: string; line: string }>;
+  /** Ids of the neo mail consumed by THIS brief — runBrief marks exactly these read. */
   briefedMailIds?: string[];
 }
 
@@ -172,17 +172,17 @@ export function assembleBrief(
   }
 
   let standups: BriefData["standups"];
-  let hermesMail: BriefData["hermesMail"];
+  let coordinatorMail: BriefData["coordinatorMail"];
   let briefedMailIds: BriefData["briefedMailIds"];
   if (anchor === "morning") {
     // Drop private-dept senders before anything reaches the vaulted/indexed brief.
-    const unread = store.unreadMailFor("hermes").filter((m) => !privateAgents.has(m.from_agent));
+    const unread = store.unreadMailFor("neo").filter((m) => !privateAgents.has(m.from_agent));
     const su = unread.filter((m) => m.kind === "standup")
       .map((m) => ({ lead: m.from_agent, text: m.body.replace(/\n+/g, " / ").slice(0, 400) }));
     if (su.length) standups = su;
     const other = unread.filter((m) => m.kind !== "standup")
       .map((m) => ({ from: m.from_agent, kind: m.kind, line: (m.body.split("\n")[0] ?? "").slice(0, 120) }));
-    if (other.length) hermesMail = other;
+    if (other.length) coordinatorMail = other;
     if (unread.length) briefedMailIds = unread.map((m) => m.id);
   }
 
@@ -210,7 +210,7 @@ export function assembleBrief(
     emailDraftsPending,
     openLoops,
     standups,
-    hermesMail,
+    coordinatorMail,
     briefedMailIds,
   };
 }
@@ -232,7 +232,7 @@ export function isEmptyBrief(d: BriefData): boolean {
     (d.emailDraftsPending ?? 0) === 0 &&
     ((d.openLoops?.overdue.length ?? 0) + (d.openLoops?.dueToday.length ?? 0)) === 0 &&
     (d.standups?.length ?? 0) === 0 &&
-    (d.hermesMail?.length ?? 0) === 0
+    (d.coordinatorMail?.length ?? 0) === 0
   );
 }
 
@@ -277,7 +277,7 @@ export function renderBriefNote(d: BriefData, narration: string): string {
     section("Open loops", rows);
   }
   section("Standups", (d.standups ?? []).map((s) => `${s.lead}: ${s.text}`));
-  section("Mailroom", (d.hermesMail ?? []).map((m) => `${m.from} (${m.kind}): ${m.line}`));
+  section("Mailroom", (d.coordinatorMail ?? []).map((m) => `${m.from} (${m.kind}): ${m.line}`));
   return lines.join("\n");
 }
 
@@ -308,7 +308,7 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   // the brief sink is excluded from the brief AND left unread (never vaulted/indexed; not
   // silently consumed by the mark-read sweep). personal.finance denies brief — money-wall parity.
   const privateAgents = new Set<string>();
-  for (const m of deps.store.unreadMailFor("hermes")) {
+  for (const m of deps.store.unreadMailFor("neo")) {
     if (privateAgents.has(m.from_agent)) continue;
     const label = deps.labelOf?.(m.from_agent) ?? "org.internal";
     if (wallVerdict(deps.policy, { labels: [label], sink: "brief" }, "brief:private-mail", m.body) === "deny") {

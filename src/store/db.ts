@@ -22,7 +22,7 @@ export interface GoalRow {
   goal_dir: string | null;
   plan_summary: string;
   replans_used: number;
-  /** Mail chain depth: 0 for user/hermes/facade goals; a mail-spawned goal inherits its mail's depth. */
+  /** Mail chain depth: 0 for user/neo/facade goals; a mail-spawned goal inherits its mail's depth. */
   chain_depth: number;
   /** Source mail id when this goal was spawned by mail (single-node or graph); null otherwise. */
   spawned_by_mail: string | null;
@@ -644,6 +644,20 @@ export class Store {
         this.db
           .prepare("UPDATE OR REPLACE role_permissions SET role = ? WHERE role = ?")
           .run(mythic, arabic);
+      } catch {
+        /* noop — a single rename failing must not block startup */
+      }
+    }
+    // Migration wave 3: hermes → neo (2026-07-20 coordinator rename). Runs after wave 2 so
+    // moderator→rami→hermes→neo chains. Unlike earlier waves, the coordinator's mail identity
+    // and goal-lead rows move too: briefs read unreadMailFor(coordinator) and must keep seeing
+    // pre-rename unread mail; goal cards keep a live lead to chat with.
+    const WAVE3: Array<[string, string]> = [
+      ["role_permissions", "role"], ["mail", "from_agent"], ["mail", "to_agent"], ["goals", "lead"],
+    ];
+    for (const [table, col] of WAVE3) {
+      try {
+        this.db.prepare(`UPDATE OR REPLACE ${table} SET ${col} = 'neo' WHERE ${col} = 'hermes'`).run();
       } catch {
         /* noop — a single rename failing must not block startup */
       }

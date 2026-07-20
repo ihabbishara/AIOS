@@ -10,7 +10,8 @@ export function TodayStrip({ events, onOpenBrief }: {
 }) {
   const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
   const { data: mine } = useLiveQuery(() => api.mailMine(), events, T.agentMail);
-  const brief = mine?.threads.find((t) => t.lastFrom === "hermes");
+  // neo is the coordinator; "hermes" matches pre-rename brief threads still in the store.
+  const brief = mine?.threads.find((t) => t.lastFrom === "neo" || t.lastFrom === "hermes");
   const date = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   return (
     <div className="flex items-center gap-3 px-3 h-10 border-b border-line text-[11px] text-dim shrink-0">

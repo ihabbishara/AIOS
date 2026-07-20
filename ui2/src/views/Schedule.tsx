@@ -142,7 +142,7 @@ export function Schedule() {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start">
           <div className="panel p-4">
             <SectionLabel>Routines</SectionLabel>
-            <div className="text-[11px] text-dim mb-2">Recurring prompts the org runs on its own — hermes picks them up on schedule.</div>
+            <div className="text-[11px] text-dim mb-2">Recurring prompts the org runs on its own — neo picks them up on schedule.</div>
             {data.routines.length === 0 && <Empty>No routines yet — create one below.</Empty>}
             {data.routines.map((r) => <RoutineRowView key={r.id} r={r} onChanged={reload} />)}
             <div className="mt-3"><SectionLabel>New routine</SectionLabel></div>
