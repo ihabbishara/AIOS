@@ -75,6 +75,8 @@ export interface Config {
   speculateEmailModel?: string;
   /** Local time "HH:MM" for the pre-brief department standups. */
   anchorStandup: string;
+  /** Local "HH:MM" before which cross-midnight anchor catch-ups hold (AIOS_CATCHUP_AFTER). */
+  catchupAfter: string;
   /** Max mail chain depth: a request whose chain_depth exceeds this downgrades to a note. */
   mailMaxDepth: number;
   /** Kill-switch: send_mail refuses, sweep idles, injection skipped (standups die too — mail is their substrate). */
@@ -250,6 +252,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     dreamTopN: Number(process.env.AIOS_DREAM_TOP_N ?? 3),
     dreamModel: process.env.AIOS_DREAM_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     anchorStandup: process.env.AIOS_ANCHOR_STANDUP ?? "07:15",
+    catchupAfter: process.env.AIOS_CATCHUP_AFTER ?? "08:00",
     mailMaxDepth: (() => { const n = Number(process.env.AIOS_MAIL_MAX_DEPTH); return Number.isFinite(n) && n > 0 ? n : 2; })(),
     mailDisabled: process.env.AIOS_MAIL_DISABLED === "1",
     standupDisabled: process.env.AIOS_STANDUP_DISABLED === "1",

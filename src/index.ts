@@ -637,6 +637,7 @@ async function main(): Promise<void> {
       { name: "morning", hhmm: config.anchorMorning },
       { name: "evening", hhmm: config.anchorEvening },
     ],
+    catchupAfter: config.catchupAfter,
     onAnchor: async (name) => {
       if (name === "dream") {
         if (!spendGuard.allow()) { log("budget: skipping dream"); return; }
