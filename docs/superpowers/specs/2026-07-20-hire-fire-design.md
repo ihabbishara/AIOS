@@ -13,9 +13,10 @@ capabilities/guards, exactly-one-coordinator), `reloadRegistry` re-reads the who
 place (index.ts:149, mutating the shared Maps), and ui2 has Staff/StaffProfile views. Missing:
 a create endpoint, a retire endpoint with reference guards, and the UI affordances.
 
-One blocker discovered in exploration: the loader iterates **every** directory under `agentsDir`
-(loader.ts, `statSync(full).isDirectory()`), so an `agents/_retired/` archive would still load —
-the underscore-dir skip must be added first or retire cannot work.
+Exploration flagged a possible blocker — the loader appearing to iterate every directory — but
+implementation disproved it: that loop is the *playbooks* scanner; the agent loader skips any
+directory without a `department.yaml` (loader.ts:130), so `agents/_retired/` is inert as-is.
+No loader change ships; a test pins the archive-skip invariant retire depends on.
 
 ## Decision
 
@@ -41,10 +42,11 @@ preserve. Retire is a file move; no YAML parsing at all.
 
 ## Components
 
-### 1. Loader: skip `_`-prefixed directories (src/agents/registry/loader.ts)
+### 1. Archive-skip invariant (test-only — no loader change)
 
-In the `readdirSync(dir)` loop: `if (entry.startsWith("_")) continue;` before the `statSync`
-branch. Enables the archive; also future-proofs other `_` support dirs.
+The agent loader already ignores `agents/_retired/` (no `department.yaml` → `continue`,
+loader.ts:130). `test/agents-admin.test.ts` pins it: a manifest inside `_retired/` never
+registers. If a future loader refactor drops the dept-file gate, this test catches it.
 
 ### 2. Agent-file builder (src/web/agents-admin.ts — new, the tested unit)
 
