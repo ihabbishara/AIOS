@@ -201,6 +201,58 @@ describe("Clock.tick — routines", () => {
   });
 });
 
+describe("Clock.tick — cross-midnight catch-up", () => {
+  it("missed evening catches up after 08:00 next day with yesterday's stamp, then fires normally that night", async () => {
+    const store = new Store(":memory:");
+    const fired: string[] = [];
+    let nowLocal = new Date(2026, 5, 13, 3, 0); // Jun 13 03:00 — daemon back after midnight
+    const clock = new Clock({
+      store,
+      anchors: [
+        { name: "morning", hhmm: "07:30" },
+        { name: "evening", hhmm: "21:00" },
+      ],
+      onAnchor: async (name) => { fired.push(name); },
+      onReminderDue: () => {},
+      nowFn: () => nowLocal,
+    });
+    // Both fired normally Jun 11; daemon down before Jun 12 21:00 through midnight.
+    store.kvSet("anchor:morning:last", "2026-06-12"); // morning DID fire Jun 12
+    store.kvSet("anchor:evening:last", "2026-06-11"); // evening missed Jun 12
+
+    await clock.tick(); // 03:00 — catch-up gated, nothing fires
+    expect(fired).toEqual([]);
+
+    nowLocal = new Date(2026, 5, 13, 8, 30); // 08:30 — gate open
+    await clock.tick();
+    expect(fired).toEqual(["morning", "evening"]); // morning = today's normal fire; evening = catch-up
+    expect(store.kvGet("anchor:morning:last")).toBe("2026-06-13");
+    expect(store.kvGet("anchor:evening:last")).toBe("2026-06-12"); // stamped occurrence, NOT today
+
+    nowLocal = new Date(2026, 5, 13, 21, 5); // tonight's normal evening
+    await clock.tick();
+    expect(fired).toEqual(["morning", "evening", "evening"]); // catch-up did not swallow it
+    expect(store.kvGet("anchor:evening:last")).toBe("2026-06-13");
+  });
+
+  it("deps.catchupAfter overrides the default gate", async () => {
+    const store = new Store(":memory:");
+    const fired: string[] = [];
+    const clock = new Clock({
+      store,
+      anchors: [{ name: "evening", hhmm: "21:00" }],
+      catchupAfter: "06:00",
+      onAnchor: async (name) => { fired.push(name); },
+      onReminderDue: () => {},
+      nowFn: () => new Date(2026, 5, 13, 6, 30), // 06:30 — open under 06:00 gate, shut under default 08:00
+    });
+    store.kvSet("anchor:evening:last", "2026-06-11");
+    await clock.tick();
+    expect(fired).toEqual(["evening"]);
+    expect(store.kvGet("anchor:evening:last")).toBe("2026-06-12");
+  });
+});
+
 describe("Clock.tick — anchor kv override", () => {
   it("kv override moves an anchor's effective time without restart", async () => {
     const store = new Store(":memory:");

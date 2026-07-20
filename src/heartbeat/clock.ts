@@ -21,6 +21,8 @@ export interface ClockDeps {
   log?: (line: string) => void;
   /** Injectable clock for tests. */
   nowFn?: () => Date;
+  /** Local "HH:MM" before which cross-midnight catch-ups hold (default 08:00). */
+  catchupAfter?: string;
 }
 
 export function localParts(d: Date): { date: string; hhmm: string } {
@@ -82,8 +84,11 @@ export class Clock {
       for (const anchor of this.deps.anchors) {
         const key = `anchor:${anchor.name}:last`;
         const hhmm = this.deps.store.kvGet(`anchor:${anchor.name}:hhmm`) ?? anchor.hhmm;
-        if (!anchorDue(parts, hhmm, this.deps.store.kvGet(key))) continue;
-        this.deps.store.kvSet(key, parts.date); // stamp first — never retry a crashed brief
+        const occurrence = anchorDue(parts, hhmm, this.deps.store.kvGet(key), this.deps.catchupAfter);
+        if (!occurrence) continue;
+        // Stamp the covered occurrence, not today — a morning catch-up of yesterday's
+        // evening must not swallow tonight's fire. Stamp first: never retry a crashed brief.
+        this.deps.store.kvSet(key, occurrence);
         try {
           await this.deps.onAnchor(anchor.name);
         } catch (err) {
