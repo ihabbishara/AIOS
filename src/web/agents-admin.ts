@@ -2,6 +2,10 @@
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import { deptWallViolations } from "../agents/registry/walls.js";
 import { toolsFromCaps } from "../agents/registry/capabilities.js";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
+import { agentSchema } from "../agents/registry/types.js";
 
 export interface HireBody {
   name: string; department: string; kind: "lead" | "worker" | "critic";
@@ -80,4 +84,40 @@ export function retireBlockers(canonical: string, registry: LoadedRegistry): str
     }
   }
   return out;
+}
+
+/** Archived manifests in agents/_retired/ — one row per yaml; a bad file becomes {name, error}, never a throw. */
+export function listRetired(archiveDir: string): Array<{ name: string; department?: string; kind?: string; title?: string; error?: string }> {
+  if (!existsSync(archiveDir)) return [];
+  return readdirSync(archiveDir).filter((f) => f.endsWith(".yaml")).map((f) => {
+    const name = f.replace(/\.yaml$/, "");
+    try {
+      const m = agentSchema.parse(parseYaml(readFileSync(join(archiveDir, f), "utf8")));
+      return { name: m.name, department: m.department, kind: m.kind, title: m.title };
+    } catch (err) {
+      return { name, error: (err as Error).message };
+    }
+  });
+}
+
+/** Rehire = validate-and-move. Reuses validateHire so collisions, dept existence, and dept walls
+ *  apply to the archived manifest exactly as they would to a fresh hire. */
+export function validateRehire(
+  name: string, archiveDir: string, agentsDir: string, registry: LoadedRegistry,
+): { ok: true; manifest: HireBody; from: string; to: string } | { ok: false; status: number; error: string } {
+  const from = join(archiveDir, `${name}.yaml`);
+  if (!existsSync(from)) return { ok: false, status: 404, error: `no retired agent "${name}"` };
+  let m: ReturnType<typeof agentSchema.parse>;
+  try {
+    m = agentSchema.parse(parseYaml(readFileSync(from, "utf8")));
+  } catch (err) {
+    return { ok: false, status: 400, error: `archived manifest invalid: ${(err as Error).message}` };
+  }
+  const v = validateHire(
+    { name: m.name, department: m.department, kind: m.kind as HireBody["kind"], title: m.title,
+      charter: m.charter, persona: m.persona, prompt: m.prompt, capabilities: m.capabilities },
+    registry,
+  );
+  if (!v.ok) return { ok: false, status: 400, error: v.error };
+  return { ok: true, manifest: v.manifest, from, to: join(agentsDir, m.department, `${m.name}.yaml`) };
 }

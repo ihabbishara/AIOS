@@ -17,7 +17,7 @@ function extras() {
 
 import { parse as parseYaml } from "yaml";
 import { agentSchema } from "../src/agents/registry/types.js";
-import { validateHire, renderAgentYaml, retireBlockers } from "../src/web/agents-admin.js";
+import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "../src/web/agents-admin.js";
 
 const reg = loadRegistry("agents", "playbooks", extras(), () => {});
 const good = {
@@ -128,5 +128,41 @@ describe("validateHire — dept privacy walls", () => {
   it("accepts engineering + vault-write (no wall)", () => {
     const r = validateHire({ ...base, department: "engineering", capabilities: ["vault-write"] }, reg);
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("listRetired / validateRehire", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rehire-"));
+  const archive = join(tmp, "_retired");
+  it("listRetired: missing dir → []", () => {
+    expect(listRetired(join(tmp, "nope"))).toEqual([]);
+  });
+  it("listRetired: parses valid entries and reports unparseable ones", () => {
+    mkdirSync(archive, { recursive: true });
+    writeFileSync(join(archive, "scout.yaml"), renderAgentYaml({ ...good, name: "scout" }));
+    writeFileSync(join(archive, "broken.yaml"), "not: [valid");
+    const rows = listRetired(archive);
+    expect(rows.find((r) => r.name === "scout")).toMatchObject({ department: "research", kind: "worker" });
+    expect(rows.find((r) => r.name === "broken")?.error).toBeTruthy();
+  });
+  it("validateRehire: absent archive file → 404", () => {
+    expect(validateRehire("ghost", archive, "agents", reg)).toMatchObject({ ok: false, status: 404 });
+  });
+  it("validateRehire: name collision with an active agent → 400", () => {
+    writeFileSync(join(archive, "athena.yaml"), renderAgentYaml({ ...good, name: "athena", department: "engineering" }));
+    const r = validateRehire("athena", archive, "agents", reg);
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    if (!r.ok) expect(r.error).toMatch(/taken|collision/i);
+  });
+  it("validateRehire: wall violation in archived manifest → 400", () => {
+    writeFileSync(join(archive, "wally.yaml"), renderAgentYaml({ ...good, name: "wally", department: "life", capabilities: ["vault-write"] }));
+    const r = validateRehire("wally", archive, "agents", reg);
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    if (!r.ok) expect(r.error).toMatch(/capability wall: life/);
+  });
+  it("validateRehire: happy path returns manifest + from/to paths", () => {
+    const r = validateRehire("scout", archive, "agents", reg);
+    expect(r).toMatchObject({ ok: true, from: join(archive, "scout.yaml"), to: join("agents", "research", "scout.yaml") });
+    rmSync(tmp, { recursive: true, force: true });
   });
 });
