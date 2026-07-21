@@ -225,7 +225,14 @@ export class TelegramChannel implements ChannelAdapter {
     // in parallel (sequentialize above keeps per-chat order). Replaces bot.start(),
     // whose sequential loop blocked the whole bot for the duration of each turn.
     // Outbound only, works behind NAT; returns a handle, runs forever.
-    run(this.bot);
+    // init() (getMe) BEFORE run(): a bad token throws here, inside start(), where
+    // the boot loop can disable just this channel — not as an uncaught rejection
+    // that kills the process (86-crash launchd loop, spec 2026-07-21).
+    await this.bot.init();
+    const handle = run(this.bot);
+    void handle.task()?.catch((err) => {
+      console.error(`[telegram] runner died: ${(err as Error).message}`);
+    });
   }
 
   async send(chatId: string, text: string): Promise<void> {

@@ -29,6 +29,7 @@ import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
 import type { ChannelAdapter } from "./channels/types.js";
 import { dispatchAttachments } from "./channels/dispatch.js";
+import { startChannels } from "./channels/boot.js";
 import { createAttachmentRegistry } from "./web/attachment-registry.js";
 import { AIOS_TMP_PREFIX } from "./agents/attachment-server.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
@@ -474,10 +475,7 @@ async function main(): Promise<void> {
     channels.set("slack", new SlackChannel(config.slackBotToken, config.slackAppToken));
   }
 
-  for (const [name, ch] of channels) {
-    await ch.start(onMessage);
-    log(`channel up: ${name}`);
-  }
+  const channelFailures = await startChannels(channels, onMessage, log);
 
   // Approval delivery: pings the chat that originated a queued action.
   bus.on((e) => {
@@ -690,7 +688,8 @@ async function main(): Promise<void> {
       await runBrief(
         {
           store, bus, vault, narrate, send: sendVia, primary: config.primaryChat,
-          degraded: () => [...google.degraded(), ...bunq.degraded()],
+          degraded: () => [...google.degraded(), ...bunq.degraded(),
+            ...channelFailures.map((f) => ({ name: `channel:${f.name}`, reason: f.reason }))],
           policy: infoPolicy,
           labelOf: (a) => deptLabel(registry.agents.get(registry.agentOf.get(a) ?? a)?.department ?? ""),
           log,
