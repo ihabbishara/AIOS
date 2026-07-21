@@ -54,6 +54,10 @@ export const api = {
     request<AgentProfileInfo>("/api/agents", { method: "POST", body: JSON.stringify(body) }),
   retireAgent: (name: string) =>
     request<{ ok: true; archived: string }>(`/api/agents/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  retiredAgents: () =>
+    request<Array<{ name: string; department?: string; kind?: string; title?: string; error?: string }>>("/api/agents/retired"),
+  rehireAgent: (name: string) =>
+    request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}/rehire`, { method: "POST" }),
   agentActivity: (name: string) =>
     request<AgentActivityInfo>(`/api/agents/${encodeURIComponent(name)}/activity`),
   patchAgentManifest: (name: string, field: string, value: string | number) =>

@@ -80,7 +80,39 @@ function OrgColumns({ events }: { events: StoredEvent[] }) {
         </div>
       ))}
     </div>
+    <RetiredSection />
     </>
+  );
+}
+
+/** Archived agents (agents/_retired/) with one-click rehire; hidden while the archive is empty. */
+function RetiredSection() {
+  const { data: retired, reload } = useFetch(() => api.retiredAgents(), []);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  if (!retired?.length) return null;
+  return (
+    <div className="panel p-3.5 mt-4">
+      <SectionLabel>Retired</SectionLabel>
+      {error && <div className="text-[12px] text-err mb-1.5">{error}</div>}
+      {retired.map((r) => (
+        <div key={r.name} className="card w-full px-2.5 py-2 mb-1.5 flex items-center gap-2 min-h-11">
+          <Avatar name={r.name} tone="dim" />
+          <span className="text-strong">{r.name}</span>
+          <span className="text-[10px] text-dim truncate">{r.error ? `unreadable: ${r.error}` : r.title ?? ""}</span>
+          <span className="ml-auto flex items-center gap-2">
+            {r.department && <Tag tone="dim">{r.department}</Tag>}
+            <Button disabled={busy === r.name || !!r.error} onClick={() => {
+              setBusy(r.name); setError("");
+              api.rehireAgent(r.name)
+                .then((p) => { void reload(); navigate(`staff/agents/${p.name}`); })
+                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+                .finally(() => setBusy(""));
+            }}>{busy === r.name ? "…" : "Rehire"}</Button>
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
