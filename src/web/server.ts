@@ -27,7 +27,7 @@ import {
 } from "./skills-view.js";
 import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
 import type { AttachmentRegistry, AttachmentDescriptor } from "./attachment-registry.js";
-import { validateHire, renderAgentYaml, retireBlockers } from "./agents-admin.js";
+import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "./agents-admin.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -507,6 +507,11 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           return json(res, 200, buildOrgView(registry, store, bus));
         }
 
+        // Must precede the :name profile match — "retired" matches its pattern.
+        if (path === "/api/agents/retired" && req.method === "GET") {
+          return json(res, 200, listRetired(join(config.agentsDir, "_retired")));
+        }
+
         const agentMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)$/.exec(path);
         if (agentMatch && req.method === "GET") {
           const profile = buildAgentProfile(agentMatch[1], registry, store, bus);
@@ -732,6 +737,19 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           }
           log(`retired: ${canonical} → agents/_retired/`);
           return json(res, 200, { ok: true, archived: `agents/_retired/${canonical}.yaml` });
+        }
+
+        const rehireMatch = /^\/api\/agents\/([a-z][a-z0-9-]*)\/rehire$/.exec(path);
+        if (rehireMatch && req.method === "POST") {
+          const v = validateRehire(rehireMatch[1], join(config.agentsDir, "_retired"), config.agentsDir, registry);
+          if (!v.ok) return json(res, v.status, { error: v.error });
+          renameSync(v.from, v.to);
+          try { reloadPacks(); } catch (err) {
+            renameSync(v.to, v.from); // compensate — roster must stay reloadable
+            return json(res, 500, { error: `rehire reload failed: ${(err as Error).message}` });
+          }
+          log(`rehired: ${v.manifest.name} (${v.manifest.department})`);
+          return json(res, 200, buildAgentProfile(v.manifest.name, registry, store, bus));
         }
 
         if (path === "/api/mail/unread" && req.method === "GET") {
