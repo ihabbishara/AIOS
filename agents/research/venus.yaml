@@ -38,7 +38,7 @@ prompt: >
 tools: [Read, Grep, Glob, WebSearch, WebFetch, mcp__research__save_source, mcp__research__list_sources, mcp__research__search_sources, recall, vault_read, vault_write]
 maxTurns: 30
 permissionMode: dontAsk
-skills: [design-tokens]
+skills: [design-tokens, image-generation]
 aliases: [ui-ux-designer, dalia]
 kind: worker
 capabilities: [web, media-gen]

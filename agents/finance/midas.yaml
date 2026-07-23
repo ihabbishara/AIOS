@@ -47,6 +47,7 @@ tools:
   - vault_read
 maxTurns: 20
 visibility: private
+skills: [image-generation]
 aliases: [cfo, faris]
 kind: lead
 capabilities: [money-analysis, memory, media-gen]
