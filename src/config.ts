@@ -124,6 +124,9 @@ export interface Config {
   bunqSetupPath: string;
   /** Python interpreter for the bunq helper. */
   pythonBin: string;
+  /** Nano Banana image generation (spec 2026-07-23). Undefined key ⇒ generate_image refuses. */
+  geminiApiKey?: string;
+  geminiImageModel: string;
   /** How often the money poller runs (seconds). */
   moneyPollSeconds: number;
   /** Debit threshold (cents) for large-transaction signals. */
@@ -288,6 +291,8 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     bunqHelperPath: join(root, "scripts", "bunq_read.py"),
     bunqSetupPath: join(root, "scripts", "bunq-setup.py"),
     pythonBin: process.env.AIOS_PYTHON_BIN ?? "python3",
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    geminiImageModel: process.env.AIOS_GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image",
     moneyPollSeconds: Number(process.env.AIOS_MONEY_POLL_SECONDS ?? 86400),
     moneyLargeTxCents: Number(process.env.AIOS_MONEY_LARGE_TX_CENTS ?? 50000),
     moneyRenewalDays: Number(process.env.AIOS_MONEY_RENEWAL_DAYS ?? 3),

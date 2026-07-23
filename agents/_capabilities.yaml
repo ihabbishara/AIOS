@@ -12,7 +12,7 @@ todo:        { tools: [TodoWrite] }
 shell:       { tools: [Bash] }
 web:         { tools: [WebSearch, WebFetch] }
 web-fetch:   { tools: [WebFetch], guard: web-fetch-public }   # fetch-only citation spot-checks (minos); SSRF host guard
-media-gen:   { server: media, tools: [mcp__media__render_chart, mcp__media__render_diagram, mcp__media__speak] }   # charts/diagrams/speech out (⑤d)
+media-gen:   { server: media, tools: [mcp__media__render_chart, mcp__media__render_diagram, mcp__media__speak, mcp__media__generate_image] }   # charts/diagrams/speech/image out (⑤d + ⑩ nano-banana)
 
 # -- memory / vault (aios-pack server) -----------------------------------------
 memory:      { server: aios-pack, tools: [recall, vault_read] }

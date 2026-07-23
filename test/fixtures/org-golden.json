@@ -27,6 +27,7 @@
       "mcp__aios-pack__vault_read",
       "mcp__aios-pack__vault_write",
       "mcp__code__sh",
+      "mcp__media__generate_image",
       "mcp__media__render_chart",
       "mcp__media__render_diagram",
       "mcp__media__speak"
@@ -66,6 +67,7 @@
       "mcp__aios-pack__recall",
       "mcp__aios-pack__vault_read",
       "mcp__aios-pack__vault_write",
+      "mcp__media__generate_image",
       "mcp__media__render_chart",
       "mcp__media__render_diagram",
       "mcp__media__speak",
@@ -160,6 +162,7 @@
       "ToolSearch",
       "mcp__aios-pack__recall",
       "mcp__aios-pack__vault_read",
+      "mcp__media__generate_image",
       "mcp__media__render_chart",
       "mcp__media__render_diagram",
       "mcp__media__speak",
@@ -223,6 +226,7 @@
       "mcp__aios__vault_list",
       "mcp__aios__vault_read",
       "mcp__aios__vault_write",
+      "mcp__media__generate_image",
       "mcp__media__render_chart",
       "mcp__media__render_diagram",
       "mcp__media__speak"
@@ -243,6 +247,7 @@
       "mcp__aios-pack__vault_read",
       "mcp__aios-pack__vault_write",
       "mcp__code__sh",
+      "mcp__media__generate_image",
       "mcp__media__render_chart",
       "mcp__media__render_diagram",
       "mcp__media__speak"
@@ -278,6 +283,7 @@
       "mcp__aios-pack__recall",
       "mcp__aios-pack__vault_read",
       "mcp__aios-pack__vault_write",
+      "mcp__media__generate_image",
       "mcp__media__render_chart",
       "mcp__media__render_diagram",
       "mcp__media__speak",

@@ -84,3 +84,13 @@ describe("speak tool", () => {
     expect(() => buildMediaServer({})).not.toThrow();
   });
 });
+
+describe("generate_image tool", () => {
+  it("refuses when no GEMINI_API_KEY is configured (no network call)", async () => {
+    const inst = (buildMediaServer({}) as unknown as {
+      instance: { _registeredTools: Record<string, { handler: (a: unknown) => Promise<{ content: Array<{ text: string }> }> }> };
+    }).instance;
+    const out = (await inst._registeredTools["generate_image"].handler({ prompt: "a cat" })).content[0].text;
+    expect(out).toContain("not configured");
+  });
+});

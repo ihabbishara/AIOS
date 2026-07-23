@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { generateImage } from "./image.js";
 
 const run = promisify(execFile);
 const TIMEOUT_MS = 20_000;
@@ -116,6 +117,9 @@ export interface MediaServerDeps {
   voice?: { available(): boolean; synthesize(text: string): Promise<string> };
   /** Python interpreter for chart renders (launchd PATH may lack the matplotlib one). */
   pythonBin?: string;
+  /** Nano Banana (Gemini 2.5 Flash Image). Absent apiKey ⇒ generate_image refuses. */
+  geminiApiKey?: string;
+  geminiImageModel?: string;
   log?: (line: string) => void;
 }
 
@@ -172,5 +176,27 @@ export function buildMediaServer(deps: MediaServerDeps) {
     },
   );
 
-  return createSdkMcpServer({ name: "media", version: "0.1.0", tools: [renderChartTool, renderDiagramTool, speakTool] });
+  const generateImageTool = tool(
+    "generate_image",
+    "Generate an image from a text prompt using Nano Banana (Gemini 2.5 Flash Image). Returns the " +
+      "output PNG path — deliver it with attach_file. The prompt is sent to Google and the image " +
+      "carries a SynthID watermark. Use render_chart for data and render_diagram for graphs; use this " +
+      "for photographic, illustrative, or creative images.",
+    { prompt: z.string().min(1).describe("What to depict — subject, style, composition, lighting, aspect") },
+    async (a) => {
+      if (!deps.geminiApiKey) {
+        return text("Refused: image generation is not configured (no GEMINI_API_KEY).");
+      }
+      const model = deps.geminiImageModel ?? "gemini-2.5-flash-image";
+      const dir = mkdtempSync("/tmp/aios-media-");
+      const r = await generateImage(a.prompt, { apiKey: deps.geminiApiKey, model, outDir: dir });
+      if (r.ok) {
+        deps.log?.(`image generated: ${model} (~$0.039)`); // dormant unless a log sink is wired
+        return text(`Image generated: ${r.path} — deliver with attach_file.`);
+      }
+      return text(`Refused: ${r.error}`);
+    },
+  );
+
+  return createSdkMcpServer({ name: "media", version: "0.1.0", tools: [renderChartTool, renderDiagramTool, speakTool, generateImageTool] });
 }
