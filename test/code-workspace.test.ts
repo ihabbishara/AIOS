@@ -1,6 +1,6 @@
 // test/code-workspace.test.ts
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -54,6 +54,32 @@ describe("workspace allocator", () => {
     const aios = join(projects, "AIOS");
     gitInit(aios);
     expect(() => validateSource(aios, deps)).toThrow(/secret|denylist/i);
+  });
+
+  it("a source under selfRoot is served as a self-contained CLONE, not a worktree", () => {
+    const self = join(projects, "AIOS");
+    if (!existsSync(join(self, ".git"))) gitInit(self);
+    const d = { ...deps, selfRoot: self, id: "clone01" };
+    const { taskDir } = allocateWorkspace({ mode: "worktree", source: self, slug: "self-work" }, d);
+    // a clone has a real .git DIRECTORY; a worktree has a .git FILE pointing back at the source
+    expect(statSync(join(taskDir, ".git")).isDirectory()).toBe(true);
+    // and git works inside it without reaching the source repo
+    expect(() => execFileSync("git", ["log", "--oneline", "-1"], { cwd: taskDir })).not.toThrow();
+  });
+
+  it("a normal project is still a worktree (.git is a file)", () => {
+    const repo = join(projects, "otherapp");
+    gitInit(repo);
+    const d = { ...deps, selfRoot: join(projects, "AIOS"), id: "wt01" };
+    const { taskDir } = allocateWorkspace({ mode: "worktree", source: repo, slug: "other" }, d);
+    expect(statSync(join(taskDir, ".git")).isFile()).toBe(true);
+  });
+
+  it("validateSource accepts the self root but still refuses other secret paths", () => {
+    const self = join(projects, "AIOS");
+    if (!existsSync(join(self, ".git"))) gitInit(self);
+    expect(() => validateSource(self, { ...deps, selfRoot: self })).not.toThrow();
+    expect(() => validateSource(join(projects, ".ssh"), { ...deps, selfRoot: self })).toThrow(/denylist|Not a git repo/i);
   });
 
   it("analyze mode returns the validated source, no allocation", () => {

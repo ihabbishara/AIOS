@@ -9,6 +9,7 @@ import type { Embedder } from "./memory/embeddings.js";
 import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
 import { buildExtras } from "./agents/registry/extras.js";
 import { allocateWorkspace } from "./code/workspace.js";
+import { resolveReal } from "./code/paths.js";
 import { randomUUID } from "node:crypto";
 import { localParts } from "./heartbeat/clock.js";
 import { GoalEngine, MAIL_PREFIX, type GoalOutcome } from "./engine/goals.js";
@@ -338,7 +339,11 @@ async function main(): Promise<void> {
     const wsMode = mode === "analyze" ? "analyze" : (goal.project_dir ? "worktree" : "greenfield");
     const { taskDir } = allocateWorkspace(
       { mode: wsMode, source: goal.project_dir ?? undefined, slug: goal.slug },
-      { workspaceRoot: config.workspaceRoot, readRoots: config.codeReadRoots, now: localParts(new Date()).date, id: randomUUID().slice(0, 8) },
+      {
+        workspaceRoot: config.workspaceRoot, readRoots: config.codeReadRoots,
+        now: localParts(new Date()).date, id: randomUUID().slice(0, 8),
+        selfRoot: resolveReal(process.cwd()), // AIOS self-work ⇒ clone, not worktree
+      },
     );
     return { taskDir, mode };
   };
