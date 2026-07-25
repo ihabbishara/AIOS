@@ -12,6 +12,8 @@ import type { Mailbox } from "../mail/mailbox.js";
 import { hybridRecall, formatHits, DOMAINS, type Domain } from "../memory/recall.js";
 import type { Embedder } from "../memory/embeddings.js";
 import { forgetNow } from "../memory/facts.js";
+import { validateRoutineBody } from "../web/schedule-view.js";
+import { nextFire, parseRecurrence, type Recurrence } from "../heartbeat/routines.js";
 
 // ---------------------------------------------------------------------------
 // code_task helpers (pure, exported for tests)
@@ -48,6 +50,32 @@ export function teachingDomain(kind: "preference" | "fact" | "forget", domain?: 
   if (kind === "fact") return null;
   if (kind === "forget") return domain ?? null;
   return domain ?? "general"; // preference
+}
+
+/** Assembles the flat tool params into a Recurrence-shaped object for validateRoutineBody.
+ *  Undefined fields stay undefined so the validator reports what's missing. */
+export function recurrenceFromArgs(a: {
+  kind?: string; hhmm?: string; dow?: number; every_minutes?: number;
+}): unknown {
+  if (!a.kind) return undefined;
+  return a.kind === "interval"
+    ? { kind: a.kind, everyMinutes: a.every_minutes }
+    : a.kind === "weekly"
+      ? { kind: a.kind, dow: a.dow, hhmm: a.hhmm }
+      : { kind: a.kind, hhmm: a.hhmm };
+}
+
+/** One-line human label for a stored routine row. */
+export function routineLine(r: {
+  id: number; name: string; prompt: string; enabled: number; recurrence: string;
+}, next: string | null): string {
+  const rec = parseRecurrence(r.recurrence) as Recurrence | null;
+  const when = !rec ? "(unparseable)"
+    : rec.kind === "interval" ? `every ${rec.everyMinutes}m`
+    : rec.kind === "weekly" ? `weekly dow${rec.dow} ${rec.hhmm}`
+    : `${rec.kind} ${rec.hhmm}`;
+  return `#${r.id} [${r.enabled ? "on" : "off"}] ${when} — ${r.name}: ${r.prompt.slice(0, 60)}` +
+    (next ? ` (next ${next})` : "");
 }
 
 export interface ModeratorToolsDeps {
@@ -342,6 +370,81 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       text(deps.store.cancelReminder(args.id) ? `Reminder #${args.id} cancelled.` : `No pending reminder #${args.id}.`),
   );
 
+  const recurrenceShape = {
+    kind: z.enum(["daily", "weekdays", "weekly", "interval"]).describe("daily/weekdays need hhmm; weekly needs hhmm+dow; interval needs every_minutes"),
+    hhmm: z.string().optional().describe('Local 24h time "HH:MM", e.g. "07:00"'),
+    dow: z.number().int().min(0).max(6).optional().describe("Weekly only: 0=Sunday .. 6=Saturday"),
+    every_minutes: z.number().int().positive().optional().describe("Interval only: minutes between runs"),
+  };
+
+  const addRoutine = tool(
+    "add_routine",
+    "Create a RECURRING routine: a prompt the org runs on a schedule on its own, delivered to this " +
+      "chat, and visible in the Schedule view. Use this for anything repeating (\"every morning at 7…\"). " +
+      "Use add_reminder only for a ONE-OFF nudge or task at a single time.",
+    {
+      name: z.string().describe("Short name, e.g. 'morning news'"),
+      prompt: z.string().describe("What should run — written as if the user asked you directly"),
+      ...recurrenceShape,
+    },
+    async (a) => {
+      const v = validateRoutineBody({ name: a.name, prompt: a.prompt, recurrence: recurrenceFromArgs(a) }, false);
+      if (!v.ok) return text(`Refused: ${v.error}`);
+      const id = deps.store.addRoutine({
+        name: v.fields.name!, prompt: v.fields.prompt!, recurrence: v.fields.recurrence!,
+        originChannel: deps.origin.channel, originChatId: deps.origin.chatId,
+      });
+      const row = deps.store.getRoutine(id)!;
+      return text(`Routine ${routineLine(row, nextFire(new Date(), row))} — tell the user the resolved schedule so a misparse surfaces.`);
+    },
+  );
+
+  const listRoutines = tool(
+    "list_routines",
+    "List the recurring routines (what is scheduled to run on its own).",
+    {},
+    async () => {
+      const rows = deps.store.listRoutines();
+      if (!rows.length) return text("No routines.");
+      const now = new Date();
+      return text(rows.map((r) => routineLine(r, nextFire(now, r))).join("\n"));
+    },
+  );
+
+  const updateRoutine = tool(
+    "update_routine",
+    "Edit a routine: rename, change its prompt, reschedule it, or pause/resume it with enabled.",
+    {
+      id: z.number(),
+      name: z.string().optional(),
+      prompt: z.string().optional(),
+      enabled: z.boolean().optional().describe("false pauses the routine without deleting it"),
+      kind: z.enum(["daily", "weekdays", "weekly", "interval"]).optional(),
+      hhmm: z.string().optional(),
+      dow: z.number().int().min(0).max(6).optional(),
+      every_minutes: z.number().int().positive().optional(),
+    },
+    async (a) => {
+      const body: Record<string, unknown> = {};
+      if (a.name !== undefined) body.name = a.name;
+      if (a.prompt !== undefined) body.prompt = a.prompt;
+      if (a.enabled !== undefined) body.enabled = a.enabled;
+      if (a.kind !== undefined) body.recurrence = recurrenceFromArgs(a);
+      const v = validateRoutineBody(body, true);
+      if (!v.ok) return text(`Refused: ${v.error}`);
+      if (!deps.store.updateRoutine(a.id, v.fields)) return text(`No routine #${a.id}.`);
+      const row = deps.store.getRoutine(a.id)!;
+      return text(`Updated ${routineLine(row, nextFire(new Date(), row))}`);
+    },
+  );
+
+  const deleteRoutine = tool(
+    "delete_routine",
+    "Delete a routine permanently. To pause one instead, use update_routine with enabled false.",
+    { id: z.number() },
+    async (a) => text(deps.store.deleteRoutine(a.id) ? `Routine #${a.id} deleted.` : `No routine #${a.id}.`),
+  );
+
   const addTriageRule = tool(
     "add_triage_rule",
     "Persist a notification rule when the user asks to change how event types interrupt them " +
@@ -455,6 +558,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
       runPlaybook, codeTask, goalStatus, planGoal, listPlaybooks, handOff, sendMail,
       vaultWrite, vaultRead, vaultList, proposeAction,
       addReminder, listReminders, cancelReminder, addTriageRule,
+      addRoutine, listRoutines, updateRoutine, deleteRoutine,
       listInboxTool, readEmailTool,
       recallTool, rememberTool, forgetTool,
     ],
