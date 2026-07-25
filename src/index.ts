@@ -364,6 +364,7 @@ async function main(): Promise<void> {
     planner: makePlanner({
       registry, store, run: runSpecialist,
       primaryChat: config.primaryChat, projectsRoot: config.projectsRoot,
+      selfRoot: resolveReal(process.cwd()), // AIOS may be a workspace source (clone, not worktree)
       postPreview: async (origin, text) => {
         await channels.get(origin.channel)?.send(origin.chatId, text);
         bus.emit({ type: "chat.out", channel: origin.channel, chatId: origin.chatId, text: text.slice(0, 300), pushed: true });

@@ -51,7 +51,7 @@ const XDEPT_PLAN = {
   ],
 };
 
-function harness(planOutputs: unknown[]) {
+function harness(planOutputs: unknown[], opts: { selfRoot?: string } = {}) {
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "gp-vault-")), "AIOS");
   const registry = fixtureRegistry();
@@ -71,6 +71,7 @@ function harness(planOutputs: unknown[]) {
     registry, store, run,
     primaryChat: { channel: "telegram", chatId: "1" },
     projectsRoot: "/tmp/projects",
+    selfRoot: opts.selfRoot,
     postPreview: async (_o, text) => { previews.push(text); },
   });
   // Per-node agent resolution now happens INSIDE deps.run (resolveAgent) — the harness
@@ -222,6 +223,17 @@ describe("planFromMail", () => {
       department: "engineering", title: "Doc the engine", request: "write a doc", channel: "web", chatId: "ui",
     }, m)).rejects.toThrow(/denylist/);
     expect(store.listGoals()).toHaveLength(0); // refused BEFORE a goal row exists
+  });
+
+  it("a projectDir under selfRoot IS allowed — AIOS self-work is served as a clone", async () => {
+    // Same path the test above rejects; the only difference is that it is the daemon's own root.
+    const SELF_PLAN = { ...GOOD_PLAN, needsWorkspace: "worktree", projectDir: "/tmp/projects/AIOS" };
+    const { engine, store } = harness([SELF_PLAN], { selfRoot: "/tmp/projects/AIOS" });
+    const m = insertUserMail(store);
+    const g = await engine["deps"].planner!.planFromMail(engine, {
+      department: "engineering", title: "Fix a UI bug", request: "fix it", channel: "web", chatId: "ui",
+    }, m);
+    expect(g.project_dir).toBe("/tmp/projects/AIOS"); // survives planning; allocateWorkspace clones it
   });
 
   it("a denylisted projectDir on attempt 1 is retried — corrected plan succeeds", async () => {

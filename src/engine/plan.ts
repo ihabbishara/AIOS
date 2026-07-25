@@ -205,6 +205,9 @@ export interface PlannerDeps {
   run: SpecialistRunFn;
   primaryChat?: { channel: string; chatId: string };
   projectsRoot: string;
+  /** Daemon's own source root — a workspace source under it is allowed (served as a clone
+   *  by allocateWorkspace). Every other secret path is still refused. */
+  selfRoot?: string;
   postPreview: (origin: { channel: string; chatId: string }, text: string) => Promise<void>;
   log?: (l: string) => void;
 }
@@ -234,7 +237,10 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     if (!raw.projectDir || !isUnder(raw.projectDir, deps.projectsRoot)) {
       return `needsWorkspace ${raw.needsWorkspace} requires projectDir under ${deps.projectsRoot}`;
     }
-    if (isSecretPath(raw.projectDir)) {
+    // The daemon's own root is denylisted so nothing reads the LIVE repo, but it is a valid
+    // work source: allocateWorkspace serves it as a secret-free clone (spec 2026-07-25).
+    const isSelf = Boolean(deps.selfRoot && isUnder(raw.projectDir, deps.selfRoot));
+    if (!isSelf && isSecretPath(raw.projectDir)) {
       return `projectDir ${raw.projectDir} is on the secret denylist and can never be a workspace source — if the goal only reads code or writes a document, use needsWorkspace "none" (agents Read/Grep repos directly); otherwise pick a different directory`;
     }
     return undefined;
