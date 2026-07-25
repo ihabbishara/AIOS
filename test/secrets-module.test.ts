@@ -15,6 +15,33 @@ const HOSTILE_PATHS = [
   "/Users/x/notes/oauth_token.txt",
 ];
 
+// Ordinary source files whose PATH merely contains a secret-ish word. Denying these
+// broke real builds (postcss tokenize.js, sucrase TokenProcessor.d.ts) — see spec ⑪.
+const INNOCENT_PATHS = [
+  "/Users/x/app/node_modules/postcss/lib/tokenize.js",
+  "/Users/x/app/node_modules/sucrase/dist/types/TokenProcessor.d.ts",
+  "/Users/x/projects/Foo/src/kernel/secrets.ts",
+  "/Users/x/projects/Foo/src/auth/tokenizer.test.ts",
+  "/Users/x/projects/Foo/docs/credentials-guide.md",
+];
+
+describe("secret patterns are anchored to secret-looking FILES", () => {
+  it("still denies every hostile fixture", () => {
+    for (const p of HOSTILE_PATHS) expect(isSecretPath(p), p).toBe(true);
+  });
+  it("denies secret-named data files", () => {
+    for (const p of [
+      "/Users/x/projects/AIOS/data/google-tokens.json",
+      "/Users/x/app/credentials.json",
+      "/Users/x/app/.secrets",
+      "/Users/x/app/config/api-token.txt",
+    ]) expect(isSecretPath(p), p).toBe(true);
+  });
+  it("allows ordinary source files that merely contain the word", () => {
+    for (const p of INNOCENT_PATHS) expect(isSecretPath(p), p).toBe(false);
+  });
+});
+
 describe("unified secrets module", () => {
   it("isSecretPath rejects every hostile fixture", () => {
     for (const p of HOSTILE_PATHS) expect(isSecretPath(p), p).toBe(true);
