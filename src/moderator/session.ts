@@ -126,7 +126,7 @@ export class Moderator {
     if (!resolved) throw new Error(`coordinator agent "${registry.coordinator}" missing from registry`);
     const systemPrompt = `${resolved.options.systemPrompt}\n\n${moderatorBlocks({
       playbooks: goals.listPlaybooks(), projectsRoot,
-      memoBlock: memoContext(store, vault), roster,
+      memoBlock: memoContext(store, vault), roster, now: new Date(),
     })}`;
 
     // The coordinator is the chief of staff himself — never a hand_off target (would recurse).
