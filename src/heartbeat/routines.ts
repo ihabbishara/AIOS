@@ -133,3 +133,31 @@ export function makeRoutineFire(deps: RoutineFireDeps) {
       .catch((err) => deps.log(`routine ${ev.id} (${ev.name}) failed: ${(err as Error).message}`));
   };
 }
+
+/** The frame wrapped around a fired reminder's text. Neo decides per-reminder:
+ *  a task gets carried out, a plain nudge gets relayed. */
+export function reminderPrompt(text: string): string {
+  return `[Scheduled reminder you set earlier] ${text}\n\n` +
+    "If this is a task to carry out, do it now and report the result. " +
+    "If it is just a nudge, relay it to me in one short line.";
+}
+
+/**
+ * The reminder.due subscriber body (spec 2026-07-25). Mirrors makeRoutineFire:
+ * a fired reminder is injected into the kernel as a synthetic inbound message
+ * instead of being sent as a dead "⏰ Reminder:" ping, so the coordinator can
+ * actually execute a task reminder. Origin falls back to the primary chat;
+ * with neither, the fire is dropped with a log line.
+ */
+export function makeReminderFire(deps: RoutineFireDeps) {
+  return (ev: { id: number; text: string; channel: string; chatId: string }): void => {
+    const channel = ev.channel || deps.primaryChat?.channel || "";
+    const chatId = ev.chatId || deps.primaryChat?.chatId || "";
+    if (!channel || !chatId) {
+      deps.log(`reminder ${ev.id} skipped: no origin chat and no primary chat`);
+      return;
+    }
+    void deps.onMessage({ channel, chatId, text: reminderPrompt(ev.text) })
+      .catch((err) => deps.log(`reminder ${ev.id} failed: ${(err as Error).message}`));
+  };
+}

@@ -1,6 +1,6 @@
 // test/routines.test.ts
 import { describe, it, expect, vi } from "vitest";
-import { parseRecurrence, routineDue, nextFire, makeRoutineFire, type RoutineLike } from "../src/heartbeat/routines.js";
+import { parseRecurrence, routineDue, nextFire, makeRoutineFire, makeReminderFire, type RoutineLike } from "../src/heartbeat/routines.js";
 
 const base: RoutineLike = { enabled: 1, recurrence: "", last_fired_at: null, last_fired_date: null };
 const rec = (r: unknown): string => JSON.stringify(r);
@@ -112,5 +112,36 @@ describe("makeRoutineFire", () => {
     const onMessage = vi.fn(async () => { throw new Error("boom"); });
     makeRoutineFire({ onMessage, primaryChat: { channel: "cli", chatId: "local" }, log: (l) => lines.push(l) })(ev);
     await vi.waitFor(() => expect(lines.some((l) => l.includes("boom"))).toBe(true));
+  });
+});
+
+describe("makeReminderFire", () => {
+  const ev = { id: 7, text: "pay the electricity bill", channel: "", chatId: "" };
+
+  it("injects a framed prompt at the event origin", async () => {
+    const onMessage = vi.fn(async (_m: { channel: string; chatId: string; text: string }) => {});
+    makeReminderFire({ onMessage, log: () => {} })({ ...ev, channel: "telegram", chatId: "42" });
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledOnce());
+    const msg = onMessage.mock.calls[0][0];
+    expect(msg.channel).toBe("telegram");
+    expect(msg.chatId).toBe("42");
+    expect(msg.text).toContain("pay the electricity bill");
+    expect(msg.text).toContain("Scheduled reminder");   // the frame
+    expect(msg.text).toContain("relay");                // the decide-instruction
+  });
+
+  it("falls back to primary chat when origin is empty", async () => {
+    const onMessage = vi.fn(async (_m: { channel: string; chatId: string; text: string }) => {});
+    makeReminderFire({ onMessage, primaryChat: { channel: "slack", chatId: "C1" }, log: () => {} })(ev);
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledOnce());
+    expect(onMessage.mock.calls[0][0]).toMatchObject({ channel: "slack", chatId: "C1" });
+  });
+
+  it("no origin and no primary chat → logged skip, no dispatch", () => {
+    const onMessage = vi.fn(async () => {});
+    const lines: string[] = [];
+    makeReminderFire({ onMessage, log: (l) => lines.push(l) })(ev);
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(lines[0]).toContain("reminder 7");
   });
 });
