@@ -145,18 +145,6 @@
     "maxTurns": 30,
     "guarded": true
   },
-  "marco": {
-    "tools": [
-      "ToolSearch",
-      "WebFetch",
-      "WebSearch",
-      "mcp__aios-pack__recall",
-      "mcp__aios-pack__vault_read"
-    ],
-    "permissionMode": "dontAsk",
-    "maxTurns": 25,
-    "guarded": true
-  },
   "midas": {
     "tools": [
       "ToolSearch",
