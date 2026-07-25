@@ -30,9 +30,20 @@ describe("assertInplaceTarget", () => {
 
   it("refuses a secret path", () => {
     const s = setup();
-    const secret = join(s.projectsRoot, "my-token-store");
-    mkdirSync(secret, { recursive: true });
-    expect(() => assertInplaceTarget(secret, s)).toThrow(/secret/);
+    // Secret-NAMED dirs, not merely dirs containing the word somewhere: the pattern is
+    // anchored now, so "my-token-store" is an ordinary project (spec 2026-07-25).
+    for (const name of ["credentials", ".ssh", ".aws"]) {
+      const secret = join(s.projectsRoot, name);
+      mkdirSync(secret, { recursive: true });
+      expect(() => assertInplaceTarget(secret, s), name).toThrow(/secret/);
+    }
+  });
+
+  it("allows an ordinary dir whose name merely contains a secret-ish word", () => {
+    const s = setup();
+    const ok = join(s.projectsRoot, "my-token-store");
+    mkdirSync(ok, { recursive: true });
+    expect(() => assertInplaceTarget(ok, s)).not.toThrow();
   });
 
   it("refuses a target inside the sandbox workspace", () => {
