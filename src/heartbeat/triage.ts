@@ -23,7 +23,7 @@ export function matchRule(rules: TriageRuleRow[], eventType: string): TriageRule
 export function defaultVerdict(event: AiosEvent): TriageVerdict | undefined {
   switch (event.type) {
     case "reminder.due":
-      return "notify_now";
+      return "ignore"; // fires inject a kernel message directly — a ping here would double-notify
     case "routine.due":
       return "ignore"; // fires inject a kernel message directly — a ping here would double-notify
     case "action.executed":

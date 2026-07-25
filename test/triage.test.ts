@@ -21,8 +21,8 @@ describe("matchRule", () => {
 });
 
 describe("defaultVerdict", () => {
-  it("reminder.due → notify_now", () => {
-    expect(defaultVerdict({ type: "reminder.due", id: 1, text: "x", channel: "cli", chatId: "l" })).toBe("notify_now");
+  it("reminder.due → ignore (the fire injects a kernel message directly)", () => {
+    expect(defaultVerdict({ type: "reminder.due", id: 1, text: "x", channel: "cli", chatId: "l" })).toBe("ignore");
   });
   it("routine.due is ignored — the kernel injection handles it, no notify ping", () => {
     expect(defaultVerdict({ type: "routine.due", id: 1, name: "r", prompt: "p", channel: "", chatId: "" })).toBe("ignore");
@@ -76,7 +76,9 @@ describe("Triage.handle", () => {
 
   it("default verdict used when no rule; notify_now calls notify", async () => {
     const { triage, notified, classified } = setup();
-    await triage.handle({ type: "reminder.due", id: 1, text: "x", channel: "cli", chatId: "l" });
+    // calendar.reminder is the notify_now exemplar (reminder.due became "ignore" — it injects a
+    // kernel message instead of notifying, spec 2026-07-25).
+    await triage.handle({ type: "calendar.reminder", account: "p", eventId: "e", summary: "s", start: "", minutesUntil: 10, link: null });
     expect(notified).toHaveLength(1);
     expect(classified).toHaveLength(0); // model never called for known types
   });

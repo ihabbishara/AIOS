@@ -9,10 +9,11 @@ import { VaultWriter } from "../src/vault/writer.js";
 import { Clock } from "../src/heartbeat/clock.js";
 import { Triage } from "../src/heartbeat/triage.js";
 import { runBrief } from "../src/heartbeat/briefs.js";
+import { makeReminderFire } from "../src/heartbeat/routines.js";
 import type { ActionRow } from "../src/kernel/actions.js";
 
 describe("heartbeat end-to-end (no LLM)", () => {
-  it("anchor fires brief; reminder flows clock → bus → triage → origin ping", async () => {
+  it("anchor fires brief; reminder flows clock → bus → kernel injection at its origin", async () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "aios-hb-")), "AIOS");
@@ -23,9 +24,9 @@ describe("heartbeat end-to-end (no LLM)", () => {
     };
     const primary = { channel: "cli", chatId: "local" };
 
-    // index.ts-style notify routing: reminders → origin chat; everything else → primary
+    // index.ts-style notify routing: everything notifiable → primary.
+    // reminder.due is verdict "ignore" now — it injects a kernel message instead of notifying.
     const notify = async (e: AiosEvent): Promise<void> => {
-      if (e.type === "reminder.due") return send(e.channel, e.chatId, `⏰ Reminder: ${e.text}`);
       return send(primary.channel, primary.chatId, `🔔 ${e.type}`);
     };
 
@@ -34,6 +35,14 @@ describe("heartbeat end-to-end (no LLM)", () => {
       classify: async () => { throw new Error("model must not be called in this test"); },
     });
     triage.start();
+
+    // index.ts-style reminder wiring: fires inject an inbound message (spec 2026-07-25)
+    const injected: Array<{ channel: string; chatId: string; text: string }> = [];
+    const reminderFire = makeReminderFire({
+      onMessage: async (m) => { injected.push({ channel: m.channel, chatId: m.chatId, text: m.text }); },
+      log: () => {},
+    });
+    bus.on((e) => { if (e.event.type === "reminder.due") reminderFire(e.event); });
 
     let fakeNow = new Date(2026, 5, 12, 7, 31); // 07:31 local
     const clock = new Clock({
@@ -68,10 +77,11 @@ describe("heartbeat end-to-end (no LLM)", () => {
     expect(briefMsgs[0].chatId).toBe("local");
     expect(vault.readNote("briefs/2026-06-12-morning.md")).toContain("Echo hi");
 
-    // reminder pinged at its ORIGIN chat
-    const pings = sent.filter((s) => s.text.startsWith("⏰"));
-    expect(pings).toHaveLength(1);
-    expect(pings[0]).toMatchObject({ channel: "telegram", chatId: "42" });
+    // reminder injected as a framed prompt at its ORIGIN chat (not a ping)
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toMatchObject({ channel: "telegram", chatId: "42" });
+    expect(injected[0].text).toContain("stretch");
+    expect(sent.filter((s) => s.text.startsWith("⏰"))).toHaveLength(0);
     expect(store.listReminders("fired")).toHaveLength(1);
 
     // second tick same minute: nothing new fires

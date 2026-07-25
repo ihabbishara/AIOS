@@ -40,7 +40,7 @@ import { deptLabel } from "./kernel/labels.js";
 import { newRecord } from "./kernel/trust.js";
 import { Clock } from "./heartbeat/clock.js";
 import { Triage, modelClassifier } from "./heartbeat/triage.js";
-import { makeRoutineFire } from "./heartbeat/routines.js";
+import { makeRoutineFire, makeReminderFire } from "./heartbeat/routines.js";
 import { runBrief } from "./heartbeat/briefs.js";
 import { VoiceService } from "./voice/index.js";
 import { deliverReply } from "./voice/mirror.js";
@@ -452,6 +452,13 @@ async function main(): Promise<void> {
     if (e.event.type === "routine.due") routineFire(e.event);
   });
 
+  // Reminders inject a framed prompt too — the coordinator executes a task reminder
+  // or relays a plain nudge (spec 2026-07-25).
+  const reminderFire = makeReminderFire({ onMessage, primaryChat: config.primaryChat, log });
+  bus.on((e) => {
+    if (e.event.type === "reminder.due") reminderFire(e.event);
+  });
+
   // Goal lifecycle → Obsidian daily note (the JobManager→GoalEngine migration dropped this).
   const dailyLogger = makeDailyLogger({ vault, store, log });
   bus.on((e) => dailyLogger(e.event));
@@ -582,10 +589,6 @@ async function main(): Promise<void> {
   });
 
   const notify = async (e: import("./events.js").AiosEvent): Promise<void> => {
-    if (e.type === "reminder.due") {
-      await sendVia(e.channel, e.chatId, `⏰ Reminder: ${e.text}`);
-      return;
-    }
     if (e.type === "calendar.reminder") {
       if (!config.primaryChat) return;
       await sendVia(config.primaryChat.channel, config.primaryChat.chatId,
