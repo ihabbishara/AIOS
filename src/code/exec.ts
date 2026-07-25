@@ -51,6 +51,11 @@ export function sandboxProfile(
     // Build keeps network for package installs unless AIOS_SANDBOX_NET=deny.
     (opts?.net ?? (mode === "build" ? "allow" : "deny")) === "allow" ? "(allow network*)" : "",
     "(allow file-read*)",
+    // Device sinks: git and most npm scripts open /dev/null for read+write and fail hard
+    // without it ("fatal: could not open '/dev/null'"). Writing to a sink leaks nothing,
+    // and the filesystem write surface stays confined to the task dir.
+    '(allow file-write-data (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (regex #"^/dev/fd/"))',
+    '(allow file-ioctl (literal "/dev/null") (literal "/dev/tty"))',
     // secrets win (last-match): never readable inside the sandbox. Deny lines
     // live in the unified secrets module (src/kernel/secrets.ts) — superset of
     // isSecretPath's families plus credential stores a shell could `cat` by

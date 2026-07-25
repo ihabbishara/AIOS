@@ -19,6 +19,15 @@ describe("sandboxProfile (pure)", () => {
   it("analyze mode emits no file-write allow", () => {
     expect(sandboxProfile("/ws/task", "analyze")).not.toContain("file-write* (subpath \"/ws/task\")");
   });
+  it("allows the device sinks so git and npm can run", () => {
+    const p = sandboxProfile("/ws/task", "build");
+    expect(p).toContain('(allow file-write-data (literal "/dev/null")');
+    expect(p).toContain('(literal "/dev/tty")');
+    expect(p).toContain('(allow file-ioctl (literal "/dev/null") (literal "/dev/tty"))');
+  });
+  it("device sinks are allowed in analyze mode too (read-only still needs /dev/null)", () => {
+    expect(sandboxProfile("/ws/task", "analyze")).toContain('(allow file-write-data (literal "/dev/null")');
+  });
   it("confines writes to the task dir only — no world-writable /tmp surface", () => {
     const p = sandboxProfile("/ws/task", "build");
     expect(p).not.toContain("/private/tmp");
