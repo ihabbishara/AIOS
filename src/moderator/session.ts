@@ -1,4 +1,4 @@
-import { moderatorBlocks } from "./prompt.js";
+import { moderatorBlocks, nowLine } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
 import { resumableTurn, clearSession, surfaceHash } from "../agents/resumable.js";
@@ -103,9 +103,12 @@ export class Moderator {
       ? await processAttachments(attachments, vault, this.deps.log, this.deps.media)
       : "";
 
-    const prompt = attachmentBlock
+    // The wall clock rides on the user message, not the system prompt: a resumed SDK session
+    // keeps its ORIGINAL system prompt, so a clock there would freeze (see nowLine).
+    const body = attachmentBlock
       ? `${attachmentBlock}\n${userText || "(no caption — analyze the attached files)"}`
       : userText || "(empty message)";
+    const prompt = `${nowLine(new Date())}\n${body}`;
 
     // Build roster from the live registry for the team block in the system prompt.
     const roster = [...registry.agents.values()].map((a) => ({
@@ -126,7 +129,7 @@ export class Moderator {
     if (!resolved) throw new Error(`coordinator agent "${registry.coordinator}" missing from registry`);
     const systemPrompt = `${resolved.options.systemPrompt}\n\n${moderatorBlocks({
       playbooks: goals.listPlaybooks(), projectsRoot,
-      memoBlock: memoContext(store, vault), roster, now: new Date(),
+      memoBlock: memoContext(store, vault), roster,
     })}`;
 
     // The coordinator is the chief of staff himself — never a hand_off target (would recurse).
