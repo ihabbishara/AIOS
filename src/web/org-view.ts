@@ -2,7 +2,9 @@
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
 import { capabilityTools, departmentActions, type LoadedRegistry } from "../agents/registry/loader.js";
+import { fqPackTool } from "../agents/registry/capabilities.js";
 import { effectiveAllowedTools } from "../agents/permissions.js";
+import { BUILTIN_TOOLS } from "./permissions-view.js";
 
 export type AgentLiveStatus = "idle" | "working" | "waiting";
 
@@ -84,6 +86,24 @@ export function buildOrgView(
 }
 
 
+/**
+ * Every tool the org knows about, mapped to the capability that provides it
+ * ("builtin" for the SDK's own). Feeds the grant picker so nobody has to recall
+ * `mcp__media__generate_image` from memory. A tool offered by several capabilities
+ * keeps the first alphabetically, so the label is stable across renders.
+ */
+export function knownTools(registry: LoadedRegistry): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const t of BUILTIN_TOOLS) out.set(t, "builtin");
+  for (const cap of [...registry.capabilities.keys()].sort()) {
+    for (const raw of registry.capabilities.get(cap)?.tools ?? []) {
+      const name = fqPackTool(raw);
+      if (!out.has(name)) out.set(name, cap);
+    }
+  }
+  return out;
+}
+
 export function buildAgentProfile(
   nameOrAlias: string,
   registry: LoadedRegistry,
@@ -107,6 +127,13 @@ export function buildAgentProfile(
   const revoked = overrides
     .filter((o) => o.allow === 0 && baseSet.has(o.tool))
     .map((o) => ({ name: o.tool, source: "revoked" as const }));
+
+  // Offer what the agent does NOT currently hold — a revoked default is grantable again.
+  const held = new Set(tools.map((t) => t.name));
+  const grantable = [...knownTools(registry)]
+    .filter(([name]) => !held.has(name))
+    .map(([name, from]) => ({ name, from }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   const deptActions = new Set(dept ? departmentActions(registry, dept.department) : []);
   const trust = store.listTrust().filter((t) => deptActions.has(t.actionType));
@@ -151,6 +178,7 @@ export function buildAgentProfile(
     maxTurns: def.manifest.maxTurns,
     tools,
     revoked,
+    grantable,
     trust,
     recentRuns: recentRuns.slice(-20).reverse(),
     handoffs: handoffs.slice(-20).reverse(),

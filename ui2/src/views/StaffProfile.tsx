@@ -133,7 +133,7 @@ function Overview({ p, note, propose }: {
           ))}
         </div>
         <div className="text-[10px] text-dim mb-2">Click a tool to queue a revoke for approval; red = revoked, click to re-grant.</div>
-        <GrantBox onGrant={(tool) => void propose(tool, "grant")} />
+        <GrantBox agent={p.name} grantable={p.grantable} onGrant={(tool) => void propose(tool, "grant")} />
         {note && <div className="text-[11px] text-accent mb-3">{note}</div>}
 
         <SectionLabel>Trust — {p.department} action types</SectionLabel>
@@ -265,13 +265,25 @@ function Field({ agent, field, initial, multiline, number, hint }: {
   );
 }
 
-function GrantBox({ onGrant }: { onGrant: (tool: string) => void }) {
+function GrantBox({ agent, grantable, onGrant }: {
+  agent: string; grantable: AgentProfileInfo["grantable"]; onGrant: (tool: string) => void;
+}) {
   const [tool, setTool] = useState("");
+  // Native datalist: the browser filters as you type and renders the dropdown, so nobody has
+  // to recall exact tool names. Unlisted-but-well-formed names still submit (the server allows
+  // forward-compat grants), so this suggests without restricting.
+  const listId = `grantable-${agent}`;
+  const submit = () => { if (tool.trim()) { onGrant(tool.trim()); setTool(""); } };
   return (
     <div className="flex gap-2 mb-2">
-      <input value={tool} onChange={(e) => setTool(e.target.value)} placeholder="grant a tool (queues approval)…"
-        onKeyDown={(e) => { if (e.key === "Enter" && tool.trim()) { onGrant(tool.trim()); setTool(""); } }}
-        className="bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim w-64" />
+      <input value={tool} onChange={(e) => setTool(e.target.value)} list={listId}
+        placeholder={`grant a tool — ${grantable.length} available…`} aria-label="grant a tool"
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        className="bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim w-72" />
+      <datalist id={listId}>
+        {grantable.map((g) => <option key={g.name} value={g.name} label={g.from} />)}
+      </datalist>
+      <Button onClick={submit} disabled={!tool.trim()}>grant</Button>
     </div>
   );
 }

@@ -137,6 +137,31 @@ describe("buildAgentProfile", () => {
     expect(p.revoked).toEqual([{ name: "Write", source: "revoked" }]);
   });
 
+  it("grantable offers every known tool the agent lacks, tagged with its source", () => {
+    const { store, bus, registry } = harness();
+    const p = buildAgentProfile("vulcan", registry, store, bus)!;
+    const names = p.grantable.map((g) => g.name);
+    // builtins the agent does not already carry are offered...
+    expect(names).toContain("WebSearch");
+    expect(p.grantable.find((g) => g.name === "WebSearch")!.from).toBe("builtin");
+    // ...capability tools from OTHER capabilities too, tagged with the capability
+    expect(names).toContain("Bash");
+    // ...but never a tool it already has
+    expect(names).not.toContain("Read");
+    expect(names).not.toContain("Edit");
+    // sorted and unique — it feeds a datalist
+    expect(names).toEqual([...new Set(names)].sort());
+  });
+
+  it("grantable re-offers a revoked default and drops a granted extra", () => {
+    const { store, bus, registry } = harness();
+    store.setRolePermission("vulcan", "Write", 0, "test");   // revoked → grantable again
+    store.setRolePermission("vulcan", "WebSearch", 1, "test"); // granted → no longer offered
+    const names = buildAgentProfile("vulcan", registry, store, bus)!.grantable.map((g) => g.name);
+    expect(names).toContain("Write");
+    expect(names).not.toContain("WebSearch");
+  });
+
   it("trust rows filter to the department's action ceiling", () => {
     const { store, bus, registry } = harness();
     const trustRow = (actionType: string) => ({

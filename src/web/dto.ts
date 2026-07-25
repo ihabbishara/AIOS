@@ -113,6 +113,9 @@ export interface AgentProfileInfo {
   maxTurns: number;
   tools: Array<{ name: string; source: "default" | "granted" }>;
   revoked: Array<{ name: string; source: "revoked" }>;
+  /** Every known tool this agent does NOT currently have, for the grant picker.
+   *  `from` is the capability that provides it, or "builtin" for an SDK tool. */
+  grantable: Array<{ name: string; from: string }>;
   trust: TrustInfo[];
   recentRuns: Array<{ ts: string; context: string; ok: boolean; costUsd: number | null }>;
   handoffs: Array<{ ts: string; reason: string; channel: string; chatId: string }>;
