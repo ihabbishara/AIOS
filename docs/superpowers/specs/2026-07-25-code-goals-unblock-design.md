@@ -10,7 +10,7 @@ Goals that touch code cannot do their job. Two goals ("Fix two AIOS ui2 UI bugs"
 
 Four independent defects, found by reading the code and probing the live sandbox profile:
 
-1. **`plan_goal` cannot name a project.** `prepareGoalSandbox` (src/index.ts:338) picks `goal.project_dir ? "worktree" : "greenfield"`. `run_playbook` and `code_task` take a `project_dir`; **`plan_goal` does not** — so every department-planned engineering goal gets an EMPTY directory. The worktree machinery (`allocateWorkspace`, src/code/workspace.ts:47-52 — `git worktree add -b aios/<slug>-<id>`) already exists and already accepts any git repo under `AIOS_CODE_READ_ROOTS` (default `~/projects`). It is simply unreachable from the path Neo uses.
+1. **The planner is told AIOS can never be a workspace, so it plans blind.** The department lead already chooses `needsWorkspace` (`worktree` | `analyze` | `greenfield` | `none`) and `projectDir` during planning (src/engine/plan.ts:195), and `allocateWorkspace` already turns that into `git worktree add -b aios/<slug>-<id>` for any git repo under `AIOS_CODE_READ_ROOTS` (default `~/projects`). For a NON-AIOS project this path works today. For AIOS, `workspaceError` (plan.ts:237) rejects the projectDir via `isSecretPath` and instructs the lead: *"use needsWorkspace \"none\" (agents Read/Grep repos directly)"* — so the lead dutifully replans with no workspace, and the agents get an empty directory AND cannot read the real repo (defect 4). That is exactly the observed failure. **No new `plan_goal` parameter is needed** — the gap is that AIOS is unrepresentable, not that the project is unnameable.
 
 2. **`git` cannot run inside the sandbox.** The SBPL profile allows `file-write*` only under the task dir, so `/dev/null` is unwritable. Probed live: `git --version` → `fatal: could not open '/dev/null' for reading and writing: Operation not permitted`; `echo hi > /dev/null` → `Operation not permitted`. Every git command and every npm script redirecting to `/dev/null` fails in every sandboxed goal.
 
@@ -20,13 +20,19 @@ Four independent defects, found by reading the code and probing the live sandbox
 
 ## Design
 
-### 1. `plan_goal` gains `project_dir` (src/moderator/tools.ts)
+### 1. Let the planner choose AIOS as a workspace source (src/engine/plan.ts)
 
-Optional param, same validation as `run_playbook`'s: `resolve()`d and required to be under `deps.projectsRoot`, else refuse. Threaded into `goals.planGoal(...)` → `GoalRow.project_dir` → `prepareGoalSandbox` allocates a **worktree** instead of greenfield.
+`workspaceError` currently rejects any `projectDir` that `isSecretPath` matches, which includes the AIOS root. Narrow that check so the **daemon's own root is allowed** while every genuine secret path (`~/.ssh`, `~/.aws`, `.env`, keychains, …) is still refused:
 
-Neo's prompt (`agents/operations/neo.yaml`) gains one rule: when a request concerns an existing project, pass its directory as `project_dir` so the team gets a real checkout on its own branch; without it they get an empty workspace and cannot read the code.
+```ts
+if (isSecretPath(raw.projectDir) && !isUnder(raw.projectDir, deps.selfRoot)) { … }
+```
 
-Delivery is unchanged and already correct: the worktree is created on branch `aios/<slug>-<id>` in the source repo, so finished work is a normal branch the user reviews with git.
+`PlannerDeps` gains `selfRoot: string` (the daemon's own source root, `resolveReal(process.cwd())` — the same value `assertInplaceTarget` already receives), wired in src/index.ts.
+
+Nothing else in the planning vocabulary changes: the lead still asks for `needsWorkspace: "worktree"` with `projectDir: /Users/ihabbishara/projects/AIOS`, and §4 turns that into a clone at allocation time. Non-AIOS projects keep working exactly as they do now.
+
+Delivery is unchanged and already correct for worktrees: the branch `aios/<slug>-<id>` is created in the source repo, so finished work is a normal branch reviewed with git.
 
 ### 2. Sandbox: allow the standard device files (src/code/exec.ts)
 
@@ -56,8 +62,8 @@ Matches `google-tokens.json`, `credentials.json`, `.secrets`, `api-token.txt`. D
 A worktree of AIOS cannot work: its `.git` is a file pointing back into `/projects/AIOS/.git`, which stays denied. A **local clone** is self-contained (verified: `.git` is a real directory, `git log` works) and — because `.env` and `data/` are gitignored and untracked — carries **no secrets and no database** (verified on a probe clone).
 
 - New workspace mode `"clone"`: `git clone --no-hardlinks <source> <taskDir>` (no hardlinks so the copy shares no inodes with the real repo).
-- `prepareGoalSandbox` selects `"clone"` when the source resolves under the daemon's own root (`selfRoot`), `"worktree"` for any other project, `"greenfield"` when no project is given.
-- `validateSource` gains an explicit allowance for the self root under clone mode only; every other guard (secret paths, read roots, workspace root, must-be-a-git-repo) still applies. The `/projects/AIOS/` SBPL read deny **stays** — the sandbox still cannot read the real repo, only the clone in the workspace.
+- Selection happens in `allocateWorkspace`, not at the call site: a `"worktree"` request whose source resolves under `deps.selfRoot` is served as a clone. `AllocateDeps` gains `selfRoot`. `prepareGoalSandbox` keeps its existing `goal.project_dir ? "worktree" : "greenfield"` logic untouched, so there is one place that knows about the self case.
+- `validateSource` gains an explicit allowance for the self root (still refusing every other secret path, sources outside the read roots, the workspace root, and non-repos). The `/projects/AIOS/` SBPL read deny **stays** — the sandbox still cannot read the real repo, only the clone in the workspace.
 - `assertInplaceTarget` is unchanged: in-place edits of the AIOS source tree remain forbidden, so the daemon can never modify its own running code.
 
 Delivery for clone mode: agents commit on branch `aios/<slug>-<id>` inside the clone; on goal completion the daemon (outside the sandbox) runs `git fetch <taskDir> <branch>:<branch>` in the real repo, so the branch appears for review. Nothing is merged; the working tree is untouched.
@@ -74,8 +80,8 @@ Delivery for clone mode: agents commit on branch `aios/<slug>-<id>` inside the c
 - `test/workspace.test.ts`: clone mode creates a self-contained repo (`.git` is a directory) at the task dir; `validateSource` still refuses non-repos, secret paths, and sources outside the read roots; AIOS accepted for clone mode only.
 - `test/secrets.test.ts` (or the existing secrets/paths test): the anchored regex denies `google-tokens.json`, `credentials.json`, `.env.local`; and ALLOWS `tokenize.js`, `TokenProcessor.d.ts`, `secrets.ts`. `isSecretPath` and the SBPL line agree.
 - `test/code-exec.test.ts` (sandboxProfile): the emitted profile contains the `/dev/null` write allow; existing profile assertions still hold.
-- Moderator: `plan_goal` refuses a `project_dir` outside `projectsRoot` and passes a valid one through to `planGoal`.
-- Golden fixture re-pins only if the tool surface changes (adding a param does not change tool names — expect no diff).
+- `test/plan-*.test.ts`: `workspaceError` accepts a `projectDir` under `selfRoot` with `needsWorkspace: "worktree"`, and still rejects `~/.ssh`, `.env` paths, and any dir outside `projectsRoot`.
+- No golden re-pin expected: no tool names or capability lists change.
 - Live smoke: a goal against a non-AIOS repo under `~/projects` produces a worktree with real files; a goal against AIOS produces a clone; `git status` and `npm --version` both run inside the sandbox.
 
 ## Non-goals
