@@ -11,6 +11,7 @@ import type {
   AttemptFinishedPayload, NodeCompletedPayload,
   ReviewRequestedPayload, ReviewResolvedPayload,
 } from "./journal.js";
+import { pausedStatus } from "./journal.js";
 
 const toRow = (n: NodeSpec): NewTaskNode => ({
   node_key: n.key, type: n.kind, agent: n.agent, critic: n.critic,
@@ -131,8 +132,8 @@ export function projectEvent(store: Store, ev: JournalEvent): void {
       store.updateGoalStatus(goalId, "running");
       return;
     case "goal.paused": {
-      const p = ev.payload as { reason: "budget" | "user"; error?: string };
-      store.updateGoalStatus(goalId, p.reason === "budget" ? "paused-budget" : "paused-user", p.error);
+      const p = ev.payload as { reason: "budget" | "user" | "api"; error?: string };
+      store.updateGoalStatus(goalId, pausedStatus(p.reason), p.error);
       return;
     }
     case "goal.resumed":

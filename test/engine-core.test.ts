@@ -39,6 +39,7 @@ export function harness(over: {
   run?: SpecialistRunFn; maxConcurrentNodes?: number; capUsd?: number;
   todayFn?: () => string; planner?: Planner; replanCap?: number;
   wallTimeMs?: number; nodeTimeoutMs?: number;
+  sleep?: (ms: number) => Promise<void>;
 } = {}) {
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "en-vault-")), "AIOS");
@@ -56,6 +57,7 @@ export function harness(over: {
     planner: over.planner,
     replanCap: over.replanCap,
     nodeTimeoutMs: over.nodeTimeoutMs,
+    sleep: over.sleep,
   });
   return { store, vault, engine, completions };
 }
@@ -112,6 +114,16 @@ describe("engine core (ports of goal-scheduler intents)", () => {
     day = "2026-07-03";
     expect(engine.resumeBudgetPaused()).toBe(1);
     await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+  });
+
+  it("an unreachable API pauses the goal instead of failing it", async () => {
+    const { engine, store } = harness({
+      run: async () => ({ text: "API Error: Unable to connect to API (ConnectionRefused)", costUsd: 0, numTurns: 0 }),
+      sleep: async () => {},
+    });
+    const g = engine.createFromPlaybook({ playbook: "research-report", title: "R", request: "r", channel: "t", chatId: "1" });
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("paused-api"));
+    expect(store.getGoal(g.id)!.error).toContain("Unable to connect");
   });
 
   it("hard node failure: visible retry (attempt 2), then goal failed + rest skipped", async () => {

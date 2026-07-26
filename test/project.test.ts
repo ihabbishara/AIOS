@@ -95,6 +95,9 @@ describe("projections", () => {
     expect(store.getGoal("g1")).toMatchObject({ status: "running", awaiting_mail: null });
     appendEvents(store, "g1", [{ type: "goal.paused", payload: { reason: "budget" } }]);
     expect(store.getGoal("g1")!.status).toBe("paused-budget");
+    appendEvents(store, "g1", [{ type: "goal.paused", payload: { reason: "api", error: "API Error: Unable to connect to API (ConnectionRefused)" } }]);
+    expect(store.getGoal("g1")!.status).toBe("paused-api");
+    expect(store.getGoal("g1")!.error).toContain("Unable to connect");
     appendEvents(store, "g1", [{ type: "goal.resumed", payload: { by: "budget-reset" } }]);
     expect(store.getGoal("g1")!.status).toBe("running");
     appendEvents(store, "g1", [

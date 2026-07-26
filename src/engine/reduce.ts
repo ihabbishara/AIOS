@@ -8,9 +8,10 @@ import type {
   AttemptFinishedPayload, NodeCompletedPayload,
   ReviewRequestedPayload, ReviewResolvedPayload,
 } from "./journal.js";
+import { pausedStatus } from "./journal.js";
 
 export type GoalPhase =
-  | "running" | "paused-budget" | "paused-user" | "awaiting-mail"
+  | "running" | "paused-budget" | "paused-user" | "paused-api" | "awaiting-mail"
   | "done" | "failed" | "abandoned";
 
 export interface NodeState {
@@ -246,7 +247,7 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
         state.lastResumeTs = ev.ts;
         break;
       case "goal.paused":
-        state.phase = (p as { reason: string }).reason === "budget" ? "paused-budget" : "paused-user";
+        state.phase = pausedStatus((p as { reason: string }).reason);
         break;
       case "goal.resumed":
         state.phase = "running";

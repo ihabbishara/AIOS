@@ -17,7 +17,7 @@ import { assertInplaceTarget, resolveReal } from "../code/paths.js";
 import { indexMailThread } from "../memory/indexer.js";
 import type { SpendGuard } from "./budget.js";
 import {
-  appendEvents, readJournal,
+  appendEvents, readJournal, pausedStatus,
   type EventInput, type NodeSpec, type GoalCreatedPayload, type ReplanRecordedPayload,
 } from "./journal.js";
 import { reduce, type GoalState } from "./reduce.js";
@@ -68,6 +68,8 @@ export interface GoalEngineDeps {
   nodeTimeoutMs?: number;
   /** Visible-retry cap per node (spec §7). Default 2. */
   maxAttempts?: number;
+  /** Backoff delay for in-place API retries — injected so tests never wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const toSpec = (n: NewTaskNode): NodeSpec => ({
@@ -98,7 +100,7 @@ export class GoalEngine {
       const p = ev.payload as Record<string, unknown>;
       switch (ev.type) {
         case "goal.paused":
-          this.emit({ type: "goal.status", goalId, status: p.reason === "budget" ? "paused-budget" : "paused-user", error: p.error as string | undefined });
+          this.emit({ type: "goal.status", goalId, status: pausedStatus(p.reason as string), error: p.error as string | undefined });
           break;
         case "goal.resumed": case "ask.resumed":
           this.emit({ type: "goal.status", goalId, status: "running" }); break;
@@ -260,9 +262,15 @@ export class GoalEngine {
         workspace: sandbox,
         registry: this.abortRegistry,
         nodeTimeoutMs: this.deps.nodeTimeoutMs ?? 900_000,
+        sleep: this.deps.sleep,
       });
       if (res.sessionLimit && this.fold(goalId).phase === "running") {
         this.journal(goalId, [{ type: "goal.paused", payload: { reason: "user", error: "Agent hit session limit — re-run after quota resets" } }]);
+      }
+      if (res.apiUnreachable && this.fold(goalId).phase === "running") {
+        // Infrastructure, not the agent. Pause with the verbatim error; the heartbeat resumes it.
+        const lastError = this.deps.store.listNodes(goalId).find((n) => n.node_key === nodeKey)?.error;
+        this.journal(goalId, [{ type: "goal.paused", payload: { reason: "api", error: lastError ?? "API unreachable" } }]);
       }
     } catch (err) {
       this.deps.log?.(`worker ${goalId}/${nodeKey}#${attempt}: ${(err as Error).message}`);
@@ -439,7 +447,7 @@ export class GoalEngine {
     const g = this.findGoal(idOrSlug);
     if (!g) return `No goal "${idOrSlug}".`;
     if (g.legacy) return `Goal ${g.slug} is a frozen legacy goal — read-only.`;
-    if (g.status !== "paused-user" && g.status !== "paused-budget") return `Goal ${g.slug} is ${g.status} — nothing to resume.`;
+    if (g.status !== "paused-user" && g.status !== "paused-budget" && g.status !== "paused-api") return `Goal ${g.slug} is ${g.status} — nothing to resume.`;
     this.journal(g.id, [{ type: "goal.resumed", payload: { by: "user" } }]);
     this.tick();
     return `Goal ${g.slug} resumed.`;

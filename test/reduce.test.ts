@@ -134,6 +134,8 @@ describe("reduce — golden states per event type", () => {
     expect(p.phase).toBe("paused-budget");
     const u = reduce([created(), plan("a"), ev("goal.paused", { reason: "user" })]);
     expect(u.phase).toBe("paused-user");
+    const a = reduce([created(), plan("a"), ev("goal.paused", { reason: "api" })]);
+    expect(a.phase).toBe("paused-api");
     const r = reduce([created(), plan("a"), ev("goal.paused", { reason: "budget" }),
       ev("goal.resumed", { by: "budget-reset" }, 9000)]);
     expect(r.phase).toBe("running");

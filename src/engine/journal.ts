@@ -27,6 +27,12 @@ export interface NodeSpec {
 
 export type AttemptOutcome = "ok" | "error" | "timeout" | "aborted" | "orphaned";
 
+/** One mapping from pause reason to goal status. Previously duplicated as a ternary in
+ *  engine.ts, project.ts and reduce.ts — a third reason would have drifted between them. */
+export function pausedStatus(reason: string): "paused-budget" | "paused-user" | "paused-api" {
+  return reason === "budget" ? "paused-budget" : reason === "api" ? "paused-api" : "paused-user";
+}
+
 export interface JournalEvent {
   seq: number;
   goalId: string;

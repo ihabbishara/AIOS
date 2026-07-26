@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import type { TrustRecord } from "../kernel/trust.js";
 import type { ActionRow, ActionStatus } from "../kernel/actions.js";
 
-export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "replanning" | "done" | "failed" | "abandoned" | "awaiting-mail";
+export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "paused-api" | "replanning" | "done" | "failed" | "abandoned" | "awaiting-mail";
 export type NodeStatus = "pending" | "ready" | "running" | "done" | "failed" | "skipped" | "needs-review";
 
 export interface GoalRow {
