@@ -244,7 +244,7 @@ describe("runAttempt — verify nodes", () => {
       ({ text: "prose, no report", costUsd: 0.01, numTurns: 1 }), [VERIFY]);
     const res = await runAttempt(goal(), VERIFY, 1, deps);
     expect(res.outcome).toBe("error");
-    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "error", error: "no structured report" });
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "error", error: expect.stringContaining("no structured report") });
     expect(journalTypes(store)).not.toContain("node.completed");
   });
 
@@ -342,5 +342,22 @@ describe("runAgent — unreachable API", () => {
     expect(res.outcome).toBe("error");
     const finished = payloadOf(store, "attempt.finished")[0] as { error?: string };
     expect(finished.error).toContain("Unable to connect to API");   // the REAL error, not a paraphrase
+  });
+});
+
+describe("no-report provenance", () => {
+  const VERIFY_SPEC = SPEC({ key: "test", kind: "verify", agent: "argus", critic: "vulcan", maxRounds: 2 });
+
+  it("keeps a snippet of what the agent actually said", async () => {
+    // The generic "no structured report" sent an hour of debugging in the wrong direction on
+    // goal cab8495e — the evidence existed only in the vault. Carry it in the error.
+    const { store, deps, goal } = harness(
+      async () => ({ text: "I could not find the test command, so I stopped.", costUsd: 0.01, numTurns: 1 }),
+      [VERIFY_SPEC],
+    );
+    await runAttempt(goal(), VERIFY_SPEC, 1, deps);
+    const finished = payloadOf(store, "attempt.finished")[0] as { error?: string };
+    expect(finished.error).toContain("no structured report");
+    expect(finished.error).toContain("could not find the test command");
   });
 });

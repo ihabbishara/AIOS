@@ -285,6 +285,7 @@ export async function runAttempt(
         let round = st?.runnerRounds ?? 0;
         let fixedThrough = st?.fixerRounds ?? 0;
         const guidance = st?.reviewGuidance;
+        let lastRunnerText = "";
         // (!report && round > 0) = a fresh retry after a no-report attempt: run the runner again.
         while (round < spec.maxRounds && (!report || !report.passed)) {
           if (round > 0 && report && !report.passed && fixedThrough < round) {
@@ -302,6 +303,7 @@ export async function runAttempt(
           const runnerBrief = [spec.brief, ctx, "Run the verification now."].filter(Boolean).join("\n\n");
           const res = await runAgent(spec.agent, runnerBrief);
           report = res.structured as TestReport | undefined;
+          lastRunnerText = res.text;
           save(`${spec.key}-a${attempt}-run-${round}.md`,
             report ? `**Passed:** ${report.passed}\n\n${report.summary}\n\n${report.failures.map((f) => `- ${f}`).join("\n")}` : res.text,
             spec.agent);
@@ -315,9 +317,12 @@ export async function runAttempt(
         if (!report) {
           // No parseable TestReport = the verification never ran — a failed attempt,
           // never a silent pass (spec §3). Normal attempt policy retries once.
+          // Carry what the agent DID say: reading this error should not require opening the vault.
+          const snippet = lastRunnerText.trim().replace(/\s+/g, " ").slice(0, 200);
           save(`${spec.key}.md`, "No structured test report produced.", spec.agent);
           appendEvents(store, goal.id, [{ type: "attempt.finished", payload: {
-            node: spec.key, attempt, outcome: "error", costCents, turns, error: "no structured report",
+            node: spec.key, attempt, outcome: "error", costCents, turns,
+            error: snippet ? `no structured report (last output: "${snippet}")` : "no structured report",
           } }]);
           return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
