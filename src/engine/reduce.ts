@@ -165,7 +165,7 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
         const n = state.nodes.get(fp.node);
         if (!n) break;
         n.runningAttempt = null;
-        n.attempts += 1;
+        if (!fp.uncounted) n.attempts += 1;
         n.lastOutcome = fp.outcome;
         n.lastError = fp.error ?? null;
         n.costCents += fp.costCents;

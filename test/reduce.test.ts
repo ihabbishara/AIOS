@@ -136,6 +136,16 @@ describe("reduce — golden states per event type", () => {
     expect(u.phase).toBe("paused-user");
     const a = reduce([created(), plan("a"), ev("goal.paused", { reason: "api" })]);
     expect(a.phase).toBe("paused-api");
+  });
+
+  it("an uncounted attempt.finished does not consume the node's attempt budget", () => {
+    // Two separate outages must never exhaust a node — that would defeat the pause entirely.
+    const p = reduce([created(), plan("a"), ws(),
+      ev("attempt.started", { node: "a", attempt: 1, agent: "vulcan", deadlineTs: 9e12, idempotencyKey: "k1" }),
+      ev("attempt.finished", { node: "a", attempt: 1, outcome: "error", costCents: 0, turns: 0, error: "API Error: Unable to connect to API", uncounted: true })]);
+    const n = p.nodes.get("a")!;
+    expect(n.attempts).toBe(0);        // budget intact
+    expect(n.lastOutcome).toBe("error");
     const r = reduce([created(), plan("a"), ev("goal.paused", { reason: "budget" }),
       ev("goal.resumed", { by: "budget-reset" }, 9000)]);
     expect(r.phase).toBe("running");

@@ -202,10 +202,10 @@ export async function runAttempt(
   const recordRound = (payload: RoundRecordedPayload): void => {
     appendEvents(store, goal.id, [{ type: "round.recorded", payload: payload as unknown as Record<string, unknown> }]);
   };
-  const finish = (outcome: AttemptOutcome, error?: string, final?: { artifactRef: string; roundsUsed: number }): void => {
+  const finish = (outcome: AttemptOutcome, error?: string, final?: { artifactRef: string; roundsUsed: number }, uncounted?: boolean): void => {
     const events: EventInput[] = [{
       type: "attempt.finished",
-      payload: { node: spec.key, attempt, outcome, costCents, turns, ...(error ? { error } : {}) },
+      payload: { node: spec.key, attempt, outcome, costCents, turns, ...(error ? { error } : {}), ...(uncounted ? { uncounted: true } : {}) },
     }];
     if (final) {
       // A node parked via ask_mail is already done — never re-complete it.
@@ -347,7 +347,7 @@ export async function runAttempt(
       return { claimed: true, outcome: "error", sessionLimit: true, apiUnreachable: false };
     }
     if (err instanceof ApiUnreachableError) {
-      finish("error", err.message);
+      finish("error", err.message, undefined, true);
       return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: true };
     }
     const abortReason = deps.registry.reason(regKey);

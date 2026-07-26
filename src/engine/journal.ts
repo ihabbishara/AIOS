@@ -83,6 +83,9 @@ export interface RoundRecordedPayload {
 }
 export interface AttemptFinishedPayload {
   node: string; attempt: number; outcome: AttemptOutcome; costCents: number; turns: number; error?: string;
+  /** Infrastructure failure (API unreachable) — journaled for the record, but it must not
+   *  consume the node's attempt budget or two outages would exhaust it. */
+  uncounted?: boolean;
 }
 export interface NodeCompletedPayload { node: string; artifactRef: string; roundsUsed: number }
 /** Loop cap / verify cap reached without approval — node parks as needs-review (spec §4). */
