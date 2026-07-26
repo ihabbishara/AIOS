@@ -16,6 +16,9 @@ import { reduce } from "./reduce.js";
 
 const ARTIFACT_CHAR_LIMIT = 12_000;
 
+/** Backoff before each in-place retry of an unreachable API call. */
+const API_RETRY_BACKOFF_MS = [5_000, 15_000] as const;
+
 export class SessionLimitError extends Error {
   readonly name = "SessionLimitError";
 }
@@ -116,12 +119,16 @@ export interface WorkerDeps {
   workspace?: { taskDir: string; mode: "build" | "analyze" };
   registry: AbortRegistry;
   nodeTimeoutMs: number;
+  /** Injected so tests never actually wait. Defaults to a real timer. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface AttemptResult {
   claimed: boolean;
   outcome: AttemptOutcome | null;
   sessionLimit: boolean;
+  /** The API was unreachable after retries — the engine pauses instead of failing (spec §2). */
+  apiUnreachable: boolean;
 }
 
 export async function runAttempt(
@@ -137,38 +144,52 @@ export async function runAttempt(
   const claimed = appendEvents(store, goal.id,
     [{ type: "attempt.started", payload: startedPayload as unknown as Record<string, unknown> }],
     { claimLost: attemptClaimed(spec.key, attempt) });
-  if (!claimed) return { claimed: false, outcome: null, sessionLimit: false };
+  if (!claimed) return { claimed: false, outcome: null, sessionLimit: false, apiUnreachable: false };
   deps.onEvent?.({ type: "node.status", goalId: goal.id, nodeKey: spec.key, status: "running", agent: spec.agent });
 
   const controller = deps.registry.register(regKey);
   let costCents = 0;
   let turns = 0;
 
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
   const runAgent = async (role: string, brief: string) => {
     const context = `goal:${goal.slug}/${spec.key}`;
     deps.onEvent?.({ type: "agent.start", agent: role, context });
     try {
-      const res = await deps.run(role, brief, {
-        cwd: goal.project_dir ?? process.cwd(),
-        signal: controller.signal,
-        origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
-        workspace: deps.workspace,
-        idempotencyKey: `${goal.id}:${spec.key}:${attempt}`,
-        mailCtx: {
+      for (let tryIdx = 0; ; tryIdx++) {
+        const res = await deps.run(role, brief, {
+          cwd: goal.project_dir ?? process.cwd(),
+          signal: controller.signal,
           origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
-          goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: spec.key,
-        },
-      });
-      if (isSessionLimitOutput(res.text)) {
-        deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
-        throw new SessionLimitError("Agent hit session limit — re-run after quota resets");
+          workspace: deps.workspace,
+          idempotencyKey: `${goal.id}:${spec.key}:${attempt}`,
+          mailCtx: {
+            origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
+            goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: spec.key,
+          },
+        });
+        // A transient outage must not be charged to the agent. Retry in place for micro-blips;
+        // a sustained outage becomes ApiUnreachableError and the engine pauses the goal.
+        if (isApiUnreachableOutput(res.text)) {
+          if (tryIdx < API_RETRY_BACKOFF_MS.length) {
+            await sleep(API_RETRY_BACKOFF_MS[tryIdx]);
+            continue;
+          }
+          deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
+          throw new ApiUnreachableError(res.text.trim());
+        }
+        if (isSessionLimitOutput(res.text)) {
+          deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
+          throw new SessionLimitError("Agent hit session limit — re-run after quota resets");
+        }
+        deps.onEvent?.({ type: "agent.end", agent: role, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
+        costCents += Math.round((res.costUsd ?? 0) * 100);
+        turns += res.numTurns ?? 0;
+        return res;
       }
-      deps.onEvent?.({ type: "agent.end", agent: role, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
-      costCents += Math.round((res.costUsd ?? 0) * 100);
-      turns += res.numTurns ?? 0;
-      return res;
     } catch (err) {
-      if (!(err instanceof SessionLimitError)) {
+      if (!(err instanceof SessionLimitError) && !(err instanceof ApiUnreachableError)) {
         deps.onEvent?.({ type: "agent.end", agent: role, context, ok: false });
       }
       throw err;
@@ -298,7 +319,7 @@ export async function runAttempt(
           appendEvents(store, goal.id, [{ type: "attempt.finished", payload: {
             node: spec.key, attempt, outcome: "error", costCents, turns, error: "no structured report",
           } }]);
-          return { claimed: true, outcome: "error", sessionLimit: false };
+          return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
         if (!report.passed) {
           // Verification ran and FAILED at the cap — same escalation as loop-cap (spec §4).
@@ -319,17 +340,21 @@ export async function runAttempt(
         break;
       }
     }
-    return { claimed: true, outcome: "ok", sessionLimit: false };
+    return { claimed: true, outcome: "ok", sessionLimit: false, apiUnreachable: false };
   } catch (err) {
     if (err instanceof SessionLimitError) {
       finish("error", err.message);
-      return { claimed: true, outcome: "error", sessionLimit: true };
+      return { claimed: true, outcome: "error", sessionLimit: true, apiUnreachable: false };
+    }
+    if (err instanceof ApiUnreachableError) {
+      finish("error", err.message);
+      return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: true };
     }
     const abortReason = deps.registry.reason(regKey);
     const outcome: AttemptOutcome =
       abortReason === "timeout" ? "timeout" : abortReason ? "aborted" : "error";
     finish(outcome, (err as Error).message);
-    return { claimed: true, outcome, sessionLimit: false };
+    return { claimed: true, outcome, sessionLimit: false, apiUnreachable: false };
   } finally {
     deps.registry.finish(regKey);
   }

@@ -43,7 +43,7 @@ describe("runAttempt — run nodes", () => {
       return { text: "the design", costUsd: 0.05, numTurns: 2 };
     });
     const res = await runAttempt(goal(), SPEC(), 1, deps);
-    expect(res).toEqual({ claimed: true, outcome: "ok", sessionLimit: false });
+    expect(res).toEqual({ claimed: true, outcome: "ok", sessionLimit: false, apiUnreachable: false });
     expect(briefs[0]).toContain("design it");
     expect(briefs[0]).toContain("# Task\nbuild x");
     expect(vault.readGoalArtifact(goalDir, "design.md")).toContain("the design");
@@ -304,5 +304,43 @@ describe("isApiUnreachableOutput", () => {
   it("does not match ordinary agent prose or a session limit", () => {
     expect(isApiUnreachableOutput("Verification passed. 12 tests, 0 failures.")).toBe(false);
     expect(isApiUnreachableOutput("You've hit your session limit")).toBe(false);
+  });
+});
+
+describe("runAgent — unreachable API", () => {
+  const DOWN = "API Error: Unable to connect to API (ConnectionRefused)";
+
+  it("retries in place and succeeds when the blip passes", async () => {
+    const slept: number[] = [];
+    let calls = 0;
+    const { deps, goal, store } = harness(async () => {
+      calls++;
+      return calls < 3 ? { text: DOWN, costUsd: 0, numTurns: 0 } : { text: "the design", costUsd: 0.05, numTurns: 2 };
+    });
+    deps.sleep = async (ms) => { slept.push(ms); };
+
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+
+    expect(calls).toBe(3);                       // 1 initial + 2 retries
+    expect(slept).toEqual([5_000, 15_000]);      // backoff actually applied, in order
+    expect(res.outcome).toBe("ok");
+    expect(res.apiUnreachable).toBe(false);
+    expect(journalTypes(store)).toContain("node.completed");
+  });
+
+  it("gives up after the retries and reports apiUnreachable with the verbatim error", async () => {
+    const slept: number[] = [];
+    let calls = 0;
+    const { deps, goal, store } = harness(async () => { calls++; return { text: DOWN, costUsd: 0, numTurns: 0 }; });
+    deps.sleep = async (ms) => { slept.push(ms); };
+
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+
+    expect(calls).toBe(3);                       // never more than 1 initial + 2 retries
+    expect(slept).toEqual([5_000, 15_000]);
+    expect(res.apiUnreachable).toBe(true);
+    expect(res.outcome).toBe("error");
+    const finished = payloadOf(store, "attempt.finished")[0] as { error?: string };
+    expect(finished.error).toContain("Unable to connect to API");   // the REAL error, not a paraphrase
   });
 });
