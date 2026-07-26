@@ -13,7 +13,7 @@ export function bucketOf(status: string): Bucket {
   if (status === "failed") return "needs";
   if (status === "done") return "done";
   if (status === "abandoned") return "abandoned";
-  if (status === "paused-budget" || status === "paused-user" || status === "awaiting-mail") return "waiting";
+  if (status === "paused-budget" || status === "paused-user" || status === "paused-api" || status === "awaiting-mail") return "waiting";
   return "running"; // planning | running | replanning
 }
 

@@ -86,6 +86,9 @@ describe("goal store", () => {
     expect(s.getGoalBySlug("build-x")!.id).toBe("g1");
     expect(s.unfinishedGoals().map((g) => g.id)).toEqual(["g1"]);
     expect(s.pausedBudgetGoals().map((g) => g.id)).toEqual(["g2"]);
+    s.insertGoal(goal({ id: "g3", slug: "api-down", status: "paused-api" }));
+    expect(s.pausedApiGoals().map((g) => g.id)).toEqual(["g3"]);   // only api-paused, not g2
+    expect(s.pausedBudgetGoals().map((g) => g.id)).toEqual(["g2"]); // and the reverse holds
     s.bumpReplans("g1");
     s.bumpReplans("g1");
     expect(s.getGoal("g1")!.replans_used).toBe(2);

@@ -522,6 +522,14 @@ export class GoalEngine {
     return paused.length;
   }
 
+  /** The API came back — resume goals parked by an outage. Mirrors resumeBudgetPaused. */
+  resumeApiPaused(): number {
+    const paused = this.deps.store.pausedApiGoals();
+    for (const g of paused) this.journal(g.id, [{ type: "goal.resumed", payload: { by: "api-recovered" } }]);
+    if (paused.length) this.tick();
+    return paused.length;
+  }
+
   // ---------- completion ----------
 
   private async complete(goal: GoalRow, ok: boolean, error?: string): Promise<void> {

@@ -63,7 +63,7 @@ export function buildAttentionView(
   const cutoff = new Date(now().getTime() - FAILED_WINDOW_MS).toISOString();
   const failed = store.goalsUpdatedSince(cutoff).filter((g) => g.status === "failed" && g.legacy !== 1);
   const pausedUser = store.listGoals(200).filter((g) => g.status === "paused-user" && g.legacy !== 1);
-  for (const g of [...failed, ...store.pausedBudgetGoals(), ...pausedUser]) {
+  for (const g of [...failed, ...store.pausedBudgetGoals(), ...store.pausedApiGoals(), ...pausedUser]) {
     items.push({
       kind: "goal", id: g.id, title: g.title,
       meta: `${g.department} · ${g.status === "failed" ? firstLine(g.error ?? "failed", 80) : g.status}`,

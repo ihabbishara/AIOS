@@ -707,6 +707,11 @@ export class Store {
       .all() as unknown as GoalRow[];
   }
 
+  pausedApiGoals(): GoalRow[] {
+    return this.db.prepare("SELECT * FROM goals WHERE status = 'paused-api' AND legacy = 0 ORDER BY created_at ASC")
+      .all() as unknown as GoalRow[];
+  }
+
   /** Test/ops helper mirroring the freeze migration: mark all current rows legacy. */
   freezeLegacyGoals(): void {
     this.db.exec("UPDATE goals SET legacy = 1");

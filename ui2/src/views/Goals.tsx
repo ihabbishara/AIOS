@@ -168,7 +168,7 @@ function GoalDetailView({ slug, events, onOpenChat }: {
         )}
         <span className="ml-auto flex gap-2">
           {["planning", "running", "replanning"].includes(goal.status) && <Button onClick={() => verb("pause")}>Pause</Button>}
-          {["paused-user", "paused-budget"].includes(goal.status) && <Button variant="primary" onClick={() => verb("resume")}>Resume</Button>}
+          {["paused-user", "paused-budget", "paused-api"].includes(goal.status) && <Button variant="primary" onClick={() => verb("resume")}>Resume</Button>}
           {!["done", "abandoned"].includes(goal.status) && <TwoStepButton label="Abandon" onConfirm={() => verb("abandon")} />}
         </span>
       </div>

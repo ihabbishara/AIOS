@@ -126,6 +126,23 @@ describe("engine core (ports of goal-scheduler intents)", () => {
     expect(store.getGoal(g.id)!.error).toContain("Unable to connect");
   });
 
+  it("resumeApiPaused un-pauses api-paused goals when connectivity returns", async () => {
+    let down = true;
+    const { engine, store } = harness({
+      run: async () => (down
+        ? { text: "API Error: Unable to connect to API (ConnectionRefused)", costUsd: 0, numTurns: 0 }
+        : { text: "out", costUsd: 0.01, numTurns: 1 }),
+      sleep: async () => {},
+    });
+    const g = engine.createFromPlaybook({ playbook: "research-report", title: "R", request: "r", channel: "t", chatId: "1" });
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("paused-api"));
+
+    down = false;
+    expect(engine.resumeApiPaused()).toBe(1);
+    // the attempt was never counted, so the node still has budget to finish
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
+  });
+
   it("hard node failure: visible retry (attempt 2), then goal failed + rest skipped", async () => {
     let calls = 0;
     const run: SpecialistRunFn = async (role) => {
