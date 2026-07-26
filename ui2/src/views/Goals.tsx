@@ -1,5 +1,5 @@
 // ui2/src/views/Goals.tsx — Command Deck kanban lanes; detail = DAG + inspector (spec §6).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type GoalNodeView, type GoalView, type StoredEvent } from "../api.js";
 import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
@@ -122,6 +122,9 @@ function GoalDetailView({ slug, events, onOpenChat }: {
   const [nodeKey, setNodeKey] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
   const [askError, setAskError] = useState("");
+  const [actionError, setActionError] = useState("");
+  // A refused action leaves the status untouched, so once it changes the notice is stale — drop it.
+  useEffect(() => setActionError(""), [goal?.status]);
   if (error) return <Empty>{error}</Empty>;
   if (!goal) return <Empty>Loading…</Empty>;
   // Inspector never starts empty: explicit pick → the failure → the node in flight → the first.
@@ -133,7 +136,14 @@ function GoalDetailView({ slug, events, onOpenChat }: {
   const cost = goal.nodes.reduce((s, n) => s + n.costCents, 0);
   const failedKey = goal.nodes.find((n) => n.status === "failed")?.key;
 
-  const verb = async (v: "pause" | "resume" | "abandon") => { await api.goalAction(goal.id, v).catch(() => {}); };
+  // The endpoint answers 200 with a plain-string reason even when it refuses (e.g. a frozen
+  // legacy or already-terminal goal), so a swallowed message reads as a dead button. Surface it;
+  // on success the status flips and the effect above clears the (now stale) notice.
+  const verb = async (v: "pause" | "resume" | "abandon") => {
+    setActionError("");
+    try { setActionError((await api.goalAction(goal.id, v)).message); }
+    catch (err) { setActionError((err as Error).message); }
+  };
   const sendAnswer = async () => {
     if (!goal.awaitingUserAsk || !answer.trim()) return;
     setAskError("");
@@ -162,6 +172,7 @@ function GoalDetailView({ slug, events, onOpenChat }: {
           {!["done", "abandoned"].includes(goal.status) && <TwoStepButton label="Abandon" onConfirm={() => verb("abandon")} />}
         </span>
       </div>
+      {actionError && <div className="text-[12px] text-err mb-2">{actionError}</div>}
       <div className="text-[12px] text-dim mb-4">{goal.planSummary}</div>
 
       {goal.awaitingUserAsk && (
