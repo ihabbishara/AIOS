@@ -449,7 +449,7 @@ export class GoalEngine {
     const g = this.findGoal(idOrSlug);
     if (!g) return `No goal "${idOrSlug}".`;
     if (g.legacy) return `Goal ${g.slug} is a frozen legacy goal — mark it done by hand if it lingers.`;
-    if (["done", "failed", "abandoned"].includes(g.status)) return `Goal ${g.slug} is already ${g.status}.`;
+    if (["done", "abandoned"].includes(g.status)) return `Goal ${g.slug} is already ${g.status}.`;
     const state = this.fold(g.id);
     for (const n of state.nodes.values()) {
       if (n.runningAttempt) this.abortRegistry.abort(this.abortRegistry.key(g.id, n.spec.key, n.runningAttempt.attempt), "abandoned");

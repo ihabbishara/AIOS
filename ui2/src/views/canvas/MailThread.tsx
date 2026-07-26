@@ -6,7 +6,7 @@ import { T } from "../../lib/topics.js";
 import { Button, SectionLabel, Tag, Empty, toneOfStatus } from "../../components/ui.js";
 import { ts } from "../../lib/format.js";
 
-export function MailThreadCanvas({ item, events }: { item: AttentionItem; events: StoredEvent[] }) {
+export function MailThreadCanvas({ item, events, onDone }: { item: AttentionItem; events: StoredEvent[]; onDone: () => void }) {
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -38,6 +38,7 @@ export function MailThreadCanvas({ item, events }: { item: AttentionItem; events
   if (memo) {
     return (
       <div className="max-w-2xl">
+        <button onClick={onDone} className="label hover:text-fg mb-3">← Home</button>
         <SectionLabel>Brief</SectionLabel>
         {thread.filter((m) => m.from !== "user").map((m) => (
           <div key={m.id} className="panel p-5 mb-3 whitespace-pre-wrap leading-relaxed">{m.body}</div>
