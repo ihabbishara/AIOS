@@ -23,6 +23,12 @@ const INNOCENT_PATHS = [
   "/Users/x/projects/Foo/src/kernel/secrets.ts",
   "/Users/x/projects/Foo/src/auth/tokenizer.test.ts",
   "/Users/x/projects/Foo/docs/credentials-guide.md",
+  // Real npm packages — denying these made `npm install` fail with EPERM inside the sandbox.
+  "/Users/x/app/node_modules/jsonwebtoken",
+  "/Users/x/app/node_modules/js-tokens",
+  "/Users/x/app/node_modules/gtoken",
+  "/Users/x/app/node_modules/@anthropic-ai/sdk/lib/credentials",
+  "/Users/x/app/node_modules/jsonwebtoken/index.js",
 ];
 
 describe("secret patterns are anchored to secret-looking FILES", () => {

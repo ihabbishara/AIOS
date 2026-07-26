@@ -30,9 +30,9 @@ describe("assertInplaceTarget", () => {
 
   it("refuses a secret path", () => {
     const s = setup();
-    // Secret-NAMED dirs, not merely dirs containing the word somewhere: the pattern is
-    // anchored now, so "my-token-store" is an ordinary project (spec 2026-07-25).
-    for (const name of ["credentials", ".ssh", ".aws"]) {
+    // Secret STORES (dotfile dirs), not merely dirs named after the word: an extension-less
+    // "credentials" dir is an ordinary package path (@anthropic-ai/sdk/lib/credentials).
+    for (const name of [".ssh", ".aws", ".gnupg", ".credentials"]) {
       const secret = join(s.projectsRoot, name);
       mkdirSync(secret, { recursive: true });
       expect(() => assertInplaceTarget(secret, s), name).toThrow(/secret/);

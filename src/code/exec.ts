@@ -46,7 +46,11 @@ export function sandboxProfile(
     "(allow process-fork)",
     "(allow sysctl-read)",
     "(allow mach-lookup)",
+    // Self AND children: test runners (vitest/tinypool, jest) spawn a worker pool and signal it
+    // on teardown — without `children` the run dies with "kill EPERM" at the end, which is
+    // exactly what a verify stage does. Signals stay inside the jail's own process tree.
     "(allow signal (target self))",
+    "(allow signal (target children))",
     // Egress: analyze (read-only audit) needs no network → deny-default covers it.
     // Build keeps network for package installs unless AIOS_SANDBOX_NET=deny.
     (opts?.net ?? (mode === "build" ? "allow" : "deny")) === "allow" ? "(allow network*)" : "",
