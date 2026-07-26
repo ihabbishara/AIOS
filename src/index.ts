@@ -8,7 +8,7 @@ import { makeResolveAgent, type ResolveAgentDeps } from "./agents/resolve.js";
 import type { Embedder } from "./memory/embeddings.js";
 import { loadRegistry, disabledDepartments, dropDepartment } from "./agents/registry/loader.js";
 import { buildExtras } from "./agents/registry/extras.js";
-import { allocateWorkspace } from "./code/workspace.js";
+import { allocateWorkspace, deliverBranch } from "./code/workspace.js";
 import { resolveReal } from "./code/paths.js";
 import { randomUUID } from "node:crypto";
 import { localParts } from "./heartbeat/clock.js";
@@ -302,9 +302,21 @@ async function main(): Promise<void> {
   const onGoalComplete = async (outcome: GoalOutcome): Promise<void> => {
     const { goal } = outcome;
     const channel = channels.get(goal.origin_channel);
+    // Self-work happens in a clone, so its commits are invisible until fetched home. Refs only —
+    // no merge, working tree untouched. Failed goals deliver too: partial commits are reviewable.
+    // goal.project_dir is the taskDir by now (the workspace.prepared fold rewrites it).
+    let delivered: string | null = null;
+    try {
+      if (goal.project_dir) delivered = deliverBranch({ taskDir: goal.project_dir, selfRoot: resolveReal(process.cwd()) });
+    } catch (err) {
+      log(`[${goal.slug}] branch delivery failed: ${(err as Error).message}`);
+    }
+    const branchLine = delivered
+      ? ` The agent's commits are on branch ${delivered} in the AIOS repo (fetched, not merged) — tell the user to review it.`
+      : "";
     const notice = outcome.ok
-      ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.`
-      : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.`;
+      ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.${branchLine}`
+      : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.${branchLine}`;
     const { text: report, attachments } = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
     await channel?.send(goal.origin_chat_id, report);
     // A real push channel (telegram) gets media via sendVoice/sendFile; web has no ChannelAdapter,

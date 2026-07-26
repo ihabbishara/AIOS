@@ -1,7 +1,7 @@
 // src/code/workspace.ts
 import { mkdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { isUnder, isSecretPath, resolveReal } from "./paths.js";
 
 export type WorkspaceMode = "greenfield" | "worktree" | "analyze";
@@ -66,4 +66,28 @@ export function allocateWorkspace(
   }
   git(["worktree", "add", "-b", branch, taskDir, "HEAD"], source);
   return { taskDir };
+}
+
+/** Bring a finished clone-mode goal home: `git fetch <taskDir> <branch>:<branch>` in the daemon's
+ *  own repo, so self-work shows up as a reviewable ref. Refs only — nothing is merged, the working
+ *  tree and index are untouched, and a parallel session sharing the checkout sees no change.
+ *  Returns the delivered branch, or null when there is nothing to deliver. */
+export function deliverBranch(
+  opts: { taskDir: string; selfRoot: string },
+  git: (args: string[], cwd: string) => string = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8" }),
+): string | null {
+  if (!existsSync(join(opts.taskDir, ".git"))) return null;         // greenfield, never git init'd
+  if (isUnder(opts.taskDir, opts.selfRoot)) return null;            // analyze points AT the repo — never fetch from self
+  let origin: string;
+  try { origin = git(["remote", "get-url", "origin"], opts.taskDir).trim(); }
+  catch { return null; }                                            // no remote ⇒ not a clone of anything
+  // isAbsolute FIRST: resolveReal() resolves a non-path relative to cwd, and the daemon's cwd is
+  // selfRoot — without this every `https://github.com/...` remote would look like self-work.
+  if (!isAbsolute(origin) || !isUnder(origin, opts.selfRoot)) return null;
+  const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], opts.taskDir).trim();
+  if (!branch.startsWith("aios/")) return null;
+  // commits no origin ref already holds — an untouched clone must not litter the repo with refs
+  if (git(["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], opts.taskDir).trim() === "0") return null;
+  git(["fetch", opts.taskDir, `${branch}:${branch}`], opts.selfRoot);
+  return branch;
 }
