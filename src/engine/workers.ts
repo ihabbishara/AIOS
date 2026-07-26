@@ -26,6 +26,19 @@ function isSessionLimitOutput(text: string): boolean {
   return SESSION_LIMIT_PATTERNS.some((p) => lower.includes(p));
 }
 
+export class ApiUnreachableError extends Error {
+  readonly name = "ApiUnreachableError";
+}
+
+/** The SDK reports connection failures as TEXT, not by throwing, so output is the only signal.
+ *  Anchored deliberately: agents legitimately write about "connection refused" inside real
+ *  reports, and matching that would pause a healthy goal. The SDK's own output is the whole
+ *  response and starts with the error envelope. */
+export function isApiUnreachableOutput(text: string): boolean {
+  const lower = text.toLowerCase().trimStart();
+  return lower.startsWith("api error:") && lower.includes("unable to connect");
+}
+
 export interface Verdict { verdict: "approve" | "revise"; summary: string; reasons: string[] }
 export interface TestReport { passed: boolean; summary: string; failures: string[] }
 

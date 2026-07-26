@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { appendEvents, readJournal, type NodeSpec, type JournalEventType } from "../src/engine/journal.js";
-import { AbortRegistry, runAttempt, ancestorArtifacts, type WorkerDeps } from "../src/engine/workers.js";
+import { AbortRegistry, runAttempt, ancestorArtifacts, isApiUnreachableOutput, type WorkerDeps } from "../src/engine/workers.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
 
 const SPEC = (over: Partial<NodeSpec> = {}): NodeSpec =>
@@ -284,5 +284,25 @@ describe("ancestorArtifacts + parked-node guard", () => {
     await runAttempt(goal(), SPEC(), 1, deps);
     expect(journalTypes(store).filter((t) => t === "node.completed")).toHaveLength(0);
     expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "ok" });
+  });
+});
+
+describe("isApiUnreachableOutput", () => {
+  it("matches the SDK's connection-failure output", () => {
+    expect(isApiUnreachableOutput("API Error: Unable to connect to API (ConnectionRefused)")).toBe(true);
+    expect(isApiUnreachableOutput("\n  API Error: Unable to connect to API (ConnectionRefused)\n")).toBe(true);
+  });
+
+  it("does NOT match an agent writing about connection failures in a real report", () => {
+    // This is the false positive that would pause a healthy goal.
+    expect(isApiUnreachableOutput(
+      "The test suite fails because the client gets ConnectionRefused; we were unable to connect to the API in CI.",
+    )).toBe(false);
+    expect(isApiUnreachableOutput("Root cause: unable to connect to API when DNS is cold.")).toBe(false);
+  });
+
+  it("does not match ordinary agent prose or a session limit", () => {
+    expect(isApiUnreachableOutput("Verification passed. 12 tests, 0 failures.")).toBe(false);
+    expect(isApiUnreachableOutput("You've hit your session limit")).toBe(false);
   });
 });
