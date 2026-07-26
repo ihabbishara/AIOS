@@ -314,9 +314,15 @@ async function main(): Promise<void> {
     const branchLine = delivered
       ? ` The agent's commits are on branch ${delivered} in the AIOS repo (fetched, not merged) — tell the user to review it.`
       : "";
+    // FailGoal skips every pending node. That already lands in the journal but never reached a
+    // human — on cab8495e the review node silently never ran.
+    const skipped = outcome.ok ? [] : store.listNodes(goal.id).filter((n) => n.status === "skipped");
+    const skippedLine = skipped.length
+      ? ` Skipped by the failure: ${skipped.map((n) => `${n.node_key} (${n.agent})`).join(", ")} — these quality gates did NOT run, say so.`
+      : "";
     const notice = outcome.ok
       ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.${branchLine}`
-      : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.${branchLine}`;
+      : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.${branchLine}${skippedLine}`;
     const { text: report, attachments } = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
     await channel?.send(goal.origin_chat_id, report);
     // A real push channel (telegram) gets media via sendVoice/sendFile; web has no ChannelAdapter,
