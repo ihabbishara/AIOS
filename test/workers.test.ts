@@ -417,3 +417,18 @@ describe("node artifacts never clobber an agent-written file", () => {
     expect((payloadOf(store, "node.completed")[0] as { artifactRef: string }).artifactRef).toBe("design.md");
   });
 });
+
+describe("agents are told where their goal folder is", () => {
+  it("puts the vault goal-folder path and vault_read in the brief", async () => {
+    // clio searched the filesystem from cwd, concluded deck-full.md did not exist, and refused
+    // to fabricate — while the file sat in the vault and clio had vault_read all along.
+    const briefs: string[] = [];
+    const { deps, goal, goalDir } = harness(async (_r, brief) => {
+      briefs.push(brief);
+      return { text: "done", costUsd: 0.01, numTurns: 1 };
+    });
+    await runAttempt(goal(), SPEC(), 1, deps);
+    expect(briefs[0]).toContain(`goals/${goalDir}/`);
+    expect(briefs[0]).toContain("vault_read");
+  });
+});

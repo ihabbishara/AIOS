@@ -69,6 +69,12 @@ function contextBlock(goal: GoalRow, ancestors: TaskNodeRow[], vault: VaultWrite
   const parts = [
     `# Task\n${goal.request}`,
     goal.project_dir ? `# Working directory\n${goal.project_dir}` : "",
+    // Without this, agents search the filesystem from cwd, conclude their own goal's files do
+    // not exist, and either stall or refuse — while the files sit in the vault and the agent
+    // has had vault_read the whole time.
+    goal.goal_dir
+      ? `# Goal folder (in the vault, NOT on the filesystem)\nThis goal's files live at \`goals/${goal.goal_dir}/\`. Read and write them with vault_read / vault_write using that exact path. Do NOT look for them with Read/Grep/Glob relative to your working directory — they are not there.`
+      : "",
   ];
   for (const a of ancestors) {
     const content = vault.readGoalArtifact(goal.goal_dir!, a.artifact!) ?? "";
