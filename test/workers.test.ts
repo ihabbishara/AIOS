@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { appendEvents, readJournal, type NodeSpec, type JournalEventType } from "../src/engine/journal.js";
-import { AbortRegistry, runAttempt, ancestorArtifacts, isApiUnreachableOutput, type WorkerDeps } from "../src/engine/workers.js";
+import { AbortRegistry, runAttempt, ancestorArtifacts, isApiErrorOutput, type WorkerDeps } from "../src/engine/workers.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
 
 const SPEC = (over: Partial<NodeSpec> = {}): NodeSpec =>
@@ -287,23 +287,24 @@ describe("ancestorArtifacts + parked-node guard", () => {
   });
 });
 
-describe("isApiUnreachableOutput", () => {
-  it("matches the SDK's connection-failure output", () => {
-    expect(isApiUnreachableOutput("API Error: Unable to connect to API (ConnectionRefused)")).toBe(true);
-    expect(isApiUnreachableOutput("\n  API Error: Unable to connect to API (ConnectionRefused)\n")).toBe(true);
+describe("isApiErrorOutput", () => {
+  it("matches the whole SDK API Error envelope family", () => {
+    expect(isApiErrorOutput("API Error: Connection closed mid-response. The response above may be incomplete.")).toBe(true);
+    expect(isApiErrorOutput("API Error: Unable to connect to API (ConnectionRefused)")).toBe(true);
+    expect(isApiErrorOutput("\n  API Error: Unable to connect to API (ConnectionRefused)\n")).toBe(true);
   });
 
   it("does NOT match an agent writing about connection failures in a real report", () => {
     // This is the false positive that would pause a healthy goal.
-    expect(isApiUnreachableOutput(
+    expect(isApiErrorOutput(
       "The test suite fails because the client gets ConnectionRefused; we were unable to connect to the API in CI.",
     )).toBe(false);
-    expect(isApiUnreachableOutput("Root cause: unable to connect to API when DNS is cold.")).toBe(false);
+    expect(isApiErrorOutput("Root cause: unable to connect to API when DNS is cold.")).toBe(false);
   });
 
   it("does not match ordinary agent prose or a session limit", () => {
-    expect(isApiUnreachableOutput("Verification passed. 12 tests, 0 failures.")).toBe(false);
-    expect(isApiUnreachableOutput("You've hit your session limit")).toBe(false);
+    expect(isApiErrorOutput("Verification passed. 12 tests, 0 failures.")).toBe(false);
+    expect(isApiErrorOutput("You've hit your session limit")).toBe(false);
   });
 });
 
@@ -359,5 +360,27 @@ describe("no-report provenance", () => {
     const finished = payloadOf(store, "attempt.finished")[0] as { error?: string };
     expect(finished.error).toContain("no structured report");
     expect(finished.error).toContain("could not find the test command");
+  });
+});
+
+describe("run nodes reject transport errors and empty output", () => {
+  it("an SDK 'Connection closed mid-response' never becomes a done artifact", async () => {
+    // facts-macro.md was marked done/ok with EXACTLY this as its whole content (167¢, 13 min),
+    // and deck-md then consumed it as a prior artifact. Silent false success.
+    const { store, deps, goal } = harness(async () => ({
+      text: "API Error: Connection closed mid-response. The response above may be incomplete.",
+      costUsd: 0.5, numTurns: 12,
+    }));
+    deps.sleep = async () => {};
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.apiUnreachable).toBe(true);
+    expect(journalTypes(store)).not.toContain("node.completed");
+  });
+
+  it("blank output fails the attempt instead of completing the node", async () => {
+    const { store, deps, goal } = harness(async () => ({ text: "  \n \t ", costUsd: 0.01, numTurns: 1 }));
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("error");
+    expect(journalTypes(store)).not.toContain("node.completed");
   });
 });

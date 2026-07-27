@@ -33,13 +33,14 @@ export class ApiUnreachableError extends Error {
   readonly name = "ApiUnreachableError";
 }
 
-/** The SDK reports connection failures as TEXT, not by throwing, so output is the only signal.
- *  Anchored deliberately: agents legitimately write about "connection refused" inside real
- *  reports, and matching that would pause a healthy goal. The SDK's own output is the whole
- *  response and starts with the error envelope. */
-export function isApiUnreachableOutput(text: string): boolean {
-  const lower = text.toLowerCase().trimStart();
-  return lower.startsWith("api error:") && lower.includes("unable to connect");
+/** The SDK reports transport failures as TEXT, not by throwing, so output is the only signal.
+ *  Matches the WHOLE `API Error:` envelope family — "Unable to connect to API", "Connection
+ *  closed mid-response", and siblings. Narrowing this to one phrasing is what let
+ *  "Connection closed mid-response" through as a DONE artifact (facts-macro.md).
+ *  Still anchored on startsWith: agents legitimately write about connection failures inside
+ *  real reports, and matching mid-text would pause a healthy goal. */
+export function isApiErrorOutput(text: string): boolean {
+  return text.toLowerCase().trimStart().startsWith("api error:");
 }
 
 export interface Verdict { verdict: "approve" | "revise"; summary: string; reasons: string[] }
@@ -171,7 +172,7 @@ export async function runAttempt(
         });
         // A transient outage must not be charged to the agent. Retry in place for micro-blips;
         // a sustained outage becomes ApiUnreachableError and the engine pauses the goal.
-        if (isApiUnreachableOutput(res.text)) {
+        if (isApiErrorOutput(res.text)) {
           if (tryIdx < API_RETRY_BACKOFF_MS.length) {
             await sleep(API_RETRY_BACKOFF_MS[tryIdx]);
             continue;
@@ -225,6 +226,13 @@ export async function runAttempt(
       case "run": {
         const brief = [spec.brief, ctx].filter(Boolean).join("\n\n");
         const res = await runAgent(spec.agent, brief);
+        // A run node has no structured-output gate, so ANY text became a "done" artifact and
+        // downstream nodes consumed it as fact. The transport-error family is caught in
+        // runAgent; empty output is the remaining way to complete a node having produced nothing.
+        if (!res.text.trim()) {
+          finish("error", "agent returned no output");
+          return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
+        }
         const file = `${spec.key}.md`;
         save(file, res.text, spec.agent);
         finish("ok", undefined, { artifactRef: file, roundsUsed: 0 });
