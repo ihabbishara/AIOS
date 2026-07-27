@@ -45,7 +45,7 @@ tools:
   - mcp__research__save_source
   - mcp__research__list_sources
   - mcp__research__search_sources
-maxTurns: 25
+maxTurns: 80
 permissionMode: dontAsk
 aliases: [analyst, lina]
 kind: lead

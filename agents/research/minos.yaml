@@ -33,7 +33,7 @@ prompt: >
 
   Return your verdict in the required structured format.
 tools: [Read, Grep, Glob, WebFetch, mcp__research__save_source, mcp__research__list_sources, mcp__research__search_sources, recall, vault_read, vault_write]
-maxTurns: 20
+maxTurns: 40
 permissionMode: dontAsk
 outputSchema: verdict
 aliases: [reviewer, yara]
