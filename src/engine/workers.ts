@@ -197,8 +197,20 @@ export async function runAttempt(
     }
   };
 
-  const save = (file: string, content: string, role: string): void => {
-    vault.writeGoalArtifact(goal.goal_dir!, file, content, { goal: goal.id, node: spec.key, role });
+  /** A node artifact lives at `<node_key>.md` — the very name a well-behaved agent picks for its
+   *  own output via vault_write. Overwriting it silently destroyed a real deck outline once.
+   *  Keep the agent's file; put the node artifact beside it and journal THAT name. A re-run of
+   *  the same node still overwrites its own artifact (recognised by its `node:` frontmatter),
+   *  so retries never proliferate files. Returns the filename actually written. */
+  const save = (file: string, content: string, role: string): string => {
+    const mine = (name: string): boolean => {
+      const existing = vault.readGoalArtifact(goal.goal_dir!, name);
+      return existing === undefined || existing.includes(`node: ${JSON.stringify(spec.key)}`);
+    };
+    let target = file;
+    for (let n = 1; !mine(target) && n <= 20; n++) target = file.replace(/\.md$/, `-report${n > 1 ? n : ""}.md`);
+    vault.writeGoalArtifact(goal.goal_dir!, target, content, { goal: goal.id, node: spec.key, role });
+    return target;
   };
   const recordRound = (payload: RoundRecordedPayload): void => {
     appendEvents(store, goal.id, [{ type: "round.recorded", payload: payload as unknown as Record<string, unknown> }]);
@@ -234,8 +246,7 @@ export async function runAttempt(
           return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
         const file = `${spec.key}.md`;
-        save(file, res.text, spec.agent);
-        finish("ok", undefined, { artifactRef: file, roundsUsed: 0 });
+        finish("ok", undefined, { artifactRef: save(file, res.text, spec.agent), roundsUsed: 0 });
         break;
       }
       case "loop": {
@@ -283,8 +294,7 @@ export async function runAttempt(
           break;
         }
         const file = `${spec.key}.md`;
-        save(file, lastOutput, spec.agent);
-        finish("ok", undefined, { artifactRef: file, roundsUsed: round });
+        finish("ok", undefined, { artifactRef: save(file, lastOutput, spec.agent), roundsUsed: round });
         break;
       }
       case "verify": {
@@ -348,8 +358,7 @@ export async function runAttempt(
         }
         const summary = `**Passed:** true\n\n${report.summary}`;
         const file = `${spec.key}.md`;
-        save(file, summary, spec.agent);
-        finish("ok", undefined, { artifactRef: file, roundsUsed: round });
+        finish("ok", undefined, { artifactRef: save(file, summary, spec.agent), roundsUsed: round });
         break;
       }
     }

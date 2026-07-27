@@ -384,3 +384,36 @@ describe("run nodes reject transport errors and empty output", () => {
     expect(journalTypes(store)).not.toContain("node.completed");
   });
 });
+
+describe("node artifacts never clobber an agent-written file", () => {
+  it("keeps the agent's file and writes the node artifact beside it", async () => {
+    // clio wrote the real outline to goals/<dir>/deck-outline.md via vault_write, then the
+    // worker saved its completion message to the SAME path and destroyed it. Silent data loss.
+    const { store, vault, deps, goalDir, goal } = harness(
+      async () => ({ text: "`goals/x/design.md` — 18 slides.", costUsd: 0.1, numTurns: 3 }),
+    );
+    vault.writeNote(`goals/${goalDir}/design.md`, "THE REAL OUTLINE — 18 slides of content");
+
+    await runAttempt(goal(), SPEC(), 1, deps);
+
+    // the agent's file survives untouched…
+    expect(vault.readGoalArtifact(goalDir, "design.md")).toContain("THE REAL OUTLINE");
+    // …and the node artifact went somewhere else, with the journal pointing at it
+    const ref = (payloadOf(store, "node.completed")[0] as { artifactRef: string }).artifactRef;
+    expect(ref).not.toBe("design.md");
+    expect(vault.readGoalArtifact(goalDir, ref)).toContain("18 slides.");
+  });
+
+  it("still overwrites its OWN artifact on a re-run, so retries do not proliferate files", async () => {
+    const { store, vault, deps, goalDir, goal } = harness(
+      async () => ({ text: "second pass output", costUsd: 0.1, numTurns: 1 }),
+    );
+    // a prior attempt's artifact carries this node's frontmatter
+    vault.writeGoalArtifact(goalDir, "design.md", "first pass output", { goal: "g1", node: "design", role: "athena" });
+
+    await runAttempt(goal(), SPEC(), 1, deps);
+
+    expect(vault.readGoalArtifact(goalDir, "design.md")).toContain("second pass output");
+    expect((payloadOf(store, "node.completed")[0] as { artifactRef: string }).artifactRef).toBe("design.md");
+  });
+});
