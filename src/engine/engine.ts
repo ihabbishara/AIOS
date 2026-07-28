@@ -66,6 +66,8 @@ export interface GoalEngineDeps {
   pingBudgetPaused?: (text: string) => void;
   /** Per-attempt deadline base (run nodes; loop/verify get 2x). Default 15 min. */
   nodeTimeoutMs?: number;
+  /** Queue an always-supervised permission.grant when a park hits an allowlist wall. */
+  proposeGrant?: (role: string, tool: string) => Promise<void>;
   /** Visible-retry cap per node (spec §7). Default 2. */
   maxAttempts?: number;
   /** Backoff delay for in-place API retries — injected so tests never wait. */
@@ -263,6 +265,7 @@ export class GoalEngine {
         registry: this.abortRegistry,
         nodeTimeoutMs: this.deps.nodeTimeoutMs ?? 900_000,
         sleep: this.deps.sleep,
+        proposeGrant: this.deps.proposeGrant,
       });
       if (res.sessionLimit && this.fold(goalId).phase === "running") {
         this.journal(goalId, [{ type: "goal.paused", payload: { reason: "user", error: "Agent hit session limit — re-run after quota resets" } }]);

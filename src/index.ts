@@ -36,6 +36,7 @@ import { AIOS_TMP_PREFIX } from "./agents/attachment-server.js";
 import { ExecutorRegistry } from "./kernel/actions.js";
 import { vaultWriteExecutor, echoExecutor, trustPromoteExecutor, permissionGrantExecutor, permissionRevokeExecutor, ledgerWriteExecutor } from "./kernel/executors.js";
 import { ActionGate } from "./kernel/gate.js";
+import { makeGrantProposer } from "./kernel/propose-grant.js";
 import { Policy } from "./kernel/policy.js";
 import { deptLabel } from "./kernel/labels.js";
 import { newRecord } from "./kernel/trust.js";
@@ -369,6 +370,7 @@ async function main(): Promise<void> {
   const goals = new GoalEngine({
     store, vault, run: runSpecialist, registry,
     playbooks: registry.playbooks,
+    proposeGrant: makeGrantProposer(store, gate),
     wallTimeMs: config.jobWallTimeMs,
     nodeTimeoutMs: config.nodeTimeoutMs,
     maxConcurrentNodes: config.maxConcurrentNodes,
