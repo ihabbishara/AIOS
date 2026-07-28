@@ -39,6 +39,8 @@ export interface ResolveCtx {
   idempotencyKey?: string;
   /** Caller model override — loses to a per-agent manifest `model:`, wins over kind tiering. */
   model?: string;
+  /** Multiplies role.maxTurns (error_max_turns retry class — failure-class spec §B). */
+  maxTurnsFactor?: number;
   /** Per-run denial collector (policy-wall spec §1) — receives every guard-layer deny. */
   onDeny?: (tool: string, reason: string) => void;
 }
@@ -211,7 +213,7 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
 
     // Base options via the existing role kernel (persona/context-files/skills/extras-guards),
     // then override with the capability-derived surface.
-    const base = roleQueryOptions(def.role, { cwd: ctx.cwd ?? deps.config.projectsRoot, model });
+    const base = roleQueryOptions(def.role, { cwd: ctx.cwd ?? deps.config.projectsRoot, model, maxTurnsFactor: ctx.maxTurnsFactor });
     const personaSurface = [String(base.systemPrompt ?? ""), `## Pillar: ${dept.department}`, dept.mission.trim()]
       .filter(Boolean).join("\n\n"); // memo deliberately excluded — the no-churn guarantee
     let options: Options = {

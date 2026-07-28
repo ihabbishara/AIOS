@@ -186,6 +186,7 @@ export async function runAttempt(
           workspace: deps.workspace,
           idempotencyKey: `${goal.id}:${spec.key}:${attempt}`,
           ...(outputSchema ? { outputSchema } : {}),
+          ...(maxTurnsFactor ? { maxTurnsFactor } : {}),
           mailCtx: {
             origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
             goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: spec.key,
@@ -253,6 +254,11 @@ export async function runAttempt(
   };
   /** Fresh fold — resume data (rounds, feedback, last artifact) survives crashes/retries. */
   const nodeState = () => reduce(readJournal(store, goal.id)).nodes.get(spec.key);
+
+  /** error_max_turns retry class (failure-class spec §B): the same brief with the same cap
+   *  would burn this attempt identically, so the retry runs at 2× the role's turn cap. */
+  const maxTurnsFactor =
+    attempt > 1 && (nodeState()?.lastError ?? "").includes("error_max_turns") ? 2 : undefined;
 
   /** Agent-caused error funnel (policy-wall spec §2): if the attempt hit denied tools, park
    *  needs-review naming each wall instead of joining the retry treadmill — the retry would

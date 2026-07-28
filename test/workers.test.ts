@@ -86,6 +86,37 @@ describe("runAttempt — run nodes", () => {
     expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "error", uncounted: true });
   });
 
+  it("retry after error_max_turns passes maxTurnsFactor 2 to the run", async () => {
+    const factors: Array<number | undefined> = [];
+    const { store, deps, goal } = harness(async (_r, _b, opts) => {
+      factors.push(opts.maxTurnsFactor);
+      return { text: "done now", costUsd: 0, numTurns: 1 };
+    });
+    appendEvents(store, "g1", [
+      { type: "attempt.started", payload: { node: "design", attempt: 1, agent: "athena", deadlineTs: 9e12, idempotencyKey: "g1:design:1" } },
+      { type: "attempt.finished", payload: { node: "design", attempt: 1, outcome: "error", costCents: 0, turns: 0, error: "Specialist athena failed: error_max_turns" } },
+    ]);
+    await runAttempt(goal(), SPEC(), 2, deps);
+    expect(factors).toEqual([2]);
+  });
+
+  it("attempt 1, and retries after non-turn errors, pass no factor", async () => {
+    const factors: Array<number | undefined> = [];
+    const mk = () => harness(async (_r, _b, opts) => {
+      factors.push(opts.maxTurnsFactor);
+      return { text: "ok", costUsd: 0, numTurns: 1 };
+    });
+    const a = mk();
+    await runAttempt(a.goal(), SPEC(), 1, a.deps);
+    const b = mk();
+    appendEvents(b.store, "g1", [
+      { type: "attempt.started", payload: { node: "design", attempt: 1, agent: "athena", deadlineTs: 9e12, idempotencyKey: "g1:design:1" } },
+      { type: "attempt.finished", payload: { node: "design", attempt: 1, outcome: "error", costCents: 0, turns: 0, error: "boom" } },
+    ]);
+    await runAttempt(b.goal(), SPEC(), 2, b.deps);
+    expect(factors).toEqual([undefined, undefined]);
+  });
+
   it("abort with timeout reason → outcome timeout; budget reason → aborted", async () => {
     for (const [reason, outcome] of [["timeout", "timeout"], ["budget", "aborted"]] as const) {
       const { deps, registry, goal, store } = harness((_r, _b, opts) =>

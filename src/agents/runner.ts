@@ -36,7 +36,7 @@ export function roleSystemPrompt(role: RoleDef): string {
  * Single source of truth for a role's SDK options — used by both the pipeline
  * runner and direct chats so security settings can never diverge.
  */
-export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: string }): Options {
+export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: string; maxTurnsFactor?: number }): Options {
   return {
     systemPrompt: roleSystemPrompt(role),
     allowedTools: role.allowedTools,
@@ -45,7 +45,7 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
       ? { allowDangerouslySkipPermissions: true }
       : {}),
     cwd: role.cwd ?? opts.cwd,
-    maxTurns: role.maxTurns,
+    maxTurns: Math.ceil(role.maxTurns * (opts.maxTurnsFactor ?? 1)),
     settingSources: [],
     ...(opts.model ? { model: opts.model } : {}),
     ...skillOptions(role),
@@ -92,6 +92,9 @@ export interface RunOptions {
   idempotencyKey?: string;
   /** Structured-output schema for roles without their own (role schema always wins). */
   outputSchema?: Record<string, unknown>;
+  /** Multiplies role.maxTurns for this run (error_max_turns retry class — failure-class
+   *  spec §B). Only ever ≥ 1; the manifest cap stays private to the runner. */
+  maxTurnsFactor?: number;
   /** When set (with a mailbox in deps), the run gets send_mail + its unread-mail block.
    *  goalDepth = the running goal's chain_depth (0 for chat/hand_off/standup runs). */
   mailCtx?: { origin: { channel: string; chatId: string }; goalDepth: number; goalId?: string; nodeKey?: string };
@@ -140,6 +143,7 @@ export function makeRunSpecialist(deps: {
     const resolved = deps.resolveAgent(roleName, opts.origin ?? DEFAULT_ORIGIN, {
       cwd: opts.cwd, workspace: opts.workspace,
       idempotencyKey: opts.idempotencyKey, model: opts.model,
+      maxTurnsFactor: opts.maxTurnsFactor,
       onDeny: (tool, reason) => collect(tool, reason, "guard"),
     });
     if (!resolved) throw new Error(`Unknown agent: ${roleName}`);
