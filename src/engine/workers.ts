@@ -254,10 +254,17 @@ export async function runAttempt(
         // retry brief is byte-identical, burning the second attempt for nothing. The prefix test
         // is what keeps this honest: lastError also holds timeouts and wall-clock messages, and
         // only errors this file wrote are read back.
-        const priorError = nodeState()?.lastError;
+        const st = nodeState();
+        const priorError = st?.lastError;
         const priorBlockers = priorError?.startsWith(BLOCKED_PREFIX) ? priorError.slice(BLOCKED_PREFIX.length) : "";
+        // Guidance was unreachable for run nodes until goal.reopened (they never park for
+        // review); same block, exact same string, as loop/verify. After a reopen lastError is
+        // null (the fold wiped it), so guidance and blockers never collide from a reopen —
+        // they CAN co-exist on a normal ⑭-gated retry, and both appearing is intended.
+        const runGuidance = st?.reviewGuidance;
         const brief = [
           spec.brief, ctx,
+          runGuidance ? `# User guidance (from review) — follow this\n${runGuidance}` : "",
           priorBlockers && `# Your previous attempt reported it could not complete\n${priorBlockers}\n\nResolve these, or report completed:false again with what is still missing.`,
         ].filter(Boolean).join("\n\n");
         const res = await runAgent(spec.agent, brief, WORK_REPORT_SCHEMA);

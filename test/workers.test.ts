@@ -559,4 +559,24 @@ describe("run nodes demand a work report", () => {
       expect(briefs[0]).not.toContain(priorError);
     }
   });
+
+  it("a reopened run node carries the human guidance in its brief", async () => {
+    const briefs: string[] = [];
+    const { store, deps, goal } = harness(async (_r, brief) => {
+      briefs.push(brief);
+      return { text: "recovered", structured: { completed: true, summary: "ok", blockers: [] }, costUsd: 0.01, numTurns: 1 };
+    });
+    appendEvents(store, "g1", [
+      { type: "attempt.finished", payload: { node: "design", attempt: 1, outcome: "error", costCents: 0, turns: 1, error: "boom" } },
+      { type: "attempt.finished", payload: { node: "design", attempt: 2, outcome: "error", costCents: 0, turns: 1, error: "boom" } },
+      { type: "node.failed", payload: { node: "design", error: "boom" } },
+      { type: "goal.failed", payload: { error: "node design failed: boom" } },
+      { type: "goal.reopened", payload: { by: "user", guidance: "the missing file now exists — use vault_read" } },
+    ]);
+
+    const res = await runAttempt(goal(), SPEC(), 3, deps);
+    expect(res.outcome).toBe("ok");
+    expect(briefs[0]).toContain("# User guidance (from review) — follow this");
+    expect(briefs[0]).toContain("the missing file now exists — use vault_read");
+  });
 });
