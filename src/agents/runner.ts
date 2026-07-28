@@ -55,11 +55,26 @@ export function roleQueryOptions(role: RoleDef, opts: { cwd: string; model?: str
 
 
 
+/** One denied tool, correlated exactly to the run that hit it (policy-wall spec §1).
+ *  `layer` decides the fix: "allowlist" is grantable via permission.grant; "guard" is
+ *  engine policy and is not. `role` is the canonical role that hit the wall — a loop/verify
+ *  attempt runs two roles and the grant must name the right one. */
+export interface DeniedTool { role: string; tool: string; reason: string; layer: "allowlist" | "guard" }
+
+/** A specialist failure that still carries what the run learned before dying —
+ *  denials survive the throw (the burn-turns-against-a-wall case). */
+export class SpecialistError extends Error {
+  readonly name = "SpecialistError";
+  constructor(message: string, readonly denials: DeniedTool[] = []) { super(message); }
+}
+
 export interface SpecialistResult {
   text: string;
   structured?: unknown;
   costUsd: number;
   numTurns: number;
+  /** Tools the run reached for and was refused, both layers (policy-wall spec §1). */
+  denials?: DeniedTool[];
 }
 
 export interface RunOptions {
@@ -112,13 +127,24 @@ export function makeRunSpecialist(deps: {
   resolveAgent: import("./resolve.js").ResolveAgentFn;
 }): SpecialistRunFn {
   return async (roleName, brief, opts) => {
+    // Per-run denial collector (policy-wall spec §1). `collectRole` starts as the alias and is
+    // upgraded to the canonical name right after resolution — grants key on canonical names.
+    const denials: DeniedTool[] = [];
+    let collectRole = roleName;
+    const collect = (tool: string, reason: string, layer: DeniedTool["layer"]): void => {
+      if (!denials.some((d) => d.tool === tool && d.layer === layer)) {
+        denials.push({ role: collectRole, tool, reason, layer });
+      }
+    };
     // THE one resolution path (org-model spec §7): capabilities → tools/servers/guards/model.
     const resolved = deps.resolveAgent(roleName, opts.origin ?? DEFAULT_ORIGIN, {
       cwd: opts.cwd, workspace: opts.workspace,
       idempotencyKey: opts.idempotencyKey, model: opts.model,
+      onDeny: (tool, reason) => collect(tool, reason, "guard"),
     });
     if (!resolved) throw new Error(`Unknown agent: ${roleName}`);
     const { canonical, def } = resolved;
+    collectRole = canonical;
     const role = def.role;
 
     const abort = new AbortController();
@@ -143,7 +169,10 @@ export function makeRunSpecialist(deps: {
       const withSchema = schema
         ? { ...merged, allowedTools: [...new Set([...(merged.allowedTools ?? []), "StructuredOutput"])] }
         : merged;
-      const observed = withDenialObserver(withSchema, canonical, (e) => deps.bus.emit({ type: "tool.denied", ...e }));
+      const observed = withDenialObserver(withSchema, canonical, (e) => {
+        collect(e.tool, `${e.tool} is not in ${canonical}'s allowlist`, "allowlist");
+        deps.bus.emit({ type: "tool.denied", ...e });
+      });
       const q = query({
         prompt: brief,
         options: {
@@ -166,14 +195,16 @@ export function makeRunSpecialist(deps: {
               structured: msg.structured_output,
               costUsd: msg.total_cost_usd,
               numTurns: msg.num_turns,
+              ...(denials.length ? { denials } : {}),
             };
           }
-          throw new Error(
+          throw new SpecialistError(
             `Specialist ${roleName} failed: ${msg.subtype}${"errors" in msg ? ` — ${msg.errors.join("; ")}` : ""}`,
+            denials,
           );
         }
       }
-      throw new Error(`Specialist ${roleName} ended without a result message`);
+      throw new SpecialistError(`Specialist ${roleName} ended without a result message`, denials);
     } finally {
       opts.signal?.removeEventListener("abort", onAbort);
     }

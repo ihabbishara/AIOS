@@ -39,6 +39,8 @@ export interface ResolveCtx {
   idempotencyKey?: string;
   /** Caller model override — loses to a per-agent manifest `model:`, wins over kind tiering. */
   model?: string;
+  /** Per-run denial collector (policy-wall spec §1) — receives every guard-layer deny. */
+  onDeny?: (tool: string, reason: string) => void;
 }
 
 export interface ResolvedAgent {
@@ -250,7 +252,7 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
 
     if (guards.length > 0) {
       const g = combineGuards(guards);
-      const wired = guardOptions(g.checks, g.fallback ?? "allow");
+      const wired = guardOptions(g.checks, g.fallback ?? "allow", ctx.onDeny);
       options = { ...options, canUseTool: wired.canUseTool, hooks: { ...(options.hooks ?? {}), ...(wired.hooks ?? {}) } };
     }
 

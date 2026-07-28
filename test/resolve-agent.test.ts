@@ -182,4 +182,19 @@ describe("resolveAgent", () => {
     expect(r.personaSurface).toContain(`## Pillar: ${registry.agents.get(name)!.department}`);
     expect(String(r.options.systemPrompt)).toContain(r.personaSurface.slice(0, 60)); // surface is a prefix of the real prompt
   });
+
+  it("threads ctx.onDeny into the guard chain: a guard deny reaches the collector", async () => {
+    // Workspace-less resolution of a code-capable agent mounts advisoryGuard (resolve.ts),
+    // which denies filesystem tools — the exact wall from goal f83d56cf.
+    const { resolve } = setup();
+    const seen: Array<[string, string]> = [];
+    const resolved = resolve("atlas", origin, {
+      onDeny: (tool, reason) => seen.push([tool, reason]),
+    })!;
+    expect(resolved).toBeTruthy();
+    const v = await resolved.options.canUseTool!("Read", {}, { signal: new AbortController().signal, toolUseID: "t1" });
+    expect(v).toMatchObject({ behavior: "deny" });
+    expect(seen[0][0]).toBe("Read");
+    expect(seen[0][1]).toContain("filesystem/exec disabled");
+  });
 });
