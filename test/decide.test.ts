@@ -181,3 +181,48 @@ describe("decide", () => {
     expect(decide([reduce(evs)], CAPS, 1000)).toEqual([]);
   });
 });
+
+describe("decide after goal.reopened", () => {
+  const failedThenReopened = (guidance?: string) => {
+    let events = goal("g1", [{ key: "a" }]);
+    const g0 = events[events.length - 1].gseq;
+    events = [...events,
+      ev("g1", g0 + 1, "attempt.started", { node: "a", attempt: 1, agent: "vulcan", deadlineTs: 9e12, idempotencyKey: "g1:a:1" }),
+      ev("g1", g0 + 2, "attempt.finished", { node: "a", attempt: 1, outcome: "error", costCents: 0, turns: 1, error: "boom" }),
+      ev("g1", g0 + 3, "attempt.started", { node: "a", attempt: 2, agent: "vulcan", deadlineTs: 9e12, idempotencyKey: "g1:a:2" }),
+      ev("g1", g0 + 4, "attempt.finished", { node: "a", attempt: 2, outcome: "error", costCents: 0, turns: 1, error: "boom" }),
+      ev("g1", g0 + 5, "node.failed", { node: "a", error: "boom" }),
+      ev("g1", g0 + 6, "goal.failed", { error: "node a failed: boom" }),
+      ev("g1", g0 + 7, "goal.reopened", { by: "user", ...(guidance ? { guidance } : {}) }, 2000),
+    ];
+    return events;
+  };
+
+  it("a reopened node is a FRESH start candidate — not FailNode'd by the attempts sweep", () => {
+    const cmds = decide([reduce(failedThenReopened())], CAPS, 2500);
+    expect(cmds).toEqual([{ cmd: "StartAttempt", goalId: "g1", node: "a", attempt: 3 }]);
+  });
+
+  it("attempt numbering continues from the high-water mark (attempt 3, not 1)", () => {
+    const cmds = decide([reduce(failedThenReopened())], CAPS, 2500);
+    expect((cmds[0] as { attempt: number }).attempt).toBe(3);
+  });
+
+  it("a reopened workspace-failed goal re-issues PrepareWorkspace, not FailGoal", () => {
+    let events = goal("g1", [{ key: "a" }]).slice(0, 2); // created + plan, NO workspace.prepared
+    const g0 = events[events.length - 1].gseq;
+    events = [...events,
+      ev("g1", g0 + 1, "workspace.failed", { error: "Refused: source path is on the secret denylist" }),
+      ev("g1", g0 + 2, "goal.failed", { error: "workspace setup failed: …" }),
+      ev("g1", g0 + 3, "goal.reopened", { by: "user" }, 2000),
+    ];
+    const cmds = decide([reduce(events)], CAPS, 2500);
+    expect(cmds).toEqual([{ cmd: "PrepareWorkspace", goalId: "g1" }]);
+  });
+
+  it("wall-time is measured from the reopen, not the original creation", () => {
+    // reopen at ts=2000, wallTimeMs=60_000 → at now=61_000 (past created+wall, within reopen+wall) no FailGoal
+    const cmds = decide([reduce(failedThenReopened())], CAPS, 61_000);
+    expect(cmds.some((c) => c.cmd === "FailGoal")).toBe(false);
+  });
+});
