@@ -88,6 +88,16 @@ describe("buildAttentionView", () => {
     expect(items.every((i) => i.actions.includes("resume"))).toBe(true);
   });
 
+  it("failed goals offer reopen (⑮ resurrection, surfaced in the inbox — cycle ⑱)", () => {
+    const store = new Store(":memory:");
+    store.insertGoal(goal("gr"));
+    store.updateGoalStatus("gr", "failed", "boom");
+    const items = buildAttentionView(store, undefined, NOW);
+    const g = items.find((i) => i.kind === "goal")!;
+    expect(g.actions).toEqual(["open", "reopen", "abandon"]);
+    expect(g.ref.goalId).toBe("gr");
+  });
+
   it("skips legacy goals and threads whose only flag is a pending ask (ranked higher already)", () => {
     const store = new Store(":memory:");
     store.insertGoal(goal("gl"));

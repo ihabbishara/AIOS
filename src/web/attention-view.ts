@@ -68,7 +68,7 @@ export function buildAttentionView(
       kind: "goal", id: g.id, title: g.title,
       meta: `${g.department} · ${g.status === "failed" ? firstLine(g.error ?? "failed", 80) : g.status}`,
       severity: 3, ts: g.updated_at,
-      actions: g.status === "failed" ? ["open", "abandon"] : ["open", "resume", "abandon"],
+      actions: g.status === "failed" ? ["open", "reopen", "abandon"] : ["open", "resume", "abandon"],
       ref: { goalId: g.id, slug: g.slug, status: g.status },
     });
   }
