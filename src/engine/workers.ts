@@ -5,7 +5,7 @@
 // with the critic's last feedback, not round 1.
 import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
-import type { SpecialistRunFn } from "../agents/runner.js";
+import { SpecialistError, type SpecialistRunFn, type DeniedTool } from "../agents/runner.js";
 import { WORK_REPORT_SCHEMA } from "../agents/roles/index.js";
 import type { AiosEvent } from "../events.js";
 import {
@@ -135,6 +135,9 @@ export interface WorkerDeps {
   nodeTimeoutMs: number;
   /** Injected so tests never actually wait. Defaults to a real timer. */
   sleep?: (ms: number) => Promise<void>;
+  /** Queue an always-supervised permission.grant (policy-wall spec §3). Optional — absent in
+   *  tests and stripped-down harnesses; the park still names the tool either way. */
+  proposeGrant?: (role: string, tool: string) => Promise<void>;
 }
 
 export interface AttemptResult {
@@ -164,6 +167,10 @@ export async function runAttempt(
   const controller = deps.registry.register(regKey);
   let costCents = 0;
   let turns = 0;
+  const denied = new Map<string, DeniedTool>(); // key role:tool — all runAgent calls of this attempt feed it
+  const collectDenials = (ds?: DeniedTool[]): void => {
+    for (const d of ds ?? []) denied.set(`${d.role}:${d.tool}`, d);
+  };
 
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
@@ -201,6 +208,7 @@ export async function runAttempt(
         deps.onEvent?.({ type: "agent.end", agent: role, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
         costCents += Math.round((res.costUsd ?? 0) * 100);
         turns += res.numTurns ?? 0;
+        collectDenials(res.denials);
         return res;
       }
     } catch (err) {
@@ -246,6 +254,30 @@ export async function runAttempt(
   /** Fresh fold — resume data (rounds, feedback, last artifact) survives crashes/retries. */
   const nodeState = () => reduce(readJournal(store, goal.id)).nodes.get(spec.key);
 
+  /** Agent-caused error funnel (policy-wall spec §2): if the attempt hit denied tools, park
+   *  needs-review naming each wall instead of joining the retry treadmill — the retry would
+   *  hit the same wall. Infra outcomes (timeout/abort/session-limit/api) never come here. */
+  const finishOrPark = (error: string): void => {
+    if (denied.size === 0) { finish("error", error); return; }
+    const walls = [...denied.values()];
+    for (const d of walls.filter((w) => w.layer === "allowlist")) {
+      // Fire-and-forget: a gate failure must not lose the park; objections still name the tool.
+      void deps.proposeGrant?.(d.role, d.tool).catch((e) =>
+        deps.log?.(`proposeGrant ${d.role}/${d.tool} failed: ${(e as Error).message}`));
+    }
+    const objections = walls.map((d) => d.layer === "allowlist"
+      ? `${d.role} was denied: ${d.tool} (not in allowlist). A permission grant is queued in Actions — approve it (or reject), then Retry.`
+      : `${d.role} was denied: ${d.tool} — "${d.reason}". This is engine policy, not a grantable permission; fix the cause (e.g. reopen with guidance, or give the goal a workspace) and Retry.`);
+    const artifact = save(`${spec.key}-a${attempt}-denied.md`,
+      `# Attempt ${attempt} blocked by denied tools\n\n**Error:** ${error}\n\n${objections.map((o) => `- ${o}`).join("\n")}`,
+      spec.agent);
+    appendEvents(store, goal.id, [
+      { type: "attempt.finished", payload: { node: spec.key, attempt, outcome: "error", costCents, turns, error } },
+      { type: "review.requested", payload: { node: spec.key, lastArtifactRef: artifact, objections } },
+    ]);
+    deps.onEvent?.({ type: "node.status", goalId: goal.id, nodeKey: spec.key, status: "needs-review", agent: spec.agent });
+  };
+
   try {
     const ctx = contextBlock(goal, ancestorArtifacts(store.listNodes(goal.id), spec.key), vault);
     switch (spec.kind) {
@@ -272,7 +304,7 @@ export async function runAttempt(
         // downstream nodes consumed it as fact. The transport-error family is caught in
         // runAgent; empty output is the remaining way to complete a node having produced nothing.
         if (!res.text.trim()) {
-          finish("error", "agent returned no output");
+          finishOrPark("agent returned no output");
           return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
         // Articulate prose saying "I could not do this" was the remaining false success: 1.4KB of
@@ -283,7 +315,7 @@ export async function runAttempt(
         // undefined — a truthiness test would error a node whose work was fine.
         const rep = res.structured as Partial<WorkReport> | undefined;
         if (rep?.completed === false) {
-          finish("error", `${BLOCKED_PREFIX}${rep.blockers?.join("; ") || rep.summary || "no reason given"}`);
+          finishOrPark(`${BLOCKED_PREFIX}${rep.blockers?.join("; ") || rep.summary || "no reason given"}`);
           return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
         // ponytail: lenient — a missing report keeps today's rule rather than erroring like verify
@@ -385,10 +417,7 @@ export async function runAttempt(
           // Carry what the agent DID say: reading this error should not require opening the vault.
           const snippet = lastRunnerText.trim().replace(/\s+/g, " ").slice(0, 200);
           save(`${spec.key}.md`, "No structured test report produced.", spec.agent);
-          appendEvents(store, goal.id, [{ type: "attempt.finished", payload: {
-            node: spec.key, attempt, outcome: "error", costCents, turns,
-            error: snippet ? `no structured report (last output: "${snippet}")` : "no structured report",
-          } }]);
+          finishOrPark(snippet ? `no structured report (last output: "${snippet}")` : "no structured report");
           return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
         if (!report.passed) {
@@ -422,7 +451,9 @@ export async function runAttempt(
     const abortReason = deps.registry.reason(regKey);
     const outcome: AttemptOutcome =
       abortReason === "timeout" ? "timeout" : abortReason ? "aborted" : "error";
-    finish(outcome, (err as Error).message);
+    if (err instanceof SpecialistError) collectDenials(err.denials);
+    if (outcome === "error") finishOrPark((err as Error).message);
+    else finish(outcome, (err as Error).message);
     return { claimed: true, outcome, sessionLimit: false, apiUnreachable: false };
   } finally {
     deps.registry.finish(regKey);

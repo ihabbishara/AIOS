@@ -7,7 +7,7 @@ import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { appendEvents, readJournal, type NodeSpec, type JournalEventType } from "../src/engine/journal.js";
 import { AbortRegistry, runAttempt, ancestorArtifacts, isApiErrorOutput, type WorkerDeps } from "../src/engine/workers.js";
-import type { SpecialistRunFn } from "../src/agents/runner.js";
+import { SpecialistError, type SpecialistRunFn } from "../src/agents/runner.js";
 import { WORK_REPORT_SCHEMA } from "../src/agents/roles/index.js";
 
 const SPEC = (over: Partial<NodeSpec> = {}): NodeSpec =>
@@ -578,5 +578,100 @@ describe("run nodes demand a work report", () => {
     expect(res.outcome).toBe("ok");
     expect(briefs[0]).toContain("# User guidance (from review) — follow this");
     expect(briefs[0]).toContain("the missing file now exists — use vault_read");
+  });
+});
+
+
+describe("policy-wall park", () => {
+  const DENIED = [{ role: "athena", tool: "Bash", reason: "Bash is not in athena's allowlist", layer: "allowlist" as const }];
+  const GUARD_DENIED = [{ role: "athena", tool: "Read", reason: "advisory context: filesystem/exec disabled — use recall/vault_read", layer: "guard" as const }];
+
+  it("attempt error + allowlist denial → parks needs-review and queues a grant", async () => {
+    const grants: Array<[string, string]> = [];
+    const { store, deps, goal } = harness(async () => ({
+      text: "I could not do it",
+      structured: { completed: false, summary: "blocked", blockers: ["Bash denied"] },
+      denials: DENIED, costUsd: 0.1, numTurns: 3,
+    }));
+    deps.proposeGrant = async (role, tool) => { grants.push([role, tool]); };
+
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("error");
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "error" });
+    const park = payloadOf(store, "review.requested")[0] as { objections: string[]; lastArtifactRef: string };
+    expect(park.objections.join("\n")).toContain("athena was denied: Bash");
+    expect(park.objections.join("\n")).toContain("Actions");
+    expect(park.lastArtifactRef).toContain("denied");
+    expect(store.listNodes("g1")[0].status).toBe("needs-review");
+    expect(grants).toEqual([["athena", "Bash"]]);
+  });
+
+  it("guard-layer denial → parks with the verbatim reason, NO grant queued", async () => {
+    const grants: string[] = [];
+    const { store, deps, goal } = harness(async () => ({
+      text: "blocked", structured: { completed: false, summary: "fs blocked", blockers: [] },
+      denials: GUARD_DENIED, costUsd: 0.1, numTurns: 3,
+    }));
+    deps.proposeGrant = async (_r, t) => { grants.push(t); };
+
+    await runAttempt(goal(), SPEC(), 1, deps);
+    const park = payloadOf(store, "review.requested")[0] as { objections: string[] };
+    expect(park.objections.join("\n")).toContain("filesystem/exec disabled");
+    expect(park.objections.join("\n")).toContain("not a grantable permission");
+    expect(grants).toEqual([]);
+  });
+
+  it("mixed layers → both objections, grant only for the allowlist one", async () => {
+    const grants: string[] = [];
+    const { store, deps, goal } = harness(async () => ({
+      text: "blocked", structured: { completed: false, summary: "walls", blockers: [] },
+      denials: [...DENIED, ...GUARD_DENIED], costUsd: 0.1, numTurns: 3,
+    }));
+    deps.proposeGrant = async (_r, t) => { grants.push(t); };
+
+    await runAttempt(goal(), SPEC(), 1, deps);
+    const park = payloadOf(store, "review.requested")[0] as { objections: string[] };
+    expect(park.objections).toHaveLength(2);
+    expect(grants).toEqual(["Bash"]);
+  });
+
+  it("a successful attempt with denials parks nothing", async () => {
+    const grants: string[] = [];
+    const { store, deps, goal } = harness(async () => ({
+      text: "worked around it", structured: { completed: true, summary: "ok", blockers: [] },
+      denials: DENIED, costUsd: 0.1, numTurns: 3,
+    }));
+    deps.proposeGrant = async (_r, t) => { grants.push(t); };
+
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("ok");
+    expect(journalTypes(store)).not.toContain("review.requested");
+    expect(grants).toEqual([]);
+  });
+
+  it("a thrown SpecialistError carrying denials parks; a plain error does not", async () => {
+    const { store, deps, goal } = harness(async () => {
+      throw new SpecialistError("Specialist athena failed: error_max_turns", DENIED);
+    });
+    deps.proposeGrant = async () => {};
+    await runAttempt(goal(), SPEC(), 1, deps);
+    expect(journalTypes(store)).toContain("review.requested");
+
+    const plain = harness(async () => { throw new Error("flake"); });
+    await runAttempt(plain.goal(), SPEC(), 1, plain.deps);
+    expect(journalTypes(plain.store)).not.toContain("review.requested");
+  });
+
+  it("session-limit and api-unreachable keep their semantics even with denials recorded", async () => {
+    const sl = harness(async () => ({ text: "You've hit your session limit", denials: DENIED, costUsd: 0, numTurns: 1 }));
+    const r1 = await runAttempt(sl.goal(), SPEC(), 1, sl.deps);
+    expect(r1.sessionLimit).toBe(true);
+    expect(journalTypes(sl.store)).not.toContain("review.requested");
+
+    const api = harness(async () => ({ text: "API Error: Unable to connect to API", denials: DENIED, costUsd: 0, numTurns: 0 }));
+    api.deps.sleep = async () => {};
+    const r2 = await runAttempt(api.goal(), SPEC(), 1, api.deps);
+    expect(r2.apiUnreachable).toBe(true);
+    expect(journalTypes(api.store)).not.toContain("review.requested");
   });
 });
