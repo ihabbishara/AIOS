@@ -441,7 +441,8 @@ export async function runAttempt(
     return { claimed: true, outcome: "ok", sessionLimit: false, apiUnreachable: false };
   } catch (err) {
     if (err instanceof SessionLimitError) {
-      finish("error", err.message);
+      // ⑰ §A1: quota exhaustion is infra, not the agent — the attempt must not count.
+      finish("error", err.message, undefined, true);
       return { claimed: true, outcome: "error", sessionLimit: true, apiUnreachable: false };
     }
     if (err instanceof ApiUnreachableError) {

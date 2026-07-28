@@ -240,12 +240,29 @@ describe("engine core (ports of goal-scheduler intents)", () => {
     expect(store.getGoal(g.id)!.error).toMatch(/re-planning failed: lead returned no patch ops/);
   });
 
-  it("session-limit output pauses the goal (paused-user), planner untouched", async () => {
+  it("session-limit output pauses the goal (paused-session), planner untouched", async () => {
     const run: SpecialistRunFn = async () => ({ text: "You've hit your session limit — resets at 3pm", costUsd: 0, numTurns: 1 });
     const { engine, store, completions } = harness({ run });
     const g = plannedGoal(engine, [{ key: "a" }]);
-    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("paused-user"));
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("paused-session"));
     expect(completions).toEqual([]);
+  });
+
+  it("resumeSessionPaused probes only after 30 min; a reset quota lets the goal finish", async () => {
+    let limited = true;
+    const { engine, store } = harness({
+      run: async () => (limited
+        ? { text: "You've hit your session limit — resets at 3pm", costUsd: 0, numTurns: 1 }
+        : { text: "out", costUsd: 0.01, numTurns: 1 }),
+    });
+    const g = plannedGoal(engine, [{ key: "a" }]);
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("paused-session"));
+
+    expect(engine.resumeSessionPaused()).toBe(0); // just paused — the 30-min gate holds
+    limited = false;
+    expect(engine.resumeSessionPaused(() => Date.now() + 31 * 60_000)).toBe(1);
+    // the limited attempt was never counted, so the node still has budget to finish
+    await vi.waitFor(() => expect(store.getGoal(g.id)!.status).toBe("done"));
   });
 
   it("per-node timeout: a hung attempt is aborted on tick and retried/failed visibly", async () => {

@@ -25,6 +25,9 @@ import { decide, type Caps, type Command } from "./decide.js";
 import { AbortRegistry, runAttempt } from "./workers.js";
 
 const FACADE_PREFIX = "playbook:";
+
+/** Minimum age of a session pause before the heartbeat probes it (failure-class spec §A4). */
+const SESSION_PROBE_MIN_AGE_MS = 30 * 60_000;
 /** plan_summary marker for mail-spawned goals (single node, never re-planned). */
 export const MAIL_PREFIX = "mail:";
 
@@ -268,7 +271,7 @@ export class GoalEngine {
         proposeGrant: this.deps.proposeGrant,
       });
       if (res.sessionLimit && this.fold(goalId).phase === "running") {
-        this.journal(goalId, [{ type: "goal.paused", payload: { reason: "user", error: "Agent hit session limit — re-run after quota resets" } }]);
+        this.journal(goalId, [{ type: "goal.paused", payload: { reason: "session", error: "Agent hit session limit — re-run after quota resets" } }]);
       }
       if (res.apiUnreachable && this.fold(goalId).phase === "running") {
         // Infrastructure, not the agent. Pause with the verbatim error; the heartbeat resumes it.
@@ -547,6 +550,17 @@ export class GoalEngine {
     for (const g of paused) this.journal(g.id, [{ type: "goal.resumed", payload: { by: "api-recovered" } }]);
     if (paused.length) this.tick();
     return paused.length;
+  }
+
+  /** Session quota may have reset — probe goals parked on the limit, at most every 30 min.
+   *  A still-limited probe re-pauses uncounted, so the loop costs one spawn per window. */
+  resumeSessionPaused(now: () => number = Date.now): number {
+    const cutoff = now() - SESSION_PROBE_MIN_AGE_MS;
+    const due = this.deps.store.pausedSessionGoals()
+      .filter((g) => new Date(g.updated_at).getTime() <= cutoff);
+    for (const g of due) this.journal(g.id, [{ type: "goal.resumed", payload: { by: "session-probe" } }]);
+    if (due.length) this.tick();
+    return due.length;
   }
 
   // ---------- completion ----------

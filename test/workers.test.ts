@@ -73,15 +73,17 @@ describe("runAttempt — run nodes", () => {
     expect(journalTypes(store)).not.toContain("node.completed");
   });
 
-  it("session-limit output → outcome error + sessionLimit flag, run not retried here", async () => {
+  it("session-limit output → outcome error + sessionLimit flag, uncounted, run not retried here", async () => {
     let calls = 0;
-    const { deps, goal } = harness(async () => {
+    const { store, deps, goal } = harness(async () => {
       calls++;
       return { text: "You've hit your session limit — resets at 3pm", costUsd: 0, numTurns: 1 };
     });
     const res = await runAttempt(goal(), SPEC(), 1, deps);
     expect(res.sessionLimit).toBe(true);
     expect(calls).toBe(1);
+    // ⑰ §A1: quota exhaustion is infra, not the agent — the attempt must not count.
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({ outcome: "error", uncounted: true });
   });
 
   it("abort with timeout reason → outcome timeout; budget reason → aborted", async () => {

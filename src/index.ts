@@ -750,7 +750,7 @@ async function main(): Promise<void> {
         try { store.pruneMemoryUse(new Date(Date.now() - 90 * 86_400_000).toISOString()); } catch { /* best-effort */ }
       }
     },
-    onTick: () => { goals.resumeBudgetPaused(); goals.resumeApiPaused(); },
+    onTick: () => { goals.resumeBudgetPaused(); goals.resumeApiPaused(); goals.resumeSessionPaused(); },
     onReminderDue: (r) =>
       bus.emit({ type: "reminder.due", id: r.id, text: r.text, channel: r.origin_channel, chatId: r.origin_chat_id }),
     onRoutineDue: (r) =>
