@@ -23,19 +23,21 @@ export function buildAttentionView(
   const items: AttentionItem[] = [];
   const nowIso = now().toISOString();
 
-  // 1 — approvals (proposed, not yet expired; the sweep is lazy so filter here too)
-  for (const a of store.listActions("proposed", 100)) {
-    if (a.expires_at <= nowIso) continue;
-    items.push({
-      kind: "approval", id: a.id, title: firstLine(a.preview),
-      meta: `${a.type} · expires ${a.expires_at.slice(5, 16).replace("T", " ")}`,
-      severity: 1, ts: a.created_at, actions: ["approve", "reject", "open"],
-      ref: { actionId: a.id },
+  // 2 — nodes parked at a quality cap awaiting a verdict (verification-hardening §4).
+  // Built before approvals: a policy-wall park's auto-proposed permission.grant folds into
+  // its review row (one human decision, one row — triage-inbox spec §A), matched by the
+  // exact denial line workers.ts writes into the objections.
+  const linkedGrantIds = new Set<string>();
+  const proposedGrants = store.listActions("proposed", 200)
+    .filter((a) => a.type === "permission.grant" && a.expires_at > nowIso)
+    .map((a) => {
+      const p = JSON.parse(a.payload) as { role?: string; tool?: string };
+      return { id: a.id, role: p.role ?? "", tool: p.tool ?? "" };
     });
-  }
-
-  // 2 — nodes parked at a quality cap awaiting a verdict (verification-hardening §4)
   for (const n of store.needsReviewNodes()) {
+    const grants = proposedGrants.filter((g) =>
+      (n.error ?? "").includes(`${g.role} was denied: ${g.tool} (not in allowlist)`));
+    for (const g of grants) linkedGrantIds.add(g.id);
     items.push({
       kind: "review", id: `${n.goal_id}:${n.node_key}`,
       title: `${n.goal_title} · ${n.node_key} hit its quality cap`,
@@ -46,6 +48,20 @@ export function buildAttentionView(
         goalId: n.goal_id, node: n.node_key, slug: n.goal_slug,
         ...(n.artifact ? { artifact: n.artifact } : {}),
       },
+      ...(grants.length ? { grants } : {}),
+    });
+  }
+
+  // 1 — approvals (proposed, not yet expired; the sweep is lazy so filter here too).
+  // Grants folded into a review row above are skipped — resolving them happens there.
+  for (const a of store.listActions("proposed", 100)) {
+    if (a.expires_at <= nowIso) continue;
+    if (linkedGrantIds.has(a.id)) continue;
+    items.push({
+      kind: "approval", id: a.id, title: firstLine(a.preview),
+      meta: `${a.type} · expires ${a.expires_at.slice(5, 16).replace("T", " ")}`,
+      severity: 1, ts: a.created_at, actions: ["approve", "reject", "open"],
+      ref: { actionId: a.id },
     });
   }
 

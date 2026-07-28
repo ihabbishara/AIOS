@@ -198,6 +198,9 @@ export interface AttentionItem {
   actions: string[];
   /** Kind-specific pointers the canvas needs (actionId, mailId, threadId, goalId, node, slug, status, sense, artifact). */
   ref: Record<string, string>;
+  /** Proposed permission.grant actions folded into this review row (policy-wall park —
+   *  triage-inbox spec §A): one human decision, one row. */
+  grants?: Array<{ id: string; role: string; tool: string }>;
 }
 
 /** GET /api/health (already served; typed here so ui2 can consume it). */
