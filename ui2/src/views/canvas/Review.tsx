@@ -23,6 +23,19 @@ export function ReviewCanvas({ item, events, onDone }: {
       setError((err as Error).message);
     }
   };
+  // Policy-wall park (triage-inbox spec §B3): the folded grants approve first, then the node
+  // retries past the wall. Partial failure (grants in, retry threw) recovers via plain Retry.
+  const grants = item.grants ?? [];
+  const approveAndRetry = async () => {
+    setError("");
+    try {
+      for (const g of grants) await api.resolveAction(g.id, "approve");
+      await api.resolveReview(item.ref.goalId, item.ref.node, "retry", guidance.trim() ? guidance : undefined);
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
   if (!goal) return <Empty>Loading…</Empty>;
   return (
     <div className="max-w-3xl">
@@ -41,8 +54,18 @@ export function ReviewCanvas({ item, events, onDone }: {
         placeholder="Guidance for a retry (optional — injected as producer feedback)"
         className="w-full bg-raised rounded p-2 text-[13px] mb-3"
       />
+      {grants.length > 0 && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          {grants.map((g) => (
+            <span key={g.id} className="text-[11px] bg-raised rounded px-2 py-1">grant: {g.role} → {g.tool}</span>
+          ))}
+        </div>
+      )}
       <div className="flex gap-2">
-        <Button variant="primary" onClick={() => void resolve("accept")}>Accept with waiver</Button>
+        {grants.length > 0 && (
+          <Button variant="primary" onClick={() => void approveAndRetry()}>Approve grant & Retry</Button>
+        )}
+        <Button variant={grants.length ? "ghost" : "primary"} onClick={() => void resolve("accept")}>Accept with waiver</Button>
         <Button variant="ghost" onClick={() => void resolve("retry")}>Retry</Button>
         <TwoStepButton label="Abandon node" onConfirm={() => void resolve("abandon")} />
       </div>
