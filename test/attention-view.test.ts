@@ -76,15 +76,17 @@ describe("buildAttentionView", () => {
     expect(buildAttentionView(store, senses, future)).toEqual([]);
   });
 
-  it("surfaces paused-budget and paused-user goals regardless of age", () => {
+  it("surfaces paused-budget, paused-user and paused-session goals regardless of age", () => {
     const store = new Store(":memory:");
     store.insertGoal(goal("gb"));
     store.updateGoalStatus("gb", "paused-budget");
     store.insertGoal(goal("gu"));
     store.updateGoalStatus("gu", "paused-user");
+    store.insertGoal(goal("gs"));
+    store.updateGoalStatus("gs", "paused-session");
     const future = () => new Date(Date.now() + 72 * 3_600_000);
     const items = buildAttentionView(store, undefined, future);
-    expect(items.map((i) => i.ref.status).sort()).toEqual(["paused-budget", "paused-user"]);
+    expect(items.map((i) => i.ref.status).sort()).toEqual(["paused-budget", "paused-session", "paused-user"]);
     expect(items.every((i) => i.actions.includes("resume"))).toBe(true);
   });
 

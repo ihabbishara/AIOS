@@ -84,7 +84,7 @@ export function Empty({ children }: { children: ReactNode }) {
 export function toneOfStatus(status: string): "ok" | "err" | "accent" | "agent" | "dim" {
   if (status === "running" || status === "done" || status === "ok" || status === "executed") return "ok";
   if (status === "failed" || status === "error" || status === "refused" || status === "rejected") return "err";
-  if (["awaiting-human", "awaiting-mail", "paused-user", "paused-budget", "paused-api", "proposed", "unread"].includes(status)) return "accent";
+  if (["awaiting-human", "awaiting-mail", "paused-user", "paused-budget", "paused-api", "paused-session", "proposed", "unread"].includes(status)) return "accent";
   if (status === "planning" || status === "replanning" || status === "working" || status === "executing") return "agent";
   return "dim";
 }
