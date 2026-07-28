@@ -66,8 +66,9 @@ export const api = {
     }),
   goals: () => request<GoalView[]>("/api/goals"),
   goal: (idOrSlug: string) => request<GoalDetail>(`/api/goals/${encodeURIComponent(idOrSlug)}`),
-  goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon") =>
-    request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`, { method: "POST" }),
+  goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon" | "reopen", body?: { guidance?: string }) =>
+    request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`,
+      { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) }),
   resolveReview: (goalId: string, node: string, verdict: "accept" | "retry" | "abandon", guidance?: string) =>
     request<{ message: string }>(
       `/api/goals/${encodeURIComponent(goalId)}/review/${encodeURIComponent(node)}`,

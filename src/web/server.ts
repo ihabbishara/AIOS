@@ -531,9 +531,15 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           return json(res, 200, detail);
         }
 
-        const goalCtl = /^\/api\/goals\/([\w-]+)\/(pause|resume|abandon)$/.exec(path);
+        const goalCtl = /^\/api\/goals\/([\w-]+)\/(pause|resume|abandon|reopen)$/.exec(path);
         if (goalCtl && req.method === "POST") {
           const [, ref, verb] = goalCtl;
+          if (verb === "reopen") {
+            // Only reopen reads a body — { guidance? } rides the retried nodes' briefs.
+            const body = JSON.parse((await readBody(req)) || "{}") as { guidance?: string };
+            const message = goals.reopenGoal(ref, { by: "web", guidance: body.guidance?.trim() || undefined });
+            return json(res, 200, { message });
+          }
           const message =
             verb === "pause" ? goals.pauseGoal(ref)
             : verb === "resume" ? goals.resumeGoal(ref)

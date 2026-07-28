@@ -123,6 +123,7 @@ function GoalDetailView({ slug, events, onOpenChat }: {
   const [answer, setAnswer] = useState("");
   const [askError, setAskError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [reopenGuidance, setReopenGuidance] = useState("");
   // A refused action leaves the status untouched, so once it changes the notice is stale — drop it.
   useEffect(() => setActionError(""), [goal?.status]);
   if (error) return <Empty>{error}</Empty>;
@@ -139,9 +140,13 @@ function GoalDetailView({ slug, events, onOpenChat }: {
   // The endpoint answers 200 with a plain-string reason even when it refuses (e.g. a frozen
   // legacy or already-terminal goal), so a swallowed message reads as a dead button. Surface it;
   // on success the status flips and the effect above clears the (now stale) notice.
-  const verb = async (v: "pause" | "resume" | "abandon") => {
+  const verb = async (v: "pause" | "resume" | "abandon" | "reopen") => {
     setActionError("");
-    try { setActionError((await api.goalAction(goal.id, v)).message); }
+    try {
+      const body = v === "reopen" && reopenGuidance.trim() ? { guidance: reopenGuidance.trim() } : undefined;
+      setActionError((await api.goalAction(goal.id, v, body)).message);
+      if (v === "reopen") setReopenGuidance("");
+    }
     catch (err) { setActionError((err as Error).message); }
   };
   const sendAnswer = async () => {
@@ -170,9 +175,18 @@ function GoalDetailView({ slug, events, onOpenChat }: {
           {["planning", "running", "replanning"].includes(goal.status) && <Button onClick={() => verb("pause")}>Pause</Button>}
           {["paused-user", "paused-budget", "paused-api"].includes(goal.status) && <Button variant="primary" onClick={() => verb("resume")}>Resume</Button>}
           {!["done", "abandoned"].includes(goal.status) && <TwoStepButton label="Abandon" onConfirm={() => verb("abandon")} />}
+          {["failed", "abandoned"].includes(goal.status) && <Button variant="primary" onClick={() => verb("reopen")}>Reopen</Button>}
         </span>
       </div>
       {actionError && <div className="text-[12px] text-err mb-2">{actionError}</div>}
+      {["failed", "abandoned"].includes(goal.status) && (
+        <div className="flex gap-2 mb-2 max-w-2xl">
+          <input value={reopenGuidance} onChange={(e) => setReopenGuidance(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && verb("reopen")}
+            placeholder="Optional guidance for the retry (what changed?)…"
+            className="flex-1 bg-bg border border-line rounded-md px-3 py-2 outline-none focus:border-dim text-[12px]" />
+        </div>
+      )}
       <div className="text-[12px] text-dim mb-4">{goal.planSummary}</div>
 
       {goal.awaitingUserAsk && (
