@@ -250,7 +250,16 @@ export async function runAttempt(
     const ctx = contextBlock(goal, ancestorArtifacts(store.listNodes(goal.id), spec.key), vault);
     switch (spec.kind) {
       case "run": {
-        const brief = [spec.brief, ctx].filter(Boolean).join("\n\n");
+        // A deterministic refusal ("the source file does not exist") re-fails identically if the
+        // retry brief is byte-identical, burning the second attempt for nothing. The prefix test
+        // is what keeps this honest: lastError also holds timeouts and wall-clock messages, and
+        // only errors this file wrote are read back.
+        const priorError = nodeState()?.lastError;
+        const priorBlockers = priorError?.startsWith(BLOCKED_PREFIX) ? priorError.slice(BLOCKED_PREFIX.length) : "";
+        const brief = [
+          spec.brief, ctx,
+          priorBlockers && `# Your previous attempt reported it could not complete\n${priorBlockers}\n\nResolve these, or report completed:false again with what is still missing.`,
+        ].filter(Boolean).join("\n\n");
         const res = await runAgent(spec.agent, brief, WORK_REPORT_SCHEMA);
         // A run node has no structured-output gate, so ANY text became a "done" artifact and
         // downstream nodes consumed it as fact. The transport-error family is caught in

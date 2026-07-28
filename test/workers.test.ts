@@ -522,4 +522,41 @@ describe("run nodes demand a work report", () => {
     expect(res.outcome).toBe("ok");
     expect(journalTypes(store)).toContain("node.completed");
   });
+
+  it("a retry after completed:false carries the blockers into the brief", async () => {
+    const briefs: string[] = [];
+    const { store, deps, goal } = harness(async (_r, brief) => {
+      briefs.push(brief);
+      return { text: "done now", structured: { completed: true, summary: "ok", blockers: [] }, costUsd: 0.05, numTurns: 2 };
+    });
+    appendEvents(store, "g1", [{ type: "attempt.finished", payload: {
+      node: "design", attempt: 1, outcome: "error", costCents: 15, turns: 10,
+      error: "did not complete: deck-full.md does not exist; Bash is not in my allowlist",
+    } }]);
+
+    const res = await runAttempt(goal(), SPEC(), 2, deps);
+    expect(res.outcome).toBe("ok");
+    expect(briefs[0]).toContain("previous attempt reported it could not complete");
+    expect(briefs[0]).toContain("deck-full.md does not exist; Bash is not in my allowlist");
+    expect(briefs[0]).not.toContain("did not complete:"); // the prefix is ours, not the agent's
+  });
+
+  it("a retry after an unrelated error carries nothing extra", async () => {
+    // lastError also holds timeouts and wall-clock messages. "Goal wall-time budget exceeded" is
+    // always the last symptom, never a cause — feeding it to an agent as a blocker is misdirection.
+    for (const priorError of ["timeout", "Goal wall-time budget exceeded", "Specialist clio failed: error_max_turns"]) {
+      const briefs: string[] = [];
+      const { store, deps, goal } = harness(async (_r, brief) => {
+        briefs.push(brief);
+        return { text: "done", structured: { completed: true, summary: "ok", blockers: [] }, costUsd: 0.01, numTurns: 1 };
+      });
+      appendEvents(store, "g1", [{ type: "attempt.finished", payload: {
+        node: "design", attempt: 1, outcome: "error", costCents: 0, turns: 0, error: priorError,
+      } }]);
+
+      await runAttempt(goal(), SPEC(), 2, deps);
+      expect(briefs[0]).not.toContain("previous attempt");
+      expect(briefs[0]).not.toContain(priorError);
+    }
+  });
 });
