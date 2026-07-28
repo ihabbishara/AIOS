@@ -17,6 +17,11 @@ import { reduce } from "./reduce.js";
 
 const ARTIFACT_CHAR_LIMIT = 12_000;
 
+/** Prefix on the attempt error a `completed:false` work report produces. Exported because the
+ *  retry brief reads it back off NodeState.lastError — a string contract between this file and
+ *  itself, so tests pin both directions. */
+export const BLOCKED_PREFIX = "did not complete: ";
+
 /** Backoff before each in-place retry of an unreachable API call. */
 const API_RETRY_BACKOFF_MS = [5_000, 15_000] as const;
 
@@ -254,6 +259,23 @@ export async function runAttempt(
           finish("error", "agent returned no output");
           return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
         }
+        // Articulate prose saying "I could not do this" was the remaining false success: 1.4KB of
+        // organised markdown, non-empty, no API-error envelope, journaled ok and consumed by the
+        // next node as fact (goal c03a3bda, twice). The agent now attests instead.
+        // `=== false` and NOT `!completed`: an agent carrying its own manifest schema returns a
+        // TestReport/Verdict here (runner.ts:142 lets role.outputSchema win), where `completed` is
+        // undefined — a truthiness test would error a node whose work was fine.
+        const rep = res.structured as Partial<WorkReport> | undefined;
+        if (rep?.completed === false) {
+          finish("error", `${BLOCKED_PREFIX}${rep.blockers?.join("; ") || rep.summary || "no reason given"}`);
+          return { claimed: true, outcome: "error", sessionLimit: false, apiUnreachable: false };
+        }
+        // ponytail: lenient — a missing report keeps today's rule rather than erroring like verify
+        // does (the `if (!report)` gate below). This gate sits in front of EVERY run node, and
+        // making the fleet depend on a tool call landing after an 80-turn write risks the same
+        // infrastructure-kills-goals harm the api-unreachable work just removed. Flip to strict
+        // once these log lines go quiet in the wild.
+        if (!rep) deps.log?.(`${spec.key}: no work report (agent ${spec.agent})`);
         const file = `${spec.key}.md`;
         finish("ok", undefined, { artifactRef: save(file, res.text, spec.agent), roundsUsed: 0 });
         break;

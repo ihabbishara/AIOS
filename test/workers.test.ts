@@ -447,4 +447,79 @@ describe("run nodes demand a work report", () => {
     expect((seen as { properties?: Record<string, unknown> })?.properties).toHaveProperty("completed");
     expect(seen).toBe(WORK_REPORT_SCHEMA);
   });
+
+  it("completed:false fails the attempt with the blockers, and never completes the node", async () => {
+    // Goal c03a3bda, verbatim: clio reported "I could not apply any fixes — the target files do
+    // not exist" and the engine journaled outcome:ok + node.completed. Twice.
+    const { store, deps, goal } = harness(async () => ({
+      text: "I could not apply any fixes — the target files do not exist and I have exhausted the tool budget locating them.",
+      structured: { completed: false, summary: "blocked", blockers: ["deck-full.md does not exist", "Bash is not in my allowlist"] },
+      costUsd: 0.15, numTurns: 10,
+    }));
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("error");
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({
+      outcome: "error",
+      error: "did not complete: deck-full.md does not exist; Bash is not in my allowlist",
+    });
+    expect(journalTypes(store)).not.toContain("node.completed");
+  });
+
+  it("completed:false with no blockers falls back to the summary, then to a fixed string", async () => {
+    const { store, deps, goal } = harness(async () => ({
+      text: "I can't do this — the premise is wrong.",
+      structured: { completed: false, summary: "the premise is wrong", blockers: [] },
+      costUsd: 0.1, numTurns: 6,
+    }));
+    await runAttempt(goal(), SPEC(), 1, deps);
+    expect(payloadOf(store, "attempt.finished")[0]).toMatchObject({
+      error: "did not complete: the premise is wrong",
+    });
+
+    const bare = harness(async () => ({
+      text: "nope", structured: { completed: false }, costUsd: 0.1, numTurns: 1,
+    }));
+    await runAttempt(bare.goal(), SPEC(), 1, bare.deps);
+    expect(payloadOf(bare.store, "attempt.finished")[0]).toMatchObject({
+      error: "did not complete: no reason given",
+    });
+  });
+
+  it("completed:true saves res.text byte-identically — the report never reaches the artifact", async () => {
+    const { store, vault, deps, goalDir, goal } = harness(async () => ({
+      text: "# The design\n\nThree layers.",
+      structured: { completed: true, summary: "wrote the design", blockers: [] },
+      costUsd: 0.05, numTurns: 2,
+    }));
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("ok");
+    const ref = (payloadOf(store, "node.completed")[0] as { artifactRef: string }).artifactRef;
+    const saved = vault.readGoalArtifact(goalDir, ref)!;
+    expect(saved).toContain("# The design\n\nThree layers.");
+    expect(saved).not.toContain("wrote the design");
+  });
+
+  it("no structured report completes the node (lenient) and logs which node did so", async () => {
+    const lines: string[] = [];
+    const { store, deps, goal } = harness(async () => ({ text: "the design", costUsd: 0.05, numTurns: 2 }));
+    deps.log = (l) => lines.push(l);
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("ok");
+    expect(journalTypes(store)).toContain("node.completed");
+    expect(lines.join("\n")).toContain("design: no work report (agent athena)");
+  });
+
+  it("a foreign structured shape completes the node — the test is === false, not falsy", async () => {
+    // argus carries outputSchema: test-report and minos carries verdict (runner.ts:142 lets the
+    // manifest win), so a run node using either returns an object with no `completed` key. Under
+    // `!rep.completed` that would error a node whose work was fine — strictly worse than the hole.
+    const { store, deps, goal } = harness(async () => ({
+      text: "reviewed it",
+      structured: { verdict: "approve", summary: "looks right", reasons: [] },
+      costUsd: 0.05, numTurns: 2,
+    }));
+    const res = await runAttempt(goal(), SPEC(), 1, deps);
+    expect(res.outcome).toBe("ok");
+    expect(journalTypes(store)).toContain("node.completed");
+  });
 });
