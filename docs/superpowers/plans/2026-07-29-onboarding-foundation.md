@@ -808,7 +808,7 @@ function Welcome({ onNext }: { onNext: (s: string) => void }) {
         subscription, pick a workspace, and build your org.</p>
       <button disabled={busy} onClick={() => {
         setBusy(true);
-        void api.onboardingAdvance("welcome").then((r) => onStepChange(r.step)).finally(() => setBusy(false));
+        void api.onboardingAdvance("welcome").then((r) => onNext(r.step)).finally(() => setBusy(false));
       }}>Get started</button>
     </div>
   );
@@ -847,8 +847,6 @@ function Auth({ onNext }: { onNext: (s: string) => void }) {
   );
 }
 ```
-
-Fix the `Welcome` typo while implementing: its prop is `onNext`, the body must call `onNext(r.step)` (not `onStepChange`).
 
 - [ ] **Step 4: Branch in `ui2/src/App.tsx`**
 
