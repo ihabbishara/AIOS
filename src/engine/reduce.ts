@@ -11,7 +11,7 @@ import type {
 import { pausedStatus } from "./journal.js";
 
 export type GoalPhase =
-  | "running" | "paused-budget" | "paused-user" | "paused-api" | "awaiting-mail"
+  | "running" | "paused-budget" | "paused-user" | "paused-api" | "paused-session" | "awaiting-mail"
   | "done" | "failed" | "abandoned";
 
 export interface NodeState {

@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import type { TrustRecord } from "../kernel/trust.js";
 import type { ActionRow, ActionStatus } from "../kernel/actions.js";
 
-export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "paused-api" | "replanning" | "done" | "failed" | "abandoned" | "awaiting-mail";
+export type GoalStatus = "planning" | "running" | "paused-budget" | "paused-user" | "paused-api" | "paused-session" | "replanning" | "done" | "failed" | "abandoned" | "awaiting-mail";
 export type NodeStatus = "pending" | "ready" | "running" | "done" | "failed" | "skipped" | "needs-review";
 
 export interface GoalRow {
@@ -704,6 +704,11 @@ export class Store {
 
   pausedBudgetGoals(): GoalRow[] {
     return this.db.prepare("SELECT * FROM goals WHERE status = 'paused-budget' AND legacy = 0 ORDER BY created_at ASC")
+      .all() as unknown as GoalRow[];
+  }
+
+  pausedSessionGoals(): GoalRow[] {
+    return this.db.prepare("SELECT * FROM goals WHERE status = 'paused-session' AND legacy = 0 ORDER BY created_at ASC")
       .all() as unknown as GoalRow[];
   }
 

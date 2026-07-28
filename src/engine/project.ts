@@ -132,7 +132,7 @@ export function projectEvent(store: Store, ev: JournalEvent): void {
       store.updateGoalStatus(goalId, "running");
       return;
     case "goal.paused": {
-      const p = ev.payload as { reason: "budget" | "user" | "api"; error?: string };
+      const p = ev.payload as { reason: "budget" | "user" | "api" | "session"; error?: string };
       store.updateGoalStatus(goalId, pausedStatus(p.reason), p.error);
       return;
     }
