@@ -12,7 +12,7 @@ export type JournalEventType =
   | "node.completed" | "node.failed" | "node.skipped"
   | "review.requested" | "review.resolved"
   | "ask.parked" | "ask.resumed"
-  | "goal.paused" | "goal.resumed"
+  | "goal.paused" | "goal.resumed" | "goal.reopened"
   | "goal.completed" | "goal.failed" | "goal.abandoned";
 
 export interface NodeSpec {
@@ -97,6 +97,9 @@ export interface ReviewResolvedPayload {
   /** retry only: injected as producer feedback on the granted attempt. */
   guidance?: string;
 }
+
+/** Resurrection (goal-resurrection spec §1): rewinds a failed/abandoned goal at its frontier. */
+export interface GoalReopenedPayload { by: string; guidance?: string }
 
 // ---- Append / read ----
 

@@ -216,3 +216,69 @@ describe("reduce — replay determinism", () => {
     expect(snap(mid)).toEqual(before);
   });
 });
+
+describe("reduce — goal.reopened", () => {
+  const failedGoal = () => [
+    created(), plan("a", "b"), ws(),
+    ev("attempt.started", { node: "a", attempt: 1, agent: "vulcan", deadlineTs: 9e12, idempotencyKey: "g1:a:1" }),
+    ev("attempt.finished", { node: "a", attempt: 1, outcome: "error", costCents: 5, turns: 2, error: "boom" }),
+    ev("attempt.started", { node: "a", attempt: 2, agent: "vulcan", deadlineTs: 9e12, idempotencyKey: "g1:a:2" }),
+    ev("attempt.finished", { node: "a", attempt: 2, outcome: "error", costCents: 5, turns: 2, error: "boom" }),
+    ev("node.failed", { node: "a", error: "boom" }),
+    ev("node.skipped", { node: "b" }),
+    ev("goal.failed", { error: "node a failed: boom" }),
+  ];
+
+  it("rewinds a failed goal: phase running, failed+skipped nodes pending with counters wiped", () => {
+    const s = reduce([...failedGoal(), ev("goal.reopened", { by: "user", guidance: "the file exists now" }, 5000)]);
+    expect(s.phase).toBe("running");
+    expect(s.lastResumeTs).toBe(5000);
+    const a = s.nodes.get("a")!;
+    expect(a.status).toBe("pending");
+    expect(a.attempts).toBe(0);
+    expect(a.lastOutcome).toBeNull();
+    expect(a.lastError).toBeNull();
+    expect(a.currentRound).toBe(0);
+    expect(a.loopRounds).toBe(0);
+    expect(a.runnerRounds).toBe(0);
+    expect(a.fixerRounds).toBe(0);
+    expect(a.lastVerdict).toBeNull();
+    expect(a.lastReport).toBeNull();
+    expect(a.lastFeedback).toBeNull();
+    expect(a.reviewGuidance).toBe("the file exists now");
+    expect(s.nodes.get("b")!.status).toBe("pending");
+    expect(s.nodes.get("b")!.reviewGuidance).toBe("the file exists now");
+  });
+
+  it("leaves done and needs-review nodes untouched", () => {
+    const s = reduce([
+      created(), plan("a", "b", "c"), ws(),
+      ev("node.completed", { node: "a", artifactRef: "a.md", roundsUsed: 1 }),
+      ev("review.requested", { node: "b", lastArtifactRef: "b-a1-v3.md", objections: ["too long"] }),
+      ev("node.failed", { node: "c", error: "boom" }),
+      ev("goal.failed", { error: "node c failed: boom" }),
+      ev("goal.reopened", { by: "user" }),
+    ]);
+    expect(s.nodes.get("a")!.status).toBe("done");
+    expect(s.nodes.get("a")!.artifact).toBe("a.md");
+    expect(s.nodes.get("b")!.status).toBe("needs-review");
+    expect(s.nodes.get("c")!.status).toBe("pending");
+    expect(s.nodes.get("c")!.reviewGuidance).toBeNull(); // no guidance given
+  });
+
+  it("clears a workspace error so PrepareWorkspace re-runs", () => {
+    const s = reduce([
+      created(), plan("a"),
+      ev("workspace.failed", { error: "Refused: source path is on the secret denylist" }),
+      ev("goal.failed", { error: "workspace setup failed: …" }),
+      ev("goal.reopened", { by: "user" }),
+    ]);
+    expect(s.workspaceError).toBeNull();
+    expect(s.workspacePending).toBe(true);
+  });
+
+  it("does not touch replan bookkeeping", () => {
+    const s = reduce([...failedGoal(), ev("goal.reopened", { by: "user" })]);
+    expect(s.replansUsed).toBe(0); // untouched — reopen is the human's loop, replan the planner's
+  });
+});

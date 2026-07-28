@@ -6,7 +6,7 @@ import type {
   GoalCreatedPayload, PlanRecordedPayload, ReplanRecordedPayload,
   WorkspacePreparedPayload, AttemptStartedPayload, RoundRecordedPayload,
   AttemptFinishedPayload, NodeCompletedPayload,
-  ReviewRequestedPayload, ReviewResolvedPayload,
+  ReviewRequestedPayload, ReviewResolvedPayload, GoalReopenedPayload,
 } from "./journal.js";
 import { pausedStatus } from "./journal.js";
 
@@ -57,7 +57,7 @@ export interface GoalState {
    *  replaces the node. The attempt.started UNIQUE claim is journal-wide, so a replaced
    *  node's fresh attempts must keep counting upward or they could never claim. */
   attemptSeq: Map<string, number>;
-  lastResumeTs: number;           // wall-time base: goal.created / goal.resumed / ask.resumed
+  lastResumeTs: number;           // wall-time base: goal.created / goal.resumed / ask.resumed / goal.reopened
   spendCents: number;
   error: string | null;
 }
@@ -253,6 +253,38 @@ export function reduce(events: JournalEvent[], initial?: GoalState): GoalState {
         state.phase = "running";
         state.lastResumeTs = ev.ts;
         break;
+      case "goal.reopened": {
+        // Resurrection (goal-resurrection spec §1): rewind the terminal state. Done nodes keep
+        // their artifacts — the goal resumes at its exact frontier and finished work is not
+        // re-paid. Counters reset to zero (not a reviewRetry-style one-shot) so the normal
+        // retry policy applies from scratch; decide then sees these nodes as FRESH candidates
+        // (attempts === 0 && !lastOutcome), so no new scheduler rule exists for reopen.
+        const rp = p as unknown as GoalReopenedPayload;
+        state.phase = "running";
+        state.lastResumeTs = ev.ts; // fresh wall-time window, same as resume
+        for (const n of state.nodes.values()) {
+          if (n.status !== "failed" && n.status !== "skipped") continue;
+          n.status = "pending";
+          n.attempts = 0;
+          n.lastOutcome = null;
+          n.lastError = null;
+          n.currentRound = 0;
+          n.loopRounds = 0;
+          n.runnerRounds = 0;
+          n.fixerRounds = 0;
+          n.lastVerdict = null;
+          n.lastReport = null;
+          n.lastFeedback = null;
+          n.reviewGuidance = rp.guidance ?? null;
+        }
+        // A goal that died at workspace setup must be able to try again — without this,
+        // decide re-issues FailGoal from the stale error before any node can start.
+        if (state.workspaceError) {
+          state.workspaceError = null;
+          state.workspacePending = true;
+        }
+        break;
+      }
       case "goal.completed":
         state.phase = "done";
         break;
