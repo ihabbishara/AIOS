@@ -50,6 +50,7 @@ export const NAMED_GUARDS: Record<string, (cfg: GuardConfig) => NamedGuard> = {
 export function guardOptions(
   checks: Record<string, ToolCheck>,
   fallback: "allow" | "deny",
+  onDeny?: (tool: string, reason: string) => void,
 ): Partial<Options> {
   const decide = (toolName: string, input: Record<string, unknown>) => {
     const check = checks[toolName];
@@ -70,9 +71,20 @@ export function guardOptions(
       : { ok: false as const, reason: `tool ${toolName} is not permitted for this agent` };
   };
 
+  // Denial collector seam (policy-wall spec §1): report each denied tool once per wiring so
+  // the engine can park the node and name the wall. A collector failure must never affect
+  // the guard's verdict.
+  const reported = new Set<string>();
+  const report = (tool: string, reason: string): void => {
+    if (!onDeny || reported.has(tool)) return;
+    reported.add(tool);
+    try { onDeny(tool, reason); } catch { /* never break a guard */ }
+  };
+
   return {
     canUseTool: async (toolName, input) => {
       const v = decide(toolName, input);
+      if (!v.ok) report(toolName, v.reason ?? "denied by guard");
       // Runtime zod schema requires updatedInput on the allow branch (despite optional typing).
       return v.ok
         ? { behavior: "allow", updatedInput: input }
@@ -86,6 +98,7 @@ export function guardOptions(
               const input = raw as { tool_name?: string; tool_input?: Record<string, unknown> };
               const v = decide(input.tool_name ?? "", input.tool_input ?? {});
               if (v.ok) return { continue: true }; // no decision — normal flow proceeds
+              report(input.tool_name ?? "", v.reason ?? "denied by guard");
               return {
                 continue: true,
                 hookSpecificOutput: {
