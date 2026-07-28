@@ -35,7 +35,7 @@ export function Home({ events, attention, onOpenChat }: {
     if (verb === "open" || verb === "answer") { setSelected(item); return; } // answering happens in the canvas with context
     setRowErrors((e) => ({ ...e, [item.id]: "" }));
     mark(setBusy, item.id, true);
-    const optimistic = ["approve", "reject", "read", "abandon", "resume", "accept", "retry"].includes(verb);
+    const optimistic = ["approve", "reject", "read", "abandon", "resume", "accept", "retry", "reopen"].includes(verb);
     if (optimistic) mark(setHandled, item.id, true);
     try {
       if (item.kind === "review" && (verb === "accept" || verb === "retry" || verb === "abandon")) {
@@ -46,6 +46,7 @@ export function Home({ events, attention, onOpenChat }: {
         await Promise.all(thread.filter((m) => m.to === "user" && m.status === "unread").map((m) => api.markMailRead(m.id)));
       } else if (verb === "abandon") await api.goalAction(item.ref.goalId, "abandon");
       else if (verb === "resume") await api.goalAction(item.ref.goalId, "resume");
+      else if (verb === "reopen") await api.goalAction(item.ref.goalId, "reopen");
       if (selected?.id === item.id) setSelected(null);
     } catch (err) {
       if (optimistic) mark(setHandled, item.id, false); // rollback

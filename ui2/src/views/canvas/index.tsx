@@ -20,7 +20,7 @@ export function Canvas({ item, events, onAct, onOpenChat, onDone }: {
     case "approval": return <ApprovalCanvas item={item} events={events} onAct={onAct} onOpenChat={onOpenChat} />;
     case "review": return <ReviewCanvas item={item} events={events} onDone={onDone} />;
     case "ask": return <AskCanvas item={item} events={events} onDone={onDone} />;
-    case "goal": return <GoalCanvas item={item} events={events} onAct={onAct} onOpenChat={onOpenChat} />;
+    case "goal": return <GoalCanvas item={item} events={events} onAct={onAct} onOpenChat={onOpenChat} onDone={onDone} />;
     case "mail": return <MailThreadCanvas item={item} events={events} onDone={onDone} />;
     case "sense": return <Empty>{item.title} — {item.meta}. Fix from a terminal, then check System · Health.</Empty>;
   }

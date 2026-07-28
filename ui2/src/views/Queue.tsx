@@ -9,7 +9,7 @@ import { ts } from "../lib/format.js";
 const ACTION_LABEL: Record<string, string> = {
   approve: "Approve", reject: "Reject", answer: "Answer", open: "Open",
   read: "Mark read", resume: "Resume", abandon: "Abandon",
-  accept: "Accept", retry: "Retry",
+  accept: "Accept", retry: "Retry", reopen: "Reopen",
 };
 
 const KICKER: Record<string, { label: string; cls: string }> = {
