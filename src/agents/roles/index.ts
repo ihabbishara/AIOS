@@ -54,3 +54,23 @@ export const TEST_REPORT_SCHEMA = {
   required: ["passed", "summary", "failures"],
   additionalProperties: false,
 } as const;
+
+/** Injected per call by the run-node worker, never declared in a manifest: a work report is a
+ *  property of being run as a `run` node, not of any agent. Without it a run node has no way to
+ *  tell "I produced the deliverable" from "I explained why I could not" — two agents in goal
+ *  c03a3bda reported, articulately, that they had applied no fixes, and both nodes were journaled
+ *  outcome:ok and consumed downstream. The `description` fields ARE the instruction; no system
+ *  prompt anywhere mentions this. */
+export const WORK_REPORT_SCHEMA = {
+  type: "object",
+  properties: {
+    completed: { type: "boolean", description:
+      "true only if you actually produced the work this task asked for. false if you refused, were blocked, ran out of information, or produced only a placeholder or a description of what you would have done." },
+    summary: { type: "string", description:
+      "One or two sentences on what you produced, or on why you could not." },
+    blockers: { type: "array", items: { type: "string" }, description:
+      "Empty when completed is true. Otherwise one entry per concrete thing that stopped you." },
+  },
+  required: ["completed", "summary", "blockers"],
+  additionalProperties: false,
+} as const;

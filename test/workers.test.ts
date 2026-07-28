@@ -8,6 +8,7 @@ import { VaultWriter } from "../src/vault/writer.js";
 import { appendEvents, readJournal, type NodeSpec, type JournalEventType } from "../src/engine/journal.js";
 import { AbortRegistry, runAttempt, ancestorArtifacts, isApiErrorOutput, type WorkerDeps } from "../src/engine/workers.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
+import { WORK_REPORT_SCHEMA } from "../src/agents/roles/index.js";
 
 const SPEC = (over: Partial<NodeSpec> = {}): NodeSpec =>
   ({ key: "design", kind: "run", agent: "athena", critic: null, brief: "design it", dependsOn: [], maxRounds: 3, ...over });
@@ -430,5 +431,20 @@ describe("agents are told where their goal folder is", () => {
     await runAttempt(goal(), SPEC(), 1, deps);
     expect(briefs[0]).toContain(`goals/${goalDir}/`);
     expect(briefs[0]).toContain("vault_read");
+  });
+});
+
+describe("run nodes demand a work report", () => {
+  it("passes WORK_REPORT_SCHEMA to the agent on a run node", async () => {
+    let seen: unknown;
+    const { deps, goal } = harness(async (_r, _b, opts) => {
+      seen = (opts as { outputSchema?: unknown }).outputSchema;
+      return { text: "the design", costUsd: 0.01, numTurns: 1 };
+    });
+    await runAttempt(goal(), SPEC(), 1, deps);
+    // toBe(WORK_REPORT_SCHEMA) alone passes vacuously before the const exists — both sides are
+    // undefined. Pin the shape too, so this test can only pass for the right reason.
+    expect((seen as { properties?: Record<string, unknown> })?.properties).toHaveProperty("completed");
+    expect(seen).toBe(WORK_REPORT_SCHEMA);
   });
 });

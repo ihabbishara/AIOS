@@ -6,6 +6,7 @@
 import type { Store, GoalRow, TaskNodeRow } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
+import { WORK_REPORT_SCHEMA } from "../agents/roles/index.js";
 import type { AiosEvent } from "../events.js";
 import {
   appendEvents, attemptClaimed, readJournal,
@@ -45,6 +46,7 @@ export function isApiErrorOutput(text: string): boolean {
 
 export interface Verdict { verdict: "approve" | "revise"; summary: string; reasons: string[] }
 export interface TestReport { passed: boolean; summary: string; failures: string[] }
+export interface WorkReport { completed: boolean; summary: string; blockers: string[] }
 
 function truncate(text: string, limit = ARTIFACT_CHAR_LIMIT): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}\n\n[...truncated]`;
@@ -160,7 +162,7 @@ export async function runAttempt(
 
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
-  const runAgent = async (role: string, brief: string) => {
+  const runAgent = async (role: string, brief: string, outputSchema?: Record<string, unknown>) => {
     const context = `goal:${goal.slug}/${spec.key}`;
     deps.onEvent?.({ type: "agent.start", agent: role, context });
     try {
@@ -171,6 +173,7 @@ export async function runAttempt(
           origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
           workspace: deps.workspace,
           idempotencyKey: `${goal.id}:${spec.key}:${attempt}`,
+          ...(outputSchema ? { outputSchema } : {}),
           mailCtx: {
             origin: { channel: goal.origin_channel, chatId: goal.origin_chat_id },
             goalDepth: goal.chain_depth, goalId: goal.id, nodeKey: spec.key,
@@ -243,7 +246,7 @@ export async function runAttempt(
     switch (spec.kind) {
       case "run": {
         const brief = [spec.brief, ctx].filter(Boolean).join("\n\n");
-        const res = await runAgent(spec.agent, brief);
+        const res = await runAgent(spec.agent, brief, WORK_REPORT_SCHEMA);
         // A run node has no structured-output gate, so ANY text became a "done" artifact and
         // downstream nodes consumed it as fact. The transport-error family is caught in
         // runAgent; empty output is the remaining way to complete a node having produced nothing.
