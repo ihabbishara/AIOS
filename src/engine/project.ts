@@ -139,6 +139,18 @@ export function projectEvent(store: Store, ev: JournalEvent): void {
     case "goal.resumed":
       store.updateGoalStatus(goalId, "running");
       return;
+    case "goal.reopened": {
+      // The store must agree with the fold (goal-resurrection spec §1): without this case the
+      // engine folds "running" while the goals table — and every UI reading it — says "failed".
+      // updateGoalStatus writes `error ?? null`, so the stale failure message clears here too.
+      store.updateGoalStatus(goalId, "running");
+      for (const n of store.listNodes(goalId)) {
+        if (n.status === "failed" || n.status === "skipped") {
+          store.updateNodeStatus(goalId, n.node_key, "pending");
+        }
+      }
+      return;
+    }
     case "goal.completed":
       store.updateGoalStatus(goalId, "done");
       return;

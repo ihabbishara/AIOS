@@ -475,6 +475,22 @@ export class GoalEngine {
     return `Goal ${g.slug} abandoned; unfinished nodes skipped.`;
   }
 
+  /** Resurrection (goal-resurrection spec §2): reopen a failed or abandoned goal at its
+   *  frontier. One event; the fold rewinds node state and the projection follows. */
+  reopenGoal(idOrSlug: string, opts: { by: string; guidance?: string }): string {
+    const g = this.findGoal(idOrSlug);
+    if (!g) return `No goal "${idOrSlug}".`;
+    if (g.legacy) return `Goal ${g.slug} is a frozen legacy goal — read-only.`;
+    if (g.status !== "failed" && g.status !== "abandoned") {
+      return `Goal ${g.slug} is ${g.status} — only failed or abandoned goals can be reopened.`;
+    }
+    this.journal(g.id, [{ type: "goal.reopened", payload: {
+      by: opts.by, ...(opts.guidance ? { guidance: opts.guidance } : {}),
+    } }]);
+    this.tick();
+    return `Goal ${g.slug} reopened; failed and skipped nodes will retry.`;
+  }
+
   /** Apply a human verdict to a needs-review node (verification-hardening §4).
    *  accept → completes with a waiver in the artifact frontmatter; retry → one
    *  human-granted attempt with guidance as producer feedback; abandon → node fails
