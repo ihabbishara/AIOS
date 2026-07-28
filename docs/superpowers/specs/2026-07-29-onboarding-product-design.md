@@ -93,7 +93,7 @@ Validation asymmetry is handled at the source — the Architect's schema and rul
 
 ### The personal org moves out — but personal capabilities stay product
 
-Current `agents/` content (juno, halalo, jasmine, …) is personal *data*, not product. It moves to a gitignored path (or private overlay repo). `agents/` becomes user data: gitignored, created by the provisioner. Migration shim: an existing non-empty `agents/` dir boots untouched in `normal` mode — the current install feels nothing.
+Current `agents/` content (juno, halalo, jasmine, …) is personal *data*, not product. `agents/` becomes user data: removed from version control (`git rm --cached` + gitignore) but left on disk — the existing install keeps its org unchanged, exactly like any other user's. New installs get `agents/` created by the provisioner. Migration shim: an existing non-empty `agents/` dir boots untouched in `normal` mode.
 
 The *capabilities* those agents use are product for everyone: money analysis (CFO), lifeops (tasks/reminders), ledger (team finance), email/calendar senses, heartbeat briefs, scheduling routines. They ship in the catalog, the Architect can propose agents carrying them, and the personal-assistant template showcases them. Only the values are personal (IDAMA, member rosters, client paths) — those arrive via Connect cards or the interview, never as defaults.
 
