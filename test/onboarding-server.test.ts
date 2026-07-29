@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Server } from "node:http";
+import { connect } from "node:net";
 import { startSetupServer, type SetupDeps } from "../src/onboarding/server.js";
 
 function kv() {
@@ -143,6 +144,32 @@ describe("setup server", () => {
     const again = await fetch(`${base}/api/onboarding/auth`, { method: "POST", body: JSON.stringify({ token: "tok-123" }) });
     expect(again.status).toBe(409);
     expect(await again.json()).toEqual({ step: "workspace" });
+  });
+
+  // llhttp accepts request targets `new URL` rejects, and this parse runs in the request
+  // listener — a throw there is an uncaughtException, i.e. a silently dead daemon.
+  it("answers a malformed request target without dying", async () => {
+    const { base } = await boot(async () => {});
+    const port = Number(new URL(base).port);
+    // Origin-form, a bad escape, and absolute-form — all accepted by llhttp, all rejected by `new URL`.
+    for (const target of ["//[", "//%zz", "http://[/"]) {
+      const head = await new Promise<string>((resolve, reject) => {
+        const sock = connect(port, "127.0.0.1", () => sock.write(`GET ${target} HTTP/1.1\r\nHost: x\r\n\r\n`));
+        let buf = "";
+        sock.on("data", (d: Buffer) => {
+          buf += d.toString("utf8");
+          if (buf.includes("\r\n\r\n")) { sock.destroy(); resolve(buf); }
+        });
+        sock.on("error", reject);
+        sock.on("close", () => resolve(buf));
+      });
+      expect(head, `target ${target}`).toContain("400");
+    }
+
+    // The process is still alive and still serving — the point of the whole test.
+    const after = await fetch(`${base}/api/state`);
+    expect(after.status).toBe(200);
+    expect((await after.json()).step).toBe("welcome");
   });
 
   it("logs an unexpected fault and answers 500", async () => {

@@ -86,7 +86,14 @@ export function startSetupServer(deps: SetupDeps): Server {
   };
 
   const server = createServer((req, res) => {
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    // llhttp accepts request targets `new URL` rejects ("GET //[" is the shortest). This runs
+    // in the request listener, where a throw is an uncaughtException — a silently dead daemon.
+    let path: string;
+    try {
+      path = new URL(req.url ?? "/", "http://localhost").pathname;
+    } catch {
+      return void fail(res, 400, "bad request target");
+    }
     // Never silent: an unexpected fault is the daemon's, and setup has no other operator view.
     const oops = (err: unknown): void => {
       log(`setup error ${path}: ${(err as Error).message}`);
