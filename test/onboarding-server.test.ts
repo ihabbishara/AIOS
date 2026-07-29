@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Server } from "node:http";
-import { startSetupServer } from "../src/onboarding/server.js";
+import { startSetupServer, type SetupDeps } from "../src/onboarding/server.js";
 
 function kv() {
   const m = new Map<string, string>();
@@ -14,11 +14,11 @@ function kv() {
 let server: Server;
 afterEach(() => server?.close());
 
-async function boot(ping: () => Promise<void>) {
+async function boot(ping: () => Promise<void>, over: Partial<SetupDeps> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "setup-"));
   writeFileSync(join(dir, "index.html"), "<html>wizard</html>");
   const envPath = join(dir, ".env");
-  server = startSetupServer({ store: kv(), envPath, uiDist: dir, port: 0, ping });
+  server = startSetupServer({ store: kv(), envPath, uiDist: dir, port: 0, ping, ...over });
   await new Promise((r) => server.once("listening", r));
   const port = (server.address() as { port: number }).port;
   return { base: `http://127.0.0.1:${port}`, envPath };
@@ -113,5 +113,47 @@ describe("setup server", () => {
     const done = await first;
     expect(done.status).toBe(200);
     expect((await done.json()).step).toBe("workspace");
+  });
+
+  // No auth token guards this server, so a no-cors POST from any open page would otherwise
+  // reach the auth endpoint and get an attacker's token verified and written to .env.
+  it("refuses a cross-origin API request and still serves its own", async () => {
+    const { base, envPath } = await boot(async () => {});
+    await fetch(`${base}/api/onboarding/advance`, { method: "POST", body: JSON.stringify({ from: "welcome" }) });
+
+    const evil = await fetch(`${base}/api/onboarding/auth`, {
+      method: "POST",
+      headers: { origin: "http://evil.example" },
+      body: JSON.stringify({ token: "tok-123" }),
+    });
+    expect(evil.status).toBe(403);
+    expect(() => readFileSync(envPath, "utf8")).toThrow(); // never verified, never written
+
+    const own = await fetch(`${base}/api/state`, { headers: { origin: base } });
+    expect(own.status).toBe(200);
+    expect((await own.json()).step).toBe("auth");
+  });
+
+  it("answers a re-submitted auth with 409 and the step the wizard is actually on", async () => {
+    const { base } = await boot(async () => {});
+    await fetch(`${base}/api/onboarding/advance`, { method: "POST", body: JSON.stringify({ from: "welcome" }) });
+    const first = await fetch(`${base}/api/onboarding/auth`, { method: "POST", body: JSON.stringify({ token: "tok-123" }) });
+    expect(first.status).toBe(200);
+
+    const again = await fetch(`${base}/api/onboarding/auth`, { method: "POST", body: JSON.stringify({ token: "tok-123" }) });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ step: "workspace" });
+  });
+
+  it("logs an unexpected fault and answers 500", async () => {
+    const lines: string[] = [];
+    const { base } = await boot(async () => {}, {
+      store: { kvGet: () => { throw new Error("db is gone"); }, kvSet: () => {} },
+      log: (l) => lines.push(l),
+    });
+    const r = await fetch(`${base}/api/state`);
+    expect(r.status).toBe(500);
+    expect((await r.json()).error).toContain("db is gone");
+    expect(lines.some((l) => l.includes("setup error /api/state") && l.includes("db is gone"))).toBe(true);
   });
 });

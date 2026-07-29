@@ -40,6 +40,25 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** undefined = malformed body, which is the caller's fault, not a server fault. */
+async function readJson<T>(req: IncomingMessage): Promise<T | undefined> {
+  const raw = await readBody(req);
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * No Origin (curl, address-bar navigation) passes; a browser page's Origin must be our own.
+ * Nothing authenticates this server, so without this any open page could no-cors POST a token
+ * of its choosing to /api/onboarding/auth and have it verified and written to .env.
+ */
+function sameOrigin(origin: string | undefined, port: number): boolean {
+  return !origin || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+}
+
 const isStep = (s: unknown): s is Step => (STEPS as readonly string[]).includes(s as string);
 
 export function startSetupServer(deps: SetupDeps): Server {
@@ -50,34 +69,67 @@ export function startSetupServer(deps: SetupDeps): Server {
   // interleave — a second attempt is refused rather than queued (the wizard has one user).
   let verifying = false;
 
+  // Read at request time, not from deps: port 0 (tests) is only resolved once bound.
+  const boundPort = (): number => {
+    const addr = server.address();
+    return typeof addr === "object" && addr !== null ? addr.port : deps.port;
+  };
+
+  /** A rejected transition (stale tab, illegal jump) is the caller's fault — 400, logged either way. */
+  const transition = (res: ServerResponse, path: string, move: () => Step): void => {
+    try {
+      json(res, 200, { step: move() });
+    } catch (err) {
+      log(`setup rejected ${path}: ${(err as Error).message}`);
+      json(res, 400, { error: (err as Error).message });
+    }
+  };
+
   const server = createServer((req, res) => {
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    // Never silent: an unexpected fault is the daemon's, and setup has no other operator view.
+    const oops = (err: unknown): void => {
+      log(`setup error ${path}: ${(err as Error).message}`);
+      fail(res, 500, (err as Error).message);
+    };
     void (async () => {
-      const path = new URL(req.url ?? "/", "http://localhost").pathname;
       try {
+        if (path.startsWith("/api/") && !sameOrigin(req.headers.origin, boundPort())) {
+          return json(res, 403, { error: "cross-origin request refused" });
+        }
         if (path === "/api/state" && req.method === "GET") {
           return json(res, 200, { mode: "setup", step: wizard.current() });
         }
         if (path === "/api/onboarding/advance" && req.method === "POST") {
-          const { from } = JSON.parse(await readBody(req)) as { from?: unknown };
+          const body = await readJson<{ from?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const from = body.from;
           if (!isStep(from)) return json(res, 400, { error: "from must be a wizard step" });
           // Auth advances only through the auth endpoint (verified token), never generically.
           if (from === "auth") return json(res, 400, { error: "auth step requires a verified token" });
-          return json(res, 200, { step: wizard.advance(from) });
+          return transition(res, path, () => wizard.advance(from));
         }
         if (path === "/api/onboarding/back" && req.method === "POST") {
-          const { to } = JSON.parse(await readBody(req)) as { to?: unknown };
+          const body = await readJson<{ to?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const to = body.to;
           if (!isStep(to)) return json(res, 400, { error: "to must be a wizard step" });
-          return json(res, 200, { step: wizard.goBack(to) });
+          return transition(res, path, () => wizard.goBack(to));
         }
         if (path === "/api/onboarding/auth" && req.method === "POST") {
+          // A retry or double-submit must not re-verify and rewrite .env: the step it would
+          // land on is already reached, so answer with where the wizard actually is.
+          const at = wizard.current();
+          if (at !== "auth") return json(res, 409, { step: at });
           if (verifying) return json(res, 409, { error: "a token verification is already in flight" });
           verifying = true;
           try {
-            const { token } = JSON.parse(await readBody(req)) as { token?: unknown };
-            const v = await verifyToken(typeof token === "string" ? token : "", ping);
+            const body = await readJson<{ token?: unknown }>(req);
+            if (!body) return json(res, 400, { error: "body must be JSON" });
+            const v = await verifyToken(typeof body.token === "string" ? body.token : "", ping);
             if (!v.ok) return json(res, 400, { error: v.error });
-            updateEnvFile(deps.envPath, "CLAUDE_CODE_OAUTH_TOKEN", (token as string).trim());
-            return json(res, 200, { step: wizard.advance("auth") });
+            updateEnvFile(deps.envPath, "CLAUDE_CODE_OAUTH_TOKEN", (body.token as string).trim());
+            return transition(res, path, () => wizard.advance("auth"));
           } finally {
             verifying = false;
           }
@@ -97,9 +149,9 @@ export function startSetupServer(deps: SetupDeps): Server {
         res.writeHead(200, { "Content-Type": MIME[extname(target)] ?? "text/html" });
         res.end(body);
       } catch (err) {
-        fail(res, 400, (err as Error).message);
+        oops(err);
       }
-    })().catch((err) => fail(res, 500, (err as Error).message));
+    })().catch(oops);
   });
 
   // Loopback only, like mission control: this server takes an unauthenticated token POST.
