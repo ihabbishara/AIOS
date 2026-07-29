@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template, not a loadable plist. Render {{ROOT}} (this checkout) and {{NODE}} (your node
+     binary) before installing — see "Run as a daemon (launchd)" in README.md. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.aios.daemon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{NODE}}</string>
+    <string>{{ROOT}}/dist/src/index.js</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{ROOT}}</string>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Without this, launchd spawns the agent as background/daemon QoS: onnxruntime inference
+       lands on efficiency cores and kokoro TTS chunks take 30x longer (observed: 6s -> 180s+).
+       Interactive = app-like scheduling; this daemon serves live chat and voice. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+
+  <key>StandardOutPath</key>
+  <string>{{ROOT}}/data/aios.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ROOT}}/data/aios.err.log</string>
+
+  <!-- launchd hands agents only /usr/bin:/bin:/usr/sbin:/sbin, so everything the daemon shells
+       out to (git, ffmpeg, whisper-cli) needs its directory named here. plists expand neither ~
+       nor $HOME: if your tools live under your home — nvm/fnm node, ~/.local/bin — add those
+       absolute directories by hand. HOME/USER/SHELL/TMPDIR are set by launchd itself. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>

@@ -4,7 +4,8 @@ A local, always-on multi-agent system built on the Claude Agent SDK. You chat wi
 **Hermes, your Chief of Staff**, from Telegram, Slack, or a local terminal; he delegates work
 to a team of named specialists (Athena the architect, Vulcan the engineer, Minos the reviewer,
 Argus in QA, Odin the researcher, and more) through deterministic **playbooks**, and
-persists everything to an Obsidian vault.
+persists everything as markdown in a local vault (`~/AIOS/workspace` — point
+`AIOS_VAULT_PATH` at an Obsidian vault if you keep one).
 
 - **Runs on your Claude subscription** — no API key, no per-token billing.
 - **No public ports** — Telegram long-polling and Slack Socket Mode are outbound-only.
@@ -51,7 +52,7 @@ Playbook Engine (deterministic: stage order, review-loop caps, retries, budgets)
 Specialists (one Agent SDK session per task: role prompt + tool allowlist + cwd)
         │
         ├── SQLite (data/aios.sqlite — job queue, stage state, actions, trust, session ids)
-        └── Obsidian vault (~/Desktop/AI-Vault/AIOS — artifacts, daily log, knowledge)
+        └── Vault (~/AIOS/workspace — artifacts, daily log, knowledge; AIOS_VAULT_PATH moves it)
 ```
 
 ### Earned autonomy (Action Gate)
@@ -108,6 +109,10 @@ npm install
 cp .env.example .env
 ```
 
+A fresh install (no token, or no agents in `agents/`) boots into a browser setup wizard at
+`http://localhost:4280` — token first, org onboarding next (those steps land in the next
+phase). Run `npm run dev` and open it, or do the same by hand below.
+
 ### 1. Claude subscription auth (no API key)
 
 ```bash
@@ -146,13 +151,17 @@ npx tsx scripts/smoke.ts "hello"   # one-shot smoke test
 
 ```bash
 npm run build
-cp launchd/com.ihab.aios.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.ihab.aios.plist
+sed "s|{{ROOT}}|$PWD|g; s|{{NODE}}|$(which node)|g" launchd/aios.plist.template \
+  > ~/Library/LaunchAgents/com.aios.daemon.plist
+launchctl load ~/Library/LaunchAgents/com.aios.daemon.plist
 tail -f data/aios.log
 ```
 
 `KeepAlive` restarts it on crash; `RunAtLoad` starts it at login. Unload with
-`launchctl unload ~/Library/LaunchAgents/com.ihab.aios.plist`.
+`launchctl unload ~/Library/LaunchAgents/com.aios.daemon.plist`. launchd hands agents only
+`/usr/bin:/bin:/usr/sbin:/sbin`, so if node or the tools the daemon shells out to live under
+your home (nvm, `~/.local/bin`), add those directories to the plist's `PATH` — plists expand
+neither `~` nor `$HOME`.
 
 ## Usage
 
@@ -165,7 +174,7 @@ Talk to the bot like a colleague:
   (sandboxed worktree), `analyze` (read-only audit), `inplace` (edits your real checkout —
   not sandboxed, by explicit request only).
 - *"Research the best local vector databases."* → `research-report` job.
-- Every artifact lands in Obsidian: `AI-Vault/AIOS/jobs/<date>-<slug>/`.
+- Every artifact lands in the vault: `~/AIOS/workspace/AIOS/goals/<date>-<slug>/`.
 
 ### Talking to specialists directly
 
@@ -222,7 +231,7 @@ every message there goes to the finance agent (financial topics only) instead of
 moderator:
 
 ```bash
-AIOS_FINANCE_COMPANY=IDAMA
+AIOS_FINANCE_COMPANY=ACME
 AIOS_FINANCE_MEMBERS=Name1,Name2,Name3,Name4,Name5
 AIOS_CHAT_BINDINGS=telegram:-1001234567890=finance
 ```
