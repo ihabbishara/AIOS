@@ -12,6 +12,9 @@ import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { capabilityTools } from "../src/agents/registry/loader.js";
 import { NAMED_GUARDS } from "../src/agents/guards/index.js";
+import { useHalaloFixtureDir } from "./fixtures/halalo-env.js";
+
+useHalaloFixtureDir();
 
 const reg = loadRegistry(
   join(process.cwd(), "agents"),

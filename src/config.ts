@@ -203,7 +203,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
   const dataDir = process.env.AIOS_DATA_DIR ?? join(root, "data");
   const projectsRoot = process.env.AIOS_PROJECTS_ROOT ?? join(home, "projects");
   return {
-    vaultPath: process.env.AIOS_VAULT_PATH ?? join(home, "Desktop", "AI-Vault"),
+    vaultPath: process.env.AIOS_VAULT_PATH ?? join(home, "AIOS", "workspace"),
     vaultSubdir: process.env.AIOS_VAULT_SUBDIR ?? "AIOS",
     dataDir,
     dbPath: join(dataDir, "aios.sqlite"),
@@ -226,7 +226,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     specialistModel: process.env.AIOS_SPECIALIST_MODEL,
     criticModel: process.env.AIOS_CRITIC_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     chatBindings: parseBindings(process.env.AIOS_CHAT_BINDINGS),
-    financeCompany: process.env.AIOS_FINANCE_COMPANY ?? "IDAMA",
+    financeCompany: process.env.AIOS_FINANCE_COMPANY ?? "",
     financeMembers: parseMembers(process.env.AIOS_FINANCE_MEMBERS),
     uiPort: Number(process.env.AIOS_UI_PORT ?? 4280),
     envPath: join(root, ".env"),

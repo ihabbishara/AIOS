@@ -8,7 +8,8 @@ import { webFetchPublicChecks } from "./web-fetch-public.js";
 export type { ToolCheck, GuardVerdict } from "./halalo-readonly.js";
 
 export interface GuardConfig {
-  halaloDir: string;
+  /** Unset when AIOS_HALALO_DIR is absent — only the halalo-readonly guard needs it. */
+  halaloDir?: string;
   vaultPath: string;
   vaultSubdir: string;
 }
@@ -21,7 +22,12 @@ export interface NamedGuard {
 /** Named deterministic guards referenced by capability `guard:` fields (org-model spec §3).
  *  Unknown names are a boot error (loader validates). Guards AND-compose: every guard must allow. */
 export const NAMED_GUARDS: Record<string, (cfg: GuardConfig) => NamedGuard> = {
-  "halalo-readonly": (cfg) => ({ checks: halaloToolChecks(cfg.halaloDir), fallback: "deny" }),
+  // Fails loud and named rather than confining to undefined: reaching here means an agent
+  // carries the halalo-aws capability on a machine that never configured the client dir.
+  "halalo-readonly": (cfg) => {
+    if (!cfg.halaloDir) throw new Error("halalo-readonly guard requires AIOS_HALALO_DIR");
+    return { checks: halaloToolChecks(cfg.halaloDir), fallback: "deny" };
+  },
   // Mirror of the extras.ts juno readRoots: finance evidence dirs + attachment staging.
   "ledger-read-confine": (cfg) => ({
     checks: ledgerReadCheck([

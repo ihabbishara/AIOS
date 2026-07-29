@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseMembers, parseBindings, parseTrustSeeds, parsePrimaryChat, loadConfig } from "../src/config.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { parseMembers, parseBindings, parseTrustSeeds, parsePrimaryChat, loadConfig, buildConfig } from "../src/config.js";
 
 describe("parseBindings", () => {
   it("parses default agent plus @-addressable extras", () => {
@@ -161,5 +161,64 @@ describe("lifeops config", () => {
     expect(c.lifeopsPollSeconds).toBe(21600);
     expect(c.lifeopsSoonDays).toBe(2);
     expect(c.lifeopsStaleDays).toBe(14);
+  });
+});
+
+// A fresh install must land on neutral ground: no operator's desktop, no operator's
+// company, no operator's client repo. Every personal value is env-supplied now.
+describe("de-personalized defaults", () => {
+  const SAVED: Record<string, string | undefined> = {};
+  const KEYS = ["AIOS_VAULT_PATH", "AIOS_FINANCE_COMPANY", "AIOS_HALALO_DIR"];
+  beforeEach(() => { for (const k of KEYS) { SAVED[k] = process.env[k]; delete process.env[k]; } });
+  afterEach(() => { for (const k of KEYS) { if (SAVED[k] === undefined) delete process.env[k]; else process.env[k] = SAVED[k]; } });
+
+  it("vault defaults to ~/AIOS/workspace, finance company to empty", () => {
+    const c = buildConfig(process.env, "/tmp/aios-root");
+    expect(c.vaultPath.endsWith("/AIOS/workspace")).toBe(true);
+    expect(c.vaultPath.includes("Desktop")).toBe(false);
+    expect(c.financeCompany).toBe("");
+  });
+
+  it("env still overrides both", () => {
+    process.env.AIOS_VAULT_PATH = "/tmp/custom-vault";
+    process.env.AIOS_FINANCE_COMPANY = "ACME";
+    const c = buildConfig(process.env, "/tmp/aios-root");
+    expect(c.vaultPath).toBe("/tmp/custom-vault");
+    expect(c.financeCompany).toBe("ACME");
+  });
+});
+
+describe("halalo env gating", () => {
+  it("buildExtras omits halalo when AIOS_HALALO_DIR is unset", async () => {
+    const prev = process.env.AIOS_HALALO_DIR;
+    delete process.env.AIOS_HALALO_DIR;
+    try {
+      const { buildExtras } = await import("../src/agents/registry/extras.js");
+      const x = buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "", financeMembers: [] });
+      expect(x.halalo).toBeUndefined();
+      expect(x.juno).toBeDefined();
+    } finally {
+      if (prev !== undefined) process.env.AIOS_HALALO_DIR = prev;
+    }
+  });
+
+  it("buildExtras builds halalo from AIOS_HALALO_DIR when set", async () => {
+    const prev = process.env.AIOS_HALALO_DIR;
+    process.env.AIOS_HALALO_DIR = "/tmp/halalo-fixture";
+    try {
+      const { buildExtras } = await import("../src/agents/registry/extras.js");
+      const x = buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "", financeMembers: [] });
+      expect(x.halalo?.cwd).toBe("/tmp/halalo-fixture");
+      expect(x.halalo?.contextFiles).toEqual(["/tmp/halalo-fixture/CLAUDE.md"]);
+    } finally {
+      if (prev === undefined) delete process.env.AIOS_HALALO_DIR;
+      else process.env.AIOS_HALALO_DIR = prev;
+    }
+  });
+
+  it("the halalo-readonly guard names the missing env var instead of silently confining to nothing", async () => {
+    const { NAMED_GUARDS } = await import("../src/agents/guards/index.js");
+    expect(() => NAMED_GUARDS["halalo-readonly"]({ vaultPath: "/tmp/v", vaultSubdir: "AIOS" }))
+      .toThrow(/AIOS_HALALO_DIR/);
   });
 });
