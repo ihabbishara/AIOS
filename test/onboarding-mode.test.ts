@@ -24,6 +24,14 @@ describe("countAgentManifests", () => {
     expect(countAgentManifests(orgDir(false))).toBe(0);
     expect(countAgentManifests(join(tmpdir(), "does-not-exist-xyz"))).toBe(0);
   });
+  it("counts .yml as well — the loader takes /\\.ya?ml$/, so a .yml org is not a first run", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mode-yml-"));
+    mkdirSync(join(dir, "ops"));
+    writeFileSync(join(dir, "ops", "department.yml"), "department: ops\n");
+    expect(countAgentManifests(dir)).toBe(0);
+    writeFileSync(join(dir, "ops", "neo.yml"), "name: neo\n");
+    expect(countAgentManifests(dir)).toBe(1);
+  });
 });
 
 describe("bootMode", () => {

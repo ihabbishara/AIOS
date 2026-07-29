@@ -3,7 +3,7 @@
 import { readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-/** Agent yamls in non-underscore subdirs, excluding department.yaml (mirrors loader's walk). */
+/** Agent yamls in non-underscore subdirs, excluding the department manifest (mirrors loader's walk). */
 export function countAgentManifests(agentsDir: string): number {
   if (!existsSync(agentsDir)) return 0;
   let n = 0;
@@ -12,7 +12,8 @@ export function countAgentManifests(agentsDir: string): number {
     const sub = join(agentsDir, entry);
     if (!statSync(sub).isDirectory()) continue;
     for (const f of readdirSync(sub)) {
-      if (f.endsWith(".yaml") && f !== "department.yaml") n++;
+      if (!/\.ya?ml$/.test(f) || f === "department.yaml" || f === "department.yml") continue;
+      n++;
     }
   }
   return n;
