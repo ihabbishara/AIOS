@@ -1,19 +1,54 @@
 // src/onboarding/auth.ts — token verification via one minimal SDK call (onboarding spec §2).
 // The ping is injectable so tests never touch the network; sdkPing is the production default.
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-export type Ping = () => Promise<void>;
+export type Ping = (token: string) => Promise<void>;
 
-/** One-shot, no tools, no session — the cheapest call that proves the token works. */
-export const sdkPing: Ping = async () => {
+/** Every other way the spawned CLI could authenticate as somebody other than the pasted token. */
+const RIVAL_CREDENTIALS = [
+  "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+];
+
+/**
+ * The environment for the spawned CLI, with the pasted token as its only way in. CLAUDE_CONFIG_DIR
+ * gets an empty dir because the CLI otherwise falls back to the machine's stored login and answers
+ * "pong" for a garbage token — which is the whole thing this check exists to catch.
+ */
+export function pingEnv(token: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...base,
+    CLAUDE_CODE_OAUTH_TOKEN: token,
+    CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "aios-verify-")),
+  };
+  for (const key of RIVAL_CREDENTIALS) delete env[key];
+  return env;
+}
+
+/** A rejected token still arrives as subtype "success" — only is_error tells the truth. */
+export function pingFailure(
+  msg: { subtype: string; is_error?: boolean; api_error_status?: number | null; result?: string },
+): string | null {
+  if (msg.subtype !== "success") return `auth check failed: ${msg.subtype}`;
+  if (!msg.is_error && (msg.api_error_status ?? null) === null) return null;
+  return msg.result?.trim() || "auth check failed: the API rejected the token";
+}
+
+/** One-shot, no tools, no session — the cheapest call that proves this token works. */
+export const sdkPing: Ping = async (token) => {
   const q = query({
     prompt: "ping",
-    options: { allowedTools: [], maxTurns: 1, settingSources: [], persistSession: false },
+    options: {
+      allowedTools: [], maxTurns: 1, settingSources: [], persistSession: false, env: pingEnv(token),
+    },
   });
   for await (const msg of q) {
     if (msg.type === "result") {
-      if (msg.subtype === "success") return;
-      throw new Error(`auth check failed: ${msg.subtype}`);
+      const failure = pingFailure(msg);
+      if (failure) throw new Error(failure);
+      return;
     }
   }
   throw new Error("auth check failed: no result from SDK");
@@ -33,7 +68,7 @@ export async function verifyToken(
   // and always put it back, unlike the token: bootMode counts it as auth.
   delete process.env.ANTHROPIC_API_KEY;
   try {
-    await ping();
+    await ping(t);
     return { ok: true };
   } catch (err) {
     if (prev === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;

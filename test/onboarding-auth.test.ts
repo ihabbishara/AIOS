@@ -1,6 +1,7 @@
 // test/onboarding-auth.test.ts — verifyToken: env set/restore + error surfacing (spec §2).
 import { describe, it, expect, afterEach } from "vitest";
-import { verifyToken } from "../src/onboarding/auth.js";
+import { readdirSync, statSync } from "node:fs";
+import { verifyToken, pingEnv, pingFailure } from "../src/onboarding/auth.js";
 
 const ORIG = process.env.CLAUDE_CODE_OAUTH_TOKEN;
 const ORIG_KEY = process.env.ANTHROPIC_API_KEY;
@@ -72,5 +73,73 @@ describe("verifyToken", () => {
     delete process.env.ANTHROPIC_API_KEY;
     await verifyToken("good-tok", async () => {});
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it("hands the trimmed token to the ping", async () => {
+    let got: string | undefined;
+    await verifyToken("  spaced-tok  ", async (t) => { got = t; });
+    expect(got).toBe("spaced-tok");
+  });
+});
+
+// The CLI falls back to stored credentials (~/.claude, keychain) when the env token is unusable,
+// so a ping run in the daemon's own environment answers "pong" for a garbage token.
+describe("pingEnv", () => {
+  const BASE = { PATH: "/usr/bin", HOME: "/Users/someone", ANTHROPIC_API_KEY: "sk-key" } as NodeJS.ProcessEnv;
+
+  it("makes the pasted token the only credential the CLI can see", () => {
+    const env = pingEnv("tok", { ...BASE, ANTHROPIC_AUTH_TOKEN: "b", CLAUDE_CODE_USE_BEDROCK: "1", CLAUDE_CODE_USE_VERTEX: "1" });
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("tok");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined();
+    expect(env.CLAUDE_CODE_USE_VERTEX).toBeUndefined();
+  });
+
+  it("points CLAUDE_CONFIG_DIR at a fresh empty dir, one per call", () => {
+    const a = pingEnv("tok", BASE);
+    const b = pingEnv("tok", BASE);
+    expect(a.CLAUDE_CONFIG_DIR).toBeTruthy();
+    expect(a.CLAUDE_CONFIG_DIR).not.toBe(b.CLAUDE_CONFIG_DIR);
+    expect(statSync(a.CLAUDE_CONFIG_DIR!).isDirectory()).toBe(true);
+    expect(readdirSync(a.CLAUDE_CONFIG_DIR!)).toEqual([]);
+  });
+
+  it("keeps the rest of the environment — the CLI still needs PATH and HOME", () => {
+    const env = pingEnv("tok", BASE);
+    expect(env.PATH).toBe("/usr/bin");
+    expect(env.HOME).toBe("/Users/someone");
+  });
+
+  it("does not mutate the environment it was given", () => {
+    const base = { ...BASE };
+    pingEnv("tok", base);
+    expect(base.ANTHROPIC_API_KEY).toBe("sk-key");
+    expect(base.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+});
+
+// A rejected token comes back as subtype "success" carrying is_error — the subtype alone lies.
+describe("pingFailure", () => {
+  it("passes a clean success", () => {
+    expect(pingFailure({ subtype: "success", is_error: false, result: "pong" })).toBeNull();
+  });
+
+  it("fails a success that carries an API error, quoting the CLI's own words", () => {
+    const msg = {
+      subtype: "success", is_error: true, api_error_status: 401,
+      result: "Failed to authenticate. API Error: 401 OAuth access token is invalid.",
+    };
+    expect(pingFailure(msg)).toBe("Failed to authenticate. API Error: 401 OAuth access token is invalid.");
+  });
+
+  it("fails on api_error_status alone", () => {
+    expect(pingFailure({ subtype: "success", is_error: false, api_error_status: 500, result: "" }))
+      .toBe("auth check failed: the API rejected the token");
+  });
+
+  it("fails a non-success subtype", () => {
+    expect(pingFailure({ subtype: "error_during_execution", is_error: true }))
+      .toBe("auth check failed: error_during_execution");
   });
 });
