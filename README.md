@@ -106,6 +106,7 @@ Polling: `AIOS_GMAIL_POLL_SECONDS` (120), `AIOS_CALENDAR_POLL_SECONDS` (300),
 
 ```bash
 npm install
+cd ui2 && npm install && npm run build && cd ..   # the browser UI, wizard included
 cp .env.example .env
 ```
 

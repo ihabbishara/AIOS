@@ -149,7 +149,8 @@ export function startSetupServer(deps: SetupDeps): Server {
         const target = existsSync(file) && statSync(file).isFile() ? file : join(deps.uiDist, "index.html");
         if (!existsSync(target)) {
           res.writeHead(503, { "Content-Type": "text/plain" });
-          return res.end("UI not built yet — run: cd ui2 && npm run build");
+          // npm install too: this fires on a fresh clone, where ui2's deps (vite) are missing.
+          return res.end("UI not built yet — run: cd ui2 && npm install && npm run build");
         }
         // Read before writeHead: a failed read after the head is sent cannot be answered.
         const body = readFileSync(target);
