@@ -68,11 +68,29 @@ import { computeMoneySignals } from "./money/signals.js";
 import { buildLifeopsServer } from "./lifeops/server.js";
 import { computeLifeopsSignals } from "./lifeops/ops.js";
 import { buildLedgerServer } from "./finance/server.js";
+import { bootMode } from "./onboarding/mode.js";
+import { startSetupServer } from "./onboarding/server.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
 async function main(): Promise<void> {
   const config = loadConfig();
+
+  // Setup mode (onboarding spec §1): no auth or no org → wizard only.
+  // Nothing that assumes an org may start — no channels, heartbeat, senses, or packs.
+  // Deliberately unguarded: countAgentManifests already skips entries it cannot read, so a
+  // throw here means agentsDir itself is unreadable. Crashing restarts (and gets noticed);
+  // falling back to the wizard would hand a live install to onboarding until someone looks.
+  const mode = bootMode(process.env, config.agentsDir);
+  if (mode === "setup") {
+    const store = new Store(config.dbPath);
+    startSetupServer({
+      store, envPath: config.envPath, uiDist: config.uiDist, port: config.uiPort, log,
+    });
+    log(`setup mode: open http://localhost:${config.uiPort} to begin onboarding`);
+    return; // restart after onboarding completes boots normal mode
+  }
+
   assertAuth();
   ensureUiToken(resolve(".env"), log);
 

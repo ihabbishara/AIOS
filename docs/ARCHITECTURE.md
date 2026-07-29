@@ -335,7 +335,7 @@ agents/                   YAML manifests — one subdir per department
   life/                   department.yaml  jasmine.yaml
   clients/                department.yaml  halalo.yaml
 playbooks/                code-inplace · research-report · echo (YAML stage definitions)
-launchd/                  com.ihab.aios.plist
+launchd/                  aios.plist.template ({{ROOT}}/{{NODE}} — render before installing)
 scripts/smoke.ts          one-shot end-to-end test
 test/                     unit + integration tests (vitest)
 ```

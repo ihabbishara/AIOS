@@ -26,7 +26,7 @@ import { buildMediaServer, type MediaServerDeps } from "../media/server.js";
 import { buildLifeopsServer } from "../lifeops/server.js";
 import { buildLedgerServer } from "../finance/server.js";
 import { buildCloudflareServer } from "../senses/cloudflare/server.js";
-import { HALALO_DIR } from "./registry/extras.js";
+import { halaloDir } from "./registry/extras.js";
 import type { MoneyServerDeps } from "../money/server.js";
 
 const AIOS_PACK = "aios-pack";
@@ -154,7 +154,7 @@ function tierModel(kind: AgentKind, config: Config): string | undefined {
 
 export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
   const guardCfg: GuardConfig = {
-    halaloDir: HALALO_DIR,
+    halaloDir: halaloDir(),
     vaultPath: deps.config.vaultPath,
     vaultSubdir: deps.config.vaultSubdir,
   };

@@ -16,6 +16,7 @@ import { Mail } from "./views/Mail.js";
 import { Schedule } from "./views/Schedule.js";
 import { Skills } from "./views/Skills.js";
 import { System } from "./views/System.js";
+import { Setup } from "./views/Setup.js";
 
 const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "mail", r: "schedule", k: "skills", y: "system" };
 
@@ -30,6 +31,7 @@ export function App() {
   const [chatTarget, setChatTarget] = useState("neo");
   const [chatSeed, setChatSeed] = useState<string | undefined>();
   const [paletteSignal, setPaletteSignal] = useState(0);
+  const [setupStep, setSetupStep] = useState<string>();
   const pendingG = useRef(false);
 
   const openChat = (target: string, seed?: string) => {
@@ -61,6 +63,13 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // First run: the setup server answers /api/state with mode:"setup" and owns the whole window —
+  // no cockpit chrome, and no token gate (it is unauthenticated loopback). Each transition's next
+  // step comes back from the POST, so the wizard moves without waiting on a state refetch.
+  if (state?.mode === "setup") {
+    return <Setup step={setupStep ?? state.step ?? "welcome"} onStepChange={setSetupStep} />;
+  }
 
   if (unauthorized) return <TokenGate onSet={reload} />;
 
