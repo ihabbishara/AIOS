@@ -28,6 +28,7 @@ import {
 import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
 import type { AttachmentRegistry, AttachmentDescriptor } from "./attachment-registry.js";
 import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "./agents-admin.js";
+import { updateEnvFile } from "./env-file.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -130,14 +131,6 @@ async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer
  *  (0 includes ?limit= empty — Number("")===0 — default, not 1.) */
 const clampLimit = (raw: string | null, dflt: number): number =>
   Math.min(Math.max(1, Number(raw) || dflt), 200);
-
-function updateEnvFile(envPath: string, key: string, value: string): void {
-  const lines = existsSync(envPath) ? readFileSync(envPath, "utf8").split("\n") : [];
-  const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
-  if (idx >= 0) lines[idx] = `${key}=${value}`;
-  else lines.push(`${key}=${value}`);
-  writeFileSync(envPath, lines.join("\n").replace(/\n*$/, "\n"));
-}
 
 export function startWebServer(deps: WebDeps, port: number): Server {
   const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, attachments, reloadPacks, log = () => {} } = deps;
