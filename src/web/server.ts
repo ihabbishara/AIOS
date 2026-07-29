@@ -185,6 +185,8 @@ export function startWebServer(deps: WebDeps, port: number): Server {
         // ---- read endpoints ----
         if (path === "/api/state" && req.method === "GET") {
           return json(res, 200, {
+            // The setup server answers this same path with mode:"setup"; the UI branches on it.
+            mode: "normal",
             uptimeMs: Date.now() - startedAt,
             voice: deps.voice.available(),
             agents: [

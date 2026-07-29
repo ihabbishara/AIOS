@@ -14,6 +14,10 @@ export interface AgentInfo {
 }
 
 export interface StateInfo {
+  /** "setup" while the onboarding wizard owns the UI; "normal" for the cockpit. */
+  mode?: "setup" | "normal";
+  /** Current wizard step when mode === "setup". */
+  step?: string;
   uptimeMs: number;
   voice: boolean;
   agents: AgentInfo[];

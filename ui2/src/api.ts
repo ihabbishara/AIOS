@@ -46,6 +46,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => request<StateInfo>("/api/state"),
+  onboardingAdvance: (from: string) =>
+    request<{ step: string }>("/api/onboarding/advance", { method: "POST", body: JSON.stringify({ from }) }),
+  onboardingBack: (to: string) =>
+    request<{ step: string }>("/api/onboarding/back", { method: "POST", body: JSON.stringify({ to }) }),
+  /** Not `request`: the auth 409 carries two different bodies and only one of them is an error.
+   *  `{ step }` means the wizard already moved past auth (double submit, reload mid-verify) —
+   *  that step is where the UI belongs. `{ error }` means a verification is still in flight.
+   *  `request` throws on any non-2xx and keeps only `error`, so it cannot tell them apart. */
+  onboardingAuth: async (token: string): Promise<{ step: string }> => {
+    const res = await fetch("/api/onboarding/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const body = await res.json().catch(() => ({})) as { step?: string; error?: string };
+    if (body.step) return { step: body.step };
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  },
   attention: () => request<AttentionItem[]>("/api/attention"),
   health: () => request<HealthInfo>("/api/health"),
   org: () => request<OrgDepartmentView[]>("/api/org"),
