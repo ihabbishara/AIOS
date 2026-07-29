@@ -68,11 +68,33 @@ import { computeMoneySignals } from "./money/signals.js";
 import { buildLifeopsServer } from "./lifeops/server.js";
 import { computeLifeopsSignals } from "./lifeops/ops.js";
 import { buildLedgerServer } from "./finance/server.js";
+import { bootMode } from "./onboarding/mode.js";
+import { startSetupServer } from "./onboarding/server.js";
 
 const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
 async function main(): Promise<void> {
   const config = loadConfig();
+
+  // Setup mode (onboarding spec §1): no auth or no org → wizard only.
+  // Nothing that assumes an org may start — no channels, heartbeat, senses, or packs.
+  // A dangling symlink under agentsDir makes the manifest walk throw; that must not kill
+  // boot, and the wizard is the safe fallback — it can only ask the user to finish setup.
+  let mode: "setup" | "normal" = "setup";
+  try {
+    mode = bootMode(process.env, config.agentsDir);
+  } catch (err) {
+    log(`boot mode check failed (${(err as Error).message}) — starting in setup mode`);
+  }
+  if (mode === "setup") {
+    const store = new Store(config.dbPath);
+    startSetupServer({
+      store, envPath: config.envPath, uiDist: config.uiDist, port: config.uiPort, log,
+    });
+    log(`setup mode: open http://localhost:${config.uiPort} to begin onboarding`);
+    return; // restart after onboarding completes boots normal mode
+  }
+
   assertAuth();
   ensureUiToken(resolve(".env"), log);
 
