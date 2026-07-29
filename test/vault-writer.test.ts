@@ -43,3 +43,29 @@ describe("dead job-artifact methods are removed", () => {
     }
   });
 });
+
+describe("non-markdown vault files (vault-read-files spec)", () => {
+  it("readNote reaches a literal .html file and still falls back to .md for bare names", () => {
+    const w = tmpVault();
+    w.writeFile("goals/x/deck.html", "<html>deck</html>");
+    expect(w.readNote("goals/x/deck.html")).toBe("<html>deck</html>");
+    w.writeNote("notes/plan", "# plan");
+    expect(w.readNote("notes/plan")).toBe("# plan"); // bare name → plan.md fallback
+    expect(w.readNote("notes/plan.md")).toBe("# plan"); // exact .md unchanged
+    expect(w.readNote("goals/x/missing.html")).toBeUndefined();
+  });
+
+  it("writeNote keeps dotted basenames literal but still coerces bare names", () => {
+    const w = tmpVault();
+    const dotted = w.writeNote("notes/report.v2", "data");
+    expect(dotted.endsWith("report.v2")).toBe(true);
+    expect(w.readNote("notes/report.v2")).toBe("data");
+    const bare = w.writeNote("notes/v1.2/plan", "p"); // dot in DIR must not suppress coercion
+    expect(bare.endsWith("plan.md")).toBe(true);
+  });
+
+  it("traversal is still blocked for extension paths", () => {
+    const w = tmpVault();
+    expect(() => w.readNote("../escape.html")).toThrow(/escapes vault/);
+  });
+});

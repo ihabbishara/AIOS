@@ -82,7 +82,10 @@ export class VaultWriter {
   }
 
   writeNote(relPath: string, content: string): string {
-    const path = join(this.root, relPath.endsWith(".md") ? relPath : `${relPath}.md`);
+    // Coerce to .md only when the basename is extensionless — deck.html / report.v2 write
+    // literally; a dot in a directory name (notes/v1.2/plan) does not count (spec §write).
+    const literal = relPath.split("/").pop()!.includes(".");
+    const path = join(this.root, literal ? relPath : `${relPath}.md`);
     this.assertContained(resolve(path), relPath);
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, content);
@@ -109,9 +112,14 @@ export class VaultWriter {
   }
 
   readNote(relPath: string): string | undefined {
-    const path = join(this.root, relPath.endsWith(".md") ? relPath : `${relPath}.md`);
-    this.assertContained(resolve(path), relPath);
-    return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+    // Literal-then-.md (spec §read): the exact path wins; bare names keep their .md sugar.
+    const exact = join(this.root, relPath);
+    this.assertContained(resolve(exact), relPath);
+    if (existsSync(exact)) return readFileSync(exact, "utf8");
+    if (relPath.endsWith(".md")) return undefined;
+    const md = join(this.root, `${relPath}.md`);
+    this.assertContained(resolve(md), relPath);
+    return existsSync(md) ? readFileSync(md, "utf8") : undefined;
   }
 
   listNotes(relDir = ""): string[] {
