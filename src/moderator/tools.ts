@@ -269,7 +269,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
 
   const vaultWrite = tool(
     "vault_write",
-    "Write a markdown note to the Obsidian vault (audited through the action gate). " +
+    "Write a file to the Obsidian vault (markdown by default; dotted names write literally; audited through the action gate). " +
       "Path is relative to the AIOS folder, e.g. notes/idea-x.md or knowledge/topic.md",
     {
       path: z.string(),
@@ -288,7 +288,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
 
   const vaultRead = tool(
     "vault_read",
-    "Read a markdown note from the vault (path relative to AIOS folder, e.g. jobs/2026-06-11-foo/design.md).",
+    "Read a file from the vault (markdown by default; extensions like .html read literally; path relative to AIOS folder, e.g. jobs/2026-06-11-foo/design.md).",
     { path: z.string() },
     async (args) => {
       const content = deps.vault.readNote(args.path);

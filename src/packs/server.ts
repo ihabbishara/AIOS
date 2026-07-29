@@ -81,14 +81,14 @@ export function buildPackServer(deps: PackServerDeps) {
 
   const vaultRead = tool(
     "vault_read",
-    "Read a markdown note from the vault (path relative to the AIOS folder).",
+    "Read a file from the vault (markdown by default; extensions like .html/.csv read literally; path relative to the AIOS folder).",
     { path: z.string() },
     async (args) => text(deps.vault.readNote(args.path) ?? `Not found: ${args.path}`),
   );
 
   const vaultWrite = tool(
     "vault_write",
-    "Write a markdown note to the vault (audited through the Action Gate).",
+    "Write a file to the vault (markdown by default; dotted names like deck.html write literally; audited through the Action Gate).",
     { path: z.string(), content: z.string() },
     async (args) =>
       text(
