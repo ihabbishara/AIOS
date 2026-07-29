@@ -1,7 +1,7 @@
 // src/onboarding/auth.ts — token verification via one minimal SDK call (onboarding spec §2).
 // The ping is injectable so tests never touch the network; sdkPing is the production default.
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,6 +27,22 @@ export function pingEnv(token: string, base: NodeJS.ProcessEnv = process.env): N
   return env;
 }
 
+/**
+ * Runs `fn` against a fresh ping environment and removes its throwaway CLAUDE_CONFIG_DIR after,
+ * however `fn` ends. The dir is per-call by design, so without this every verification — and a
+ * user retypes a bad token more than once — leaves another aios-verify-* behind in tmpdir.
+ */
+export async function withPingEnv<T>(
+  token: string, fn: (env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  const env = pingEnv(token);
+  try {
+    return await fn(env);
+  } finally {
+    rmSync(env.CLAUDE_CONFIG_DIR!, { recursive: true, force: true });
+  }
+}
+
 /** A rejected token still arrives as subtype "success" — only is_error tells the truth. */
 export function pingFailure(
   msg: { subtype: string; is_error?: boolean; api_error_status?: number | null; result?: string },
@@ -37,13 +53,13 @@ export function pingFailure(
 }
 
 /** One-shot, no tools, no session — the cheapest call that proves this token works. */
-export const sdkPing: Ping = async (token) => {
+export const sdkPing: Ping = (token) => withPingEnv(token, async (env) => {
   const q = query({
     prompt: "ping",
-    options: {
-      allowedTools: [], maxTurns: 1, settingSources: [], persistSession: false, env: pingEnv(token),
-    },
+    options: { allowedTools: [], maxTurns: 1, settingSources: [], persistSession: false, env },
   });
+  // Leaving the loop closes the query, which stops the CLI — so the config dir outlives the
+  // subprocess that reads it, and withPingEnv only deletes it once we are past this point.
   for await (const msg of q) {
     if (msg.type === "result") {
       const failure = pingFailure(msg);
@@ -52,7 +68,7 @@ export const sdkPing: Ping = async (token) => {
     }
   }
   throw new Error("auth check failed: no result from SDK");
-};
+});
 
 export async function verifyToken(
   token: string, ping: Ping = sdkPing,

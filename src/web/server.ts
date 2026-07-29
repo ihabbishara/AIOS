@@ -837,7 +837,7 @@ export function startWebServer(deps: WebDeps, port: number): Server {
       if (!existsSync(filePath)) filePath = join(deps.uiDist, "index.html"); // SPA fallback
       if (!existsSync(filePath)) {
         res.writeHead(503, { "Content-Type": "text/plain" });
-        return res.end("UI not built yet — run: cd ui && npm run build");
+        return res.end("UI not built yet — run: cd ui2 && npm install && npm run build");
       }
       const data = readFileSync(filePath);
       res.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream" });

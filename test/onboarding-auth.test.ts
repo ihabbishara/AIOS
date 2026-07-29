@@ -1,7 +1,7 @@
 // test/onboarding-auth.test.ts — verifyToken: env set/restore + error surfacing (spec §2).
 import { describe, it, expect, afterEach } from "vitest";
-import { readdirSync, statSync } from "node:fs";
-import { verifyToken, pingEnv, pingFailure } from "../src/onboarding/auth.js";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { verifyToken, pingEnv, pingFailure, withPingEnv } from "../src/onboarding/auth.js";
 
 const ORIG = process.env.CLAUDE_CODE_OAUTH_TOKEN;
 const ORIG_KEY = process.env.ANTHROPIC_API_KEY;
@@ -116,6 +116,33 @@ describe("pingEnv", () => {
     pingEnv("tok", base);
     expect(base.ANTHROPIC_API_KEY).toBe("sk-key");
     expect(base.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+});
+
+// Every verification made a throwaway CLAUDE_CONFIG_DIR; without this the tmpdir grows one
+// aios-verify-* dir per attempt, forever.
+describe("withPingEnv", () => {
+  it("gives the body a live config dir and deletes it afterwards", async () => {
+    let dir: string | undefined;
+    await withPingEnv("tok", async (env) => {
+      dir = env.CLAUDE_CONFIG_DIR;
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("tok");
+      expect(existsSync(dir!)).toBe(true);
+    });
+    expect(existsSync(dir!)).toBe(false);
+  });
+
+  it("deletes the dir when the body throws — a rejected token is the common case", async () => {
+    let dir: string | undefined;
+    await expect(withPingEnv("tok", async (env) => {
+      dir = env.CLAUDE_CONFIG_DIR;
+      throw new Error("401 invalid");
+    })).rejects.toThrow("401 invalid");
+    expect(existsSync(dir!)).toBe(false);
+  });
+
+  it("returns the body's value", async () => {
+    expect(await withPingEnv("tok", async () => "pong")).toBe("pong");
   });
 });
 

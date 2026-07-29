@@ -13,6 +13,12 @@ export interface AgentInfo {
   members?: string[];
 }
 
+/**
+ * Two wire shapes share this one type. The setup-mode server sends only `{ mode: "setup", step }`
+ * and omits every field below it; the cockpit sends those and omits nothing. Consumers must branch
+ * on `mode` before touching the cockpit fields — they are typed required but absent in setup mode.
+ * Splitting this into a discriminated union is planned for plan 2.
+ */
 export interface StateInfo {
   /** "setup" while the onboarding wizard owns the UI; "normal" for the cockpit. */
   mode?: "setup" | "normal";

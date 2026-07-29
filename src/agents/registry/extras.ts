@@ -7,7 +7,7 @@ import type { AgentExtras } from "./loader.js";
 import type { FinanceMember } from "../../config.js";
 
 /** Client project dir — env-only since onboarding (spec §7); no personal default.
- *  Read at call time, not module load, so tests and the setup wizard can set it late. */
+ *  Read at call time, not module load, so tests can set it late. */
 export const halaloDir = (): string | undefined => process.env.AIOS_HALALO_DIR;
 
 export interface ExtrasConfig {

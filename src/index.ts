@@ -78,14 +78,10 @@ async function main(): Promise<void> {
 
   // Setup mode (onboarding spec §1): no auth or no org → wizard only.
   // Nothing that assumes an org may start — no channels, heartbeat, senses, or packs.
-  // A dangling symlink under agentsDir makes the manifest walk throw; that must not kill
-  // boot, and the wizard is the safe fallback — it can only ask the user to finish setup.
-  let mode: "setup" | "normal" = "setup";
-  try {
-    mode = bootMode(process.env, config.agentsDir);
-  } catch (err) {
-    log(`boot mode check failed (${(err as Error).message}) — starting in setup mode`);
-  }
+  // Deliberately unguarded: countAgentManifests already skips entries it cannot read, so a
+  // throw here means agentsDir itself is unreadable. Crashing restarts (and gets noticed);
+  // falling back to the wizard would hand a live install to onboarding until someone looks.
+  const mode = bootMode(process.env, config.agentsDir);
   if (mode === "setup") {
     const store = new Store(config.dbPath);
     startSetupServer({

@@ -1,6 +1,6 @@
 // test/onboarding-mode.test.ts — bootMode: token presence × org presence (spec §1).
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { bootMode, countAgentManifests } from "../src/onboarding/mode.js";
@@ -30,6 +30,15 @@ describe("countAgentManifests", () => {
     writeFileSync(join(dir, "ops", "department.yml"), "department: ops\n");
     expect(countAgentManifests(dir)).toBe(0);
     writeFileSync(join(dir, "ops", "neo.yml"), "name: neo\n");
+    expect(countAgentManifests(dir)).toBe(1);
+  });
+
+  // statSync on a dangling symlink throws ENOENT. One broken entry must not decide the boot
+  // mode for the whole install, so it is skipped and the real agents still count.
+  it("skips an entry it cannot stat — a dangling symlink leaves the count intact", () => {
+    const dir = orgDir(true);
+    symlinkSync(join(dir, "nowhere"), join(dir, "broken"));
+    expect(() => countAgentManifests(dir)).not.toThrow();
     expect(countAgentManifests(dir)).toBe(1);
   });
 });

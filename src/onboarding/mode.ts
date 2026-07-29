@@ -10,10 +10,16 @@ export function countAgentManifests(agentsDir: string): number {
   for (const entry of readdirSync(agentsDir)) {
     if (entry.startsWith("_")) continue;
     const sub = join(agentsDir, entry);
-    if (!statSync(sub).isDirectory()) continue;
-    for (const f of readdirSync(sub)) {
-      if (!/\.ya?ml$/.test(f) || f === "department.yaml" || f === "department.yml") continue;
-      n++;
+    // One unreadable entry (dangling symlink, permissions) is a bad department, not a first run —
+    // skip it so only an unreadable agentsDir itself can still throw.
+    try {
+      if (!statSync(sub).isDirectory()) continue;
+      for (const f of readdirSync(sub)) {
+        if (!/\.ya?ml$/.test(f) || f === "department.yaml" || f === "department.yml") continue;
+        n++;
+      }
+    } catch {
+      continue;
     }
   }
   return n;
