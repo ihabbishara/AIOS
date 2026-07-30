@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync, createReadStream, renameSync, mkdirSync, unlinkSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, rmSync, statSync, createReadStream, renameSync, mkdirSync, unlinkSync, rmdirSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
 import { playbookSchema } from "../engine/playbook.js";
@@ -27,7 +27,7 @@ import {
 } from "./skills-view.js";
 import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
 import type { AttachmentRegistry, AttachmentDescriptor } from "./attachment-registry.js";
-import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "./agents-admin.js";
+import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire, validateDepartment, renderDepartmentYaml } from "./agents-admin.js";
 import { updateEnvFile } from "./env-file.js";
 
 const MIME: Record<string, string> = {
@@ -704,6 +704,24 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           reloadPacks(); // registry maps mutate in place; a throw here = 500 but the file is valid yaml
           log(`persona edit: ${canonical}.${body.field}`);
           return json(res, 200, buildAgentProfile(canonical, registry, store, bus));
+        }
+
+        // ---- departments (onboarding spec §4): the one new validated mutation ----
+        if (path === "/api/departments" && req.method === "POST") {
+          const v = validateDepartment(JSON.parse(await readBody(req)), registry);
+          if (!v.ok) return json(res, 400, { error: v.error });
+          const dir = join(config.agentsDir, v.manifest.department);
+          const file = join(dir, "department.yaml");
+          const dirExisted = existsSync(dir);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(file, renderDepartmentYaml(v.manifest));
+          try { reloadPacks(); } catch (err) {
+            unlinkSync(file); // never leave a manifest the loader rejects
+            if (!dirExisted) rmdirSync(dir);
+            return json(res, 500, { error: `department reload failed: ${(err as Error).message}` });
+          }
+          log(`department created: ${v.manifest.department}`);
+          return json(res, 200, { department: v.manifest.department, agents: [] });
         }
 
         // ---- hire/fire (spec 2026-07-20) ----
