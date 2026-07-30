@@ -7,6 +7,10 @@ import { join, extname, normalize } from "node:path";
 import { Wizard, STEPS, type Step, type KvLike } from "./wizard.js";
 import { verifyToken, sdkPing, type Ping } from "./auth.js";
 import { updateEnvFile } from "../web/env-file.js";
+import { listTemplates, loadTemplate } from "./templates.js";
+import { templateToProposal, type OrgProposal } from "./proposal.js";
+import { provision, type ProvisionResult } from "./provision.js";
+import { loadRegistry } from "../agents/registry/loader.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
@@ -18,7 +22,14 @@ export interface SetupDeps {
   envPath: string;
   uiDist: string;
   port: number;
+  agentsDir: string;
+  playbooksDir: string;
+  templatesDir: string;
   ping?: Ping;
+  /** Injected in tests so provisioning can be exercised without writing an org. */
+  provisionFn?: (proposal: OrgProposal) => ProvisionResult;
+  /** Resume probe: did a previous run already write the org? */
+  orgExists?: () => boolean;
   log?: (line: string) => void;
 }
 
@@ -68,6 +79,17 @@ export function startSetupServer(deps: SetupDeps): Server {
   // verifyToken swaps process-global env around the ping, so two verifications must never
   // interleave — a second attempt is refused rather than queued (the wizard has one user).
   let verifying = false;
+
+  const PROPOSAL_KEY = "onboarding.proposal";
+  const doProvision = deps.provisionFn ?? ((p: OrgProposal) => provision(p, {
+    agentsDir: deps.agentsDir, playbooksDir: deps.playbooksDir, templatesDir: deps.templatesDir,
+    loadRegistry, log,
+  }));
+  // Resume probe: a crash between "org written" and "step advanced" must not provision twice.
+  const orgExists = deps.orgExists ?? (() => {
+    try { return loadRegistry(deps.agentsDir, deps.playbooksDir).agents.size > 0; }
+    catch { return false; }
+  });
 
   // Read at request time, not from deps: port 0 (tests) is only resolved once bound.
   const boundPort = (): number => {
@@ -141,6 +163,60 @@ export function startSetupServer(deps: SetupDeps): Server {
             verifying = false;
           }
         }
+        if (path === "/api/onboarding/templates" && req.method === "GET") {
+          return json(res, 200, { templates: listTemplates(deps.templatesDir, log) });
+        }
+
+        if (path === "/api/onboarding/template" && req.method === "POST") {
+          if (wizard.current() !== "interview") {
+            return json(res, 400, { error: `templates are chosen at the interview step, not ${wizard.current()}` });
+          }
+          const body = await readJson<{ name?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const name = typeof body.name === "string" ? body.name : "";
+          let template;
+          try {
+            template = loadTemplate(deps.templatesDir, name);
+          } catch (err) {
+            return json(res, 400, { error: `template "${name}" is invalid: ${(err as Error).message}` });
+          }
+          if (!template) return json(res, 400, { error: `unknown template "${name}"` });
+          // Stored, not written: nothing touches disk until the user approves on the review screen.
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(templateToProposal(template)));
+          return transition(res, path, () => wizard.advance("interview"));
+        }
+
+        if (path === "/api/onboarding/proposal" && req.method === "GET") {
+          const raw = deps.store.kvGet(PROPOSAL_KEY);
+          if (!raw) return json(res, 404, { error: "no proposal yet" });
+          return json(res, 200, { proposal: JSON.parse(raw) as OrgProposal });
+        }
+
+        if (path === "/api/onboarding/provision" && req.method === "POST") {
+          const at = wizard.current();
+          // Resume: a crash between writing the org and advancing leaves the wizard here with
+          // an org already on disk. Finishing is right; provisioning again would collide.
+          if (at === "provision" && orgExists()) {
+            return transition(res, path, () => wizard.advance("provision"));
+          }
+          if (at !== "review") return json(res, 400, { error: `provisioning happens at the review step, not ${at}` });
+          const raw = deps.store.kvGet(PROPOSAL_KEY);
+          if (!raw) return json(res, 400, { error: "no proposal to provision" });
+          const result = doProvision(JSON.parse(raw) as OrgProposal);
+          if (!result.ok) {
+            const summary = result.errors.map((e) => `${e.name ?? e.scope}: ${e.error}`).join("; ");
+            log(`provision rejected: ${summary}`);
+            // Both keys on purpose: `errors` drives the per-card highlighting, `error` is what
+            // ui2's shared request() helper reads off a failed response (api.ts:43). Without it
+            // a rejected provision would surface to the user as a bare "HTTP 400".
+            return json(res, 400, { error: summary, errors: result.errors });
+          }
+          wizard.advance("review");    // → provision
+          wizard.advance("provision"); // → first-job
+          log(`org provisioned: ${result.agents.join(", ")}`);
+          return json(res, 200, { step: wizard.current(), departments: result.departments, agents: result.agents });
+        }
+
         if (path.startsWith("/api/")) return json(res, 404, { error: "not found" });
 
         // Static SPA: exact file if present, index.html otherwise.
