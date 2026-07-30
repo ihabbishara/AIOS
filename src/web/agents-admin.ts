@@ -66,6 +66,72 @@ export function renderAgentYaml(m: HireBody): string {
   ].join("\n");
 }
 
+export interface DepartmentBody {
+  department: string; mission: string; memoDomain: string;
+  lead?: string; capabilities: string[]; playbooks: string[];
+}
+
+/**
+ * The one new validated mutation onboarding needs (spec §4). Two rules come straight from the
+ * loader: a department whose playbook is missing is SILENTLY SKIPPED at load (loader.ts:141) —
+ * the org would come up short a department with no error anywhere — and the dir name must equal
+ * the `department:` field, which the writer guarantees.
+ *
+ * `leadPending` is for provisioning, where the lead agent is written after its department.
+ * `knownPlaybooks` is for provisioning too: template playbooks are copied in, so they are not
+ * in the registry yet when the department is validated.
+ */
+export function validateDepartment(
+  body: unknown, registry: LoadedRegistry,
+  opts: { knownPlaybooks?: Set<string>; leadPending?: boolean } = {},
+): { ok: true; manifest: DepartmentBody } | { ok: false; error: string } {
+  const b = body as Partial<DepartmentBody> | null;
+  const fail = (error: string) => ({ ok: false as const, error });
+  if (!b || typeof b !== "object") return fail("body required");
+  if (typeof b.department !== "string" || !NAME_RE.test(b.department)) {
+    return fail("department must match ^[a-z][a-z0-9-]*$");
+  }
+  if (registry.departments.has(b.department)) return fail(`department "${b.department}" already exists`);
+  for (const f of ["mission", "memoDomain"] as const) {
+    if (typeof b[f] !== "string" || !b[f]!.trim()) return fail(`${f} required`);
+  }
+  const capabilities = b.capabilities ?? [];
+  if (!Array.isArray(capabilities)) return fail("capabilities must be an array");
+  for (const c of capabilities) {
+    if (typeof c !== "string" || !registry.capabilities.has(c)) return fail(`unknown capability "${String(c)}"`);
+  }
+  const playbooks = b.playbooks ?? [];
+  if (!Array.isArray(playbooks)) return fail("playbooks must be an array");
+  for (const p of playbooks) {
+    if (typeof p !== "string" || !(registry.playbooks.has(p) || opts.knownPlaybooks?.has(p))) {
+      return fail(`unknown playbook "${String(p)}"`);
+    }
+  }
+  if (b.lead !== undefined) {
+    if (typeof b.lead !== "string" || !NAME_RE.test(b.lead)) return fail("lead must match ^[a-z][a-z0-9-]*$");
+    if (!opts.leadPending && !registry.agentOf.has(b.lead)) {
+      return fail(`lead "${b.lead}" is not a registered agent`);
+    }
+  }
+  const { department, mission, memoDomain, lead } = b as DepartmentBody;
+  return {
+    ok: true,
+    manifest: { department, mission, memoDomain, ...(lead ? { lead } : {}), capabilities, playbooks },
+  };
+}
+
+export function renderDepartmentYaml(m: DepartmentBody): string {
+  return [
+    `department: ${m.department}`,
+    `mission: ${block(m.mission)}`,
+    ...(m.lead ? [`lead: ${m.lead}`] : []),
+    `memoDomain: ${m.memoDomain}`,
+    `capabilities: [${m.capabilities.join(", ")}]`,
+    `playbooks: [${m.playbooks.join(", ")}]`,
+    "",
+  ].join("\n");
+}
+
 export function retireBlockers(canonical: string, registry: LoadedRegistry): string[] {
   const out: string[] = [];
   const def = registry.agents.get(canonical);
