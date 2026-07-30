@@ -1,0 +1,19 @@
+name: market-scan
+description: >-
+  Size a market and map who already competes in it, then write it up as a memo
+  the founder can send.
+needsProjectDir: false
+stages:
+  - type: single
+    id: analyse
+    role: compass
+    brief: >-
+      Size the market for the described product and identify the existing competitors.
+      Show the method and math behind every number, and name the assumptions that
+      would change the answer.
+  - type: single
+    id: write
+    role: quill
+    brief: >-
+      Turn the analysis into a one-page memo. Lead with the conclusion, keep every
+      number attached to its method, and end with the assumptions worth testing first.
