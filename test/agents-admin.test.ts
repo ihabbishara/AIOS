@@ -17,7 +17,7 @@ function extras() {
 
 import { parse as parseYaml } from "yaml";
 import { agentSchema } from "../src/agents/registry/types.js";
-import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "../src/web/agents-admin.js";
+import { validateHire, validateProposalAgent, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "../src/web/agents-admin.js";
 
 const reg = loadRegistry("agents", "playbooks", extras(), () => {});
 const good = {
@@ -164,5 +164,61 @@ describe("listRetired / validateRehire", () => {
     const r = validateRehire("scout", archive, "agents", reg);
     expect(r).toMatchObject({ ok: true, from: join(archive, "scout.yaml"), to: join("agents", "research", "scout.yaml") });
     rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
+describe("validateProposalAgent", () => {
+  const coordinator = {
+    name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+    charter: "Route work.", persona: "Brief.", prompt: "You route requests.", capabilities: [],
+  };
+
+  it("accepts a coordinator, which validateHire refuses", () => {
+    // validateHire is right to refuse: you cannot hire a SECOND coordinator into a live org.
+    // A new org must contain exactly one, or loadRegistry throws on what was written.
+    expect(validateHire(coordinator, reg).ok).toBe(false);
+    const v = validateProposalAgent(coordinator, reg);
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.manifest.kind).toBe("coordinator");
+  });
+
+  it("accepts a department that is about to be written but is not in the registry yet", () => {
+    const body = {
+      name: "scribe", department: "studio", kind: "lead", title: "Writer",
+      charter: "Write.", persona: "Plain.", prompt: "You write drafts.", capabilities: [],
+    };
+    expect(validateProposalAgent(body, reg).ok).toBe(false);
+    expect(validateProposalAgent(body, reg, { knownDepartments: new Set(["studio"]) }).ok).toBe(true);
+  });
+
+  it("rejects a name already taken by a sibling in the same proposal", () => {
+    const body = {
+      name: "scribe", department: "studio", kind: "lead", title: "Writer",
+      charter: "Write.", persona: "Plain.", prompt: "You write drafts.", capabilities: [],
+    };
+    const v = validateProposalAgent(body, reg, {
+      knownDepartments: new Set(["studio"]), taken: new Set(["scribe"]),
+    });
+    expect(v).toEqual({ ok: false, error: 'name "scribe" is taken (agent or alias)' });
+  });
+
+  it("carries skills through and defaults them to an empty array", () => {
+    const base = {
+      name: "test-analyst", department: "research", kind: "worker", title: "Analyst",
+      charter: "Analyse.", persona: "Curious.", prompt: "You analyse topics.", capabilities: [],
+    };
+    const withSkills = validateProposalAgent({ ...base, skills: ["market-sizing"] }, reg);
+    expect(withSkills.ok && withSkills.manifest.skills).toEqual(["market-sizing"]);
+    const without = validateProposalAgent(base, reg);
+    expect(without.ok && without.manifest.skills).toEqual([]);
+  });
+
+  it("still enforces the department capability wall", () => {
+    const v = validateProposalAgent({
+      name: "test-helper", department: "life", kind: "worker", title: "Helper",
+      charter: "Help.", persona: "Kind.", prompt: "You help.", capabilities: ["vault-write"],
+    }, reg);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.error).toContain("capability wall");
   });
 });
