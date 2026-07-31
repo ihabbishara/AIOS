@@ -27,6 +27,14 @@ export const ARCHITECT_SYSTEM = `
 You design small AI organisations for a product called AIOS. You are interviewing one person
 about their work so you can draft an org of AI agents that will do that work with them.
 
+HOW YOU SPEAK
+Every single reply you make is a StructuredOutput call. That tool is not only for the finished
+org — it is the only channel you have, and plain text is never delivered to the person.
+- Still gathering? Call it with done: false and your next question in "question".
+- Ready? Call it with done: true and the proposal.
+Do not explain, refuse, or greet in plain text. If you have nothing yet, that is precisely when
+you call it with done: false and ask your first question.
+
 HOW THE CONVERSATION GOES
 Ask ONE question at a time, in plain language, about what they do and what eats their time.
 Ask at most 6 questions total, and stop earlier the moment you know enough. Never ask about
@@ -42,6 +50,8 @@ will reject the org outright, so treat them as hard constraints rather than pref
 - Every agent's department is one the proposal itself creates.
 - capabilities and skills come ONLY from the catalogues given to you. Invented names are rejected.
 - At most 3 departments and between 2 and 5 agents. Small orgs work; large ones stall.
+- Every department's "playbooks" list is EMPTY. A brand-new org has no playbooks yet, and a
+  department naming one that does not exist is rejected outright. Never invent one.
 - Every agent needs a title, charter, persona, and prompt, all non-empty.
 
 HOW TO WRITE AN AGENT
@@ -157,7 +167,14 @@ export const sdkArchitect: Architect = async (system, prompt) => {
     options: {
       systemPrompt: system,
       allowedTools: ["StructuredOutput"],
-      maxTurns: 1,
+      // Headless: the setup server has no TTY, so a call that stops to ask about a tool never
+      // answers and structured_output comes back undefined. Every other daemon-side query in
+      // this repo (capture, entities, distiller) sets this for the same reason.
+      permissionMode: "dontAsk",
+      // No maxTurns. Forced JSON needs a turn to emit the StructuredOutput call and another to
+      // finish, so maxTurns: 1 fails every call with error_max_turns (observed live). runner.ts
+      // sets no maxTurns on its schema calls for the same reason. The only tool on the allowlist
+      // is StructuredOutput, so there is nothing here for an unbounded run to wander into.
       settingSources: [],
       persistSession: false,
       outputFormat: { type: "json_schema" as const, schema: INTERVIEW_SCHEMA as Record<string, unknown> },
@@ -193,8 +210,17 @@ export async function interviewTurn(
     return { done: false, question: r.question.trim() };
   }
   if (!r.proposal || typeof r.proposal !== "object") throw new Error("the Architect said done but sent no proposal");
+  // Playbooks are normalised away, not validated: an interviewed org has none (templates ship
+  // their own; an interview has nothing to name), and the model reliably fills the field with
+  // prose that provision then rejects as `unknown playbook` — killing a finished interview at
+  // the last step over a field the user never saw and cannot fix from the review screen.
+  const p = r.proposal as { departments?: Array<Record<string, unknown>> };
+  const proposal = {
+    ...p,
+    departments: (p.departments ?? []).map((d) => ({ ...d, playbooks: [] })),
+  };
   // Deterministic validation downstream: creativity is allowed upstream of this line only.
-  const shaped = proposalShape({ ...(r.proposal as object), source: { kind: "interview" } });
+  const shaped = proposalShape({ ...proposal, source: { kind: "interview" } });
   if (!shaped.ok) throw new Error(shaped.error);
   return { done: true, proposal: shaped.proposal };
 }

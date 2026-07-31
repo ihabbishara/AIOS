@@ -88,6 +88,19 @@ export const api = {
     }),
   interviewRestart: () =>
     request<{ turns: [] }>("/api/onboarding/interview/restart", { method: "POST", body: JSON.stringify({}) }),
+  patchProposal: (patch: Record<string, unknown>) =>
+    request<{ proposal: OrgProposalView }>("/api/onboarding/proposal", {
+      method: "PATCH", body: JSON.stringify(patch),
+    }),
+  redraftAgent: (agent: string, note: string) =>
+    request<{ proposal: OrgProposalView }>("/api/onboarding/redraft", {
+      method: "POST", body: JSON.stringify({ agent, note }),
+    }),
+  regenerate: () =>
+    request<{ proposal: OrgProposalView }>("/api/onboarding/regenerate", {
+      method: "POST", body: JSON.stringify({}),
+    }),
+  capabilityCatalog: () => request<{ capabilities: string[]; skills: string[] }>("/api/onboarding/catalog"),
   /** Not `request`: a rejected provision carries per-card `errors` that request() would discard,
    *  since it reads only `error` off a failed response. Same reason onboardingAuth bypasses it. */
   onboardingProvision: async (): Promise<

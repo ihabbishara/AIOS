@@ -546,3 +546,32 @@ describe("regenerate", () => {
     expect((await postJson(base, "/api/onboarding/regenerate", {})).status).toBe(400);
   });
 });
+
+describe("the capability catalog before provision", () => {
+  // seedCapabilities plants agents/_capabilities.yaml at PROVISION, but the interview runs
+  // before that. Reading only the user's agents dir therefore hands the Architect an empty
+  // catalog on every fresh install, and it drafts agents with no capabilities at all — which is
+  // to say, agents with no tools. Observed live during the plan-2b smoke.
+  it("offers the product catalog to the Architect on a fresh install", async () => {
+    let seenSystem = "";
+    const { base } = await boot(noop, {
+      architect: async (s) => { seenSystem = s; return { done: false, question: "?" }; },
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "hi" });
+    // Slice the capability section out: the worked examples further down also mention "web",
+    // so asserting on the whole prompt would pass even with an empty catalog.
+    const section = seenSystem.slice(
+      seenSystem.indexOf("CAPABILITIES YOU MAY USE"), seenSystem.indexOf("SKILLS YOU MAY ATTACH"));
+    expect(section).toContain("web");
+    expect(section).toContain("coordination");
+  });
+
+  it("serves the same catalog to the review screen's chips", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    const r = await fetch(`${base}/api/onboarding/catalog`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { capabilities: string[]; skills: string[] };
+    expect(body.capabilities).toContain("web");
+    expect(body.capabilities.length).toBeGreaterThan(5);
+  });
+});

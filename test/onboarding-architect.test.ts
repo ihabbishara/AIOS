@@ -64,6 +64,14 @@ describe("ARCHITECT_SYSTEM", () => {
     expect(ARCHITECT_SYSTEM).toMatch(/exactly one coordinator/i);
     expect(ARCHITECT_SYSTEM).toMatch(/kebab/i);
   });
+
+  // Observed live: without this the model answers a mid-interview turn in plain text and argues
+  // that "the StructuredOutput tool is for when I'm ready to deliver a proposal", leaving
+  // structured_output undefined and the interview dead on its first question.
+  it("says every turn — question included — goes through the structured output", () => {
+    expect(ARCHITECT_SYSTEM).toMatch(/StructuredOutput/);
+    expect(ARCHITECT_SYSTEM).toMatch(/done:\s*false/i);
+  });
 });
 
 describe("INTERVIEW_SCHEMA", () => {
@@ -147,6 +155,21 @@ describe("interviewTurn", () => {
     };
     await expect(interviewTurn([], ctx, async () => ({ done: true, proposal: twoCoordinators })))
       .rejects.toThrow(/exactly one coordinator/);
+  });
+
+  // Observed live: the model fills `playbooks` with prose ("triage incoming requests and
+  // delegate to chase or otto") and provision rejects the whole org with `unknown playbook`.
+  // An interviewed org has no playbooks — templates ship their own, an interview has none — so
+  // the field is normalised here rather than left to kill a finished interview at the last step.
+  it("drops invented playbook names, which no interviewed org can satisfy", async () => {
+    const withPlaybooks = {
+      ...goodProposal,
+      departments: [{ ...goodProposal.departments[0], playbooks: ["triage incoming requests"] }],
+    };
+    const r = await interviewTurn([], ctx, async () => ({ done: true, proposal: withPlaybooks }));
+    expect(r.done).toBe(true);
+    if (!r.done) return;
+    expect(r.proposal.departments[0].playbooks).toEqual([]);
   });
 
   it("rejects a done response with no proposal", async () => {

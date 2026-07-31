@@ -12,10 +12,12 @@ import { templateToProposal, type OrgProposal } from "./proposal.js";
 import { provision, type ProvisionResult } from "./provision.js";
 import { loadRegistry } from "../agents/registry/loader.js";
 import {
-  buildArchitectContext, interviewTurn, redraftAgent, sdkArchitect, type Architect, type Turn,
+  buildArchitectContext, interviewTurn, productCapabilities, redraftAgent, sdkArchitect,
+  type Architect, type Turn,
 } from "./architect.js";
 import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
 import { loadCapabilities } from "../agents/registry/capabilities.js";
+import { CAPABILITIES_FILE } from "./seed.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
@@ -92,10 +94,21 @@ export function startSetupServer(deps: SetupDeps): Server {
   const ask = deps.architect ?? sdkArchitect;
   const transcript = (): Turn[] => JSON.parse(deps.store.kvGet(TRANSCRIPT_KEY) ?? "[]") as Turn[];
 
+  /**
+   * seedCapabilities plants the catalog in the user's agents dir at PROVISION, but the interview
+   * and the review chips both run before that. Reading only agentsDir therefore hands a fresh
+   * install an empty catalog — and the Architect drafts every agent with no capabilities, which
+   * is to say no tools. Prefer the user's copy once it exists; they may have edited it.
+   */
+  const capabilityCatalog = (): Array<{ name: string; labels: string[] }> => {
+    const user = join(deps.agentsDir, CAPABILITIES_FILE);
+    const path = existsSync(user) ? user : join(deps.templatesDir, CAPABILITIES_FILE);
+    return [...loadCapabilities(path)].map(([name, def]) => ({ name, labels: def.labels }));
+  };
+
   /** Rebuilt per turn: the catalogues are files on disk and the user may be editing them. */
   const architectContext = (): string => buildArchitectContext({
-    capabilities: [...loadCapabilities(join(deps.agentsDir, "_capabilities.yaml"))]
-      .map(([name, def]) => ({ name, labels: def.labels })),
+    capabilities: capabilityCatalog(),
     skills: listSkills(skillsPluginRoot()),
     templates: listTemplates(deps.templatesDir, log)
       .map((t) => loadTemplate(deps.templatesDir, t.name))
@@ -210,6 +223,13 @@ export function startSetupServer(deps: SetupDeps): Server {
           const raw = deps.store.kvGet(PROPOSAL_KEY);
           if (!raw) return json(res, 404, { error: "no proposal yet" });
           return json(res, 200, { proposal: JSON.parse(raw) as OrgProposal });
+        }
+
+        if (path === "/api/onboarding/catalog" && req.method === "GET") {
+          return json(res, 200, {
+            capabilities: productCapabilities(capabilityCatalog()),
+            skills: listSkills(skillsPluginRoot()).map((s) => s.name),
+          });
         }
 
         if (path === "/api/onboarding/proposal" && req.method === "PATCH") {
