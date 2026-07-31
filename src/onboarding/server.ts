@@ -212,6 +212,54 @@ export function startSetupServer(deps: SetupDeps): Server {
           return json(res, 200, { proposal: JSON.parse(raw) as OrgProposal });
         }
 
+        if (path === "/api/onboarding/proposal" && req.method === "PATCH") {
+          const raw = deps.store.kvGet(PROPOSAL_KEY);
+          if (!raw) return json(res, 404, { error: "no proposal yet" });
+          const body = await readJson<Record<string, unknown>>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const proposal = JSON.parse(raw) as OrgProposal;
+
+          if (typeof body.firstJob === "string") {
+            if (!body.firstJob.trim()) return json(res, 400, { error: "firstJob required" });
+            proposal.firstJob = body.firstJob.trim();
+            deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(proposal));
+            return json(res, 200, { proposal });
+          }
+
+          const agent = proposal.agents.find((a) => a.name === body.agent);
+          if (!agent) return json(res, 400, { error: `no agent "${String(body.agent)}" in the proposal` });
+
+          // name and department are deliberately NOT editable: a rename here would orphan the
+          // department lead and any playbook role naming this agent, which the user cannot see
+          // from this screen. Picking a different template is the way to change structure.
+          const PROSE = ["title", "charter", "persona", "prompt"] as const;
+          if (typeof body.field === "string") {
+            if (!(PROSE as readonly string[]).includes(body.field)) {
+              return json(res, 400, { error: `field must be one of ${PROSE.join(", ")}` });
+            }
+            if (typeof body.value !== "string" || !body.value.trim()) {
+              return json(res, 400, { error: `${body.field} required` });
+            }
+            agent[body.field as (typeof PROSE)[number]] = body.value.trim();
+          } else if (Array.isArray(body.capabilities)) {
+            if (body.capabilities.some((c) => typeof c !== "string")) {
+              return json(res, 400, { error: "capabilities must be strings" });
+            }
+            agent.capabilities = body.capabilities as string[];
+          } else if (Array.isArray(body.skills)) {
+            if (body.skills.some((s) => typeof s !== "string")) {
+              return json(res, 400, { error: "skills must be strings" });
+            }
+            agent.skills = body.skills as string[];
+          } else {
+            return json(res, 400, { error: "nothing to patch" });
+          }
+          // Unknown capability names are NOT rejected here — provision() re-validates every
+          // field and reports them as card errors on this same screen.
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(proposal));
+          return json(res, 200, { proposal });
+        }
+
         if (path === "/api/onboarding/interview" && req.method === "GET") {
           return json(res, 200, { turns: transcript() });
         }

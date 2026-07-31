@@ -390,3 +390,83 @@ describe("the interview", () => {
     expect(JSON.parse(store.kvGet("onboarding.transcript") ?? "[]")).toEqual([]);
   });
 });
+
+describe("editing the proposal", () => {
+  async function atReview(over = {}) {
+    const b = await boot(noop, over, "interview");
+    await postJson(b.base, "/api/onboarding/template", { name: "starter" });
+    return b;
+  }
+
+  it("edits a prose field on one agent", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "charter", value: "Rewritten charter." }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; charter: string }> } };
+    expect(body.proposal.agents.find((a) => a.name === "nova")!.charter).toBe("Rewritten charter.");
+  });
+
+  it("persists the edit for the next read", async () => {
+    const { base } = await atReview();
+    await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "title", value: "Chief of Staff" }),
+    });
+    const r = await fetch(`${base}/api/onboarding/proposal`);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; title: string }> } };
+    expect(body.proposal.agents.find((a) => a.name === "nova")!.title).toBe("Chief of Staff");
+  });
+
+  it("replaces capability and skill chips", async () => {
+    const { base } = await atReview();
+    await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "scout", capabilities: ["web"] }),
+    });
+    const r = await fetch(`${base}/api/onboarding/proposal`);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; capabilities: string[] }> } };
+    expect(body.proposal.agents.find((a) => a.name === "scout")!.capabilities).toEqual(["web"]);
+  });
+
+  it("edits firstJob", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ firstJob: "Do the thing." }),
+    });
+    expect(((await r.json()) as { proposal: { firstJob: string } }).proposal.firstJob).toBe("Do the thing.");
+  });
+
+  it("refuses an unknown agent", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "ghost", field: "title", value: "x" }),
+    });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("ghost");
+  });
+
+  it("refuses a field that is not editable", async () => {
+    const { base } = await atReview();
+    // Renaming an agent here would orphan the department lead and any playbook role naming it.
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "name", value: "hacked" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("refuses an empty prose value", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "charter", value: "  " }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("404s when there is no proposal to edit", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ firstJob: "x" }),
+    });
+    expect(r.status).toBe(404);
+  });
+});
