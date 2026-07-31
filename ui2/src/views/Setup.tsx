@@ -1,7 +1,7 @@
 // ui2/src/views/Setup.tsx — onboarding wizard shell (spec §1-2): welcome + auth are live,
 // the org steps land in the next phase. The server owns the state machine — this view renders
 // the step it is handed and posts intents; every transition comes back from the daemon.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
 
@@ -17,7 +17,7 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       <Rail step={step} />
       {step === "welcome" && <Welcome onNext={onStepChange} />}
       {step === "auth" && <Auth onNext={onStepChange} />}
-      {step === "interview" && <Gallery onNext={onStepChange} />}
+      {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
       {(step === "workspace" || step === "provision" || step === "first-job" || step === "done") && (
         <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
@@ -181,6 +181,96 @@ function Gallery({ onNext }: { onNext: (s: string) => void }) {
         ))}
         {rows.length === 0 && !error && <div className="text-dim text-[12px]">Loading templates…</div>}
       </div>
+    </div>
+  );
+}
+
+function Interview({ onNext }: { onNext: (s: string) => void }) {
+  const [turns, setTurns] = useState<Array<{ role: "user" | "architect"; text: string }>>([]);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [showGallery, setShowGallery] = useState(false);
+  // The priming turn below is a real, billed model call that also commits a turn to the server
+  // transcript. StrictMode double-invokes mount effects in dev, and both passes would read an
+  // empty transcript before either committed — so the guard is a ref, not the turns state.
+  const primed = useRef(false);
+
+  useEffect(() => {
+    api.interviewTurns()
+      .then((r) => {
+        setTurns(r.turns);
+        // Nothing said yet: prime the first question so the user is not staring at a blank box.
+        if (r.turns.length === 0 && !primed.current) {
+          primed.current = true;
+          void send("Hello — I'd like to set up my org.", true);
+        }
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  async function send(message: string, silent = false) {
+    setBusy(true); setError("");
+    if (!silent) setTurns((t) => [...t, { role: "user", text: message }]);
+    try {
+      const r = await api.interviewSay(message);
+      if (r.step) return onNext(r.step); // the Architect finished — proposal is stored
+      const q = r.question ?? "";
+      setTurns((t) => (silent ? [{ role: "architect", text: q }] : [...t, { role: "architect", text: q }]));
+    } catch (err) {
+      setError((err as Error).message);
+      // The server did not commit the failed turn, so drop the optimistic echo too.
+      if (!silent) setTurns((t) => t.slice(0, -1));
+    } finally {
+      setBusy(false);
+      setValue("");
+    }
+  }
+
+  return (
+    <div className="panel w-full max-w-2xl p-6 flex flex-col gap-4">
+      <div className="text-strong text-[15px]">Tell me about your work</div>
+      <p className="leading-relaxed">
+        A few questions, then I'll draft an org for you. Nothing is created until you approve it.
+      </p>
+
+      <div className="flex flex-col gap-3 max-h-[46vh] overflow-y-auto">
+        {turns.map((t, i) => (
+          <div key={i} className={t.role === "user" ? "self-end max-w-[80%]" : "max-w-[85%]"}>
+            <div className={`rounded-md px-3 py-2 leading-relaxed ${
+              t.role === "user" ? "bg-bg border border-line" : "text-fg"}`}>
+              {t.text}
+            </div>
+          </div>
+        ))}
+        {busy && <div className="text-dim text-[12px]">thinking…</div>}
+      </div>
+
+      {error && <div className="text-[12px] text-err">{error}</div>}
+
+      <div className="flex items-center gap-2">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !busy && value.trim() && void send(value.trim())}
+          placeholder="Type your answer"
+          className="flex-1 bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim"
+        />
+        <Button variant="primary" disabled={busy || !value.trim()} onClick={() => void send(value.trim())}>
+          Send
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-3 text-[11px]">
+        <button onClick={() => { void api.interviewRestart().then(() => setTurns([])); }}
+          className="text-dim hover:text-fg underline underline-offset-2">Start over</button>
+        <button onClick={() => setShowGallery((v) => !v)}
+          className="text-dim hover:text-fg underline underline-offset-2 ml-auto">
+          {showGallery ? "Back to the interview" : "Skip — pick a template instead"}
+        </button>
+      </div>
+
+      {showGallery && <Gallery onNext={onNext} />}
     </div>
   );
 }
