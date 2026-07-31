@@ -291,3 +291,102 @@ describe("template gallery and provisioning", () => {
     expect(runs).toBe(0);
   });
 });
+
+describe("the interview", () => {
+  const proposal = {
+    departments: [{ department: "operations", mission: "Front door.", memoDomain: "general", lead: "nova", capabilities: [], playbooks: [] }],
+    agents: [{
+      name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+      charter: "Route.", persona: "Brief.", prompt: "You route.", capabilities: [], skills: [],
+    }],
+    firstJob: "Say hello.",
+  };
+
+  it("asks a question and keeps the wizard on the interview step", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: false, question: "What do you do?" }),
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "I run a bakery" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ done: false, question: "What do you do?" });
+    expect(store.kvGet("onboarding.step")).toBe("interview");
+  });
+
+  it("replays the whole transcript on the next turn", async () => {
+    const prompts: string[] = [];
+    const { base } = await boot(noop, {
+      architect: async (_s, p) => { prompts.push(p); return { done: false, question: "and then?" }; },
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "first thing" });
+    await postJson(base, "/api/onboarding/interview", { message: "second thing" });
+    expect(prompts[1]).toContain("first thing");
+    expect(prompts[1]).toContain("and then?");
+    expect(prompts[1]).toContain("second thing");
+  });
+
+  it("stores the proposal and advances to review when the Architect is done", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: true, proposal }),
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "that's everything" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("review");
+    expect(store.kvGet("onboarding.proposal")).toContain("nova");
+    expect(store.kvGet("onboarding.proposal")).toContain("interview");
+  });
+
+  it("serves the transcript back so a reload resumes mid-interview", async () => {
+    const { base } = await boot(noop, {
+      architect: async () => ({ done: false, question: "What do you do?" }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "I run a bakery" });
+    const r = await fetch(`${base}/api/onboarding/interview`);
+    const body = (await r.json()) as { turns: Array<{ role: string; text: string }> };
+    expect(body.turns.map((t) => t.role)).toEqual(["user", "architect"]);
+    expect(body.turns[0].text).toBe("I run a bakery");
+  });
+
+  it("surfaces an Architect failure as 400 without advancing", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => { throw new Error("api_error_status 401"); },
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "hi" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("401");
+    expect(store.kvGet("onboarding.step")).toBe("interview");
+  });
+
+  it("rejects a proposal that fails the structural gate, and stays put", async () => {
+    const twoCoordinators = { ...proposal, agents: [proposal.agents[0], { ...proposal.agents[0], name: "nova2" }] };
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: true, proposal: twoCoordinators }),
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "go" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("exactly one coordinator");
+    expect(store.kvGet("onboarding.step")).toBe("interview");
+    expect(store.kvGet("onboarding.proposal")).toBeUndefined();
+  });
+
+  it("refuses an empty message", async () => {
+    const { base } = await boot(noop, { architect: async () => ({ done: false, question: "?" }) }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "   " });
+    expect(r.status).toBe(400);
+  });
+
+  it("refuses interview turns from the wrong step", async () => {
+    const { base } = await boot(noop, { architect: async () => ({ done: false, question: "?" }) }, "welcome");
+    expect((await postJson(base, "/api/onboarding/interview", { message: "hi" })).status).toBe(400);
+  });
+
+  it("restart clears the transcript", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: false, question: "q" }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "hi" });
+    expect(store.kvGet("onboarding.transcript")).toContain("hi");
+    const r = await postJson(base, "/api/onboarding/interview/restart", {});
+    expect(r.status).toBe(200);
+    expect(JSON.parse(store.kvGet("onboarding.transcript") ?? "[]")).toEqual([]);
+  });
+});

@@ -11,6 +11,11 @@ import { listTemplates, loadTemplate } from "./templates.js";
 import { templateToProposal, type OrgProposal } from "./proposal.js";
 import { provision, type ProvisionResult } from "./provision.js";
 import { loadRegistry } from "../agents/registry/loader.js";
+import {
+  buildArchitectContext, interviewTurn, sdkArchitect, type Architect, type Turn,
+} from "./architect.js";
+import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
+import { loadCapabilities } from "../agents/registry/capabilities.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
@@ -30,6 +35,8 @@ export interface SetupDeps {
   provisionFn?: (proposal: OrgProposal) => ProvisionResult;
   /** Resume probe: did a previous run already write the org? */
   orgExists?: () => boolean;
+  /** Injected in tests so the interview never touches the network. */
+  architect?: Architect;
   log?: (line: string) => void;
 }
 
@@ -81,6 +88,19 @@ export function startSetupServer(deps: SetupDeps): Server {
   let verifying = false;
 
   const PROPOSAL_KEY = "onboarding.proposal";
+  const TRANSCRIPT_KEY = "onboarding.transcript";
+  const ask = deps.architect ?? sdkArchitect;
+  const transcript = (): Turn[] => JSON.parse(deps.store.kvGet(TRANSCRIPT_KEY) ?? "[]") as Turn[];
+
+  /** Rebuilt per turn: the catalogues are files on disk and the user may be editing them. */
+  const architectContext = (): string => buildArchitectContext({
+    capabilities: [...loadCapabilities(join(deps.agentsDir, "_capabilities.yaml"))]
+      .map(([name, def]) => ({ name, labels: def.labels })),
+    skills: listSkills(skillsPluginRoot()),
+    templates: listTemplates(deps.templatesDir, log)
+      .map((t) => loadTemplate(deps.templatesDir, t.name))
+      .filter((t): t is NonNullable<typeof t> => Boolean(t)),
+  });
   const doProvision = deps.provisionFn ?? ((p: OrgProposal) => provision(p, {
     agentsDir: deps.agentsDir, playbooksDir: deps.playbooksDir, templatesDir: deps.templatesDir,
     loadRegistry, log,
@@ -190,6 +210,46 @@ export function startSetupServer(deps: SetupDeps): Server {
           const raw = deps.store.kvGet(PROPOSAL_KEY);
           if (!raw) return json(res, 404, { error: "no proposal yet" });
           return json(res, 200, { proposal: JSON.parse(raw) as OrgProposal });
+        }
+
+        if (path === "/api/onboarding/interview" && req.method === "GET") {
+          return json(res, 200, { turns: transcript() });
+        }
+
+        if (path === "/api/onboarding/interview/restart" && req.method === "POST") {
+          if (wizard.current() !== "interview") {
+            return json(res, 400, { error: `the interview runs at the interview step, not ${wizard.current()}` });
+          }
+          deps.store.kvSet(TRANSCRIPT_KEY, "[]");
+          return json(res, 200, { turns: [] });
+        }
+
+        if (path === "/api/onboarding/interview" && req.method === "POST") {
+          if (wizard.current() !== "interview") {
+            return json(res, 400, { error: `the interview runs at the interview step, not ${wizard.current()}` });
+          }
+          const body = await readJson<{ message?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const message = typeof body.message === "string" ? body.message.trim() : "";
+          if (!message) return json(res, 400, { error: "message required" });
+
+          const turns: Turn[] = [...transcript(), { role: "user", text: message }];
+          let turn;
+          try {
+            turn = await interviewTurn(turns, architectContext(), ask);
+          } catch (err) {
+            // The user's message is NOT committed on failure: replaying a transcript whose last
+            // turn got no answer would ask the model to respond to it twice.
+            log(`interview turn failed: ${(err as Error).message}`);
+            return json(res, 400, { error: (err as Error).message });
+          }
+          if (!turn.done) {
+            deps.store.kvSet(TRANSCRIPT_KEY, JSON.stringify([...turns, { role: "architect", text: turn.question }]));
+            return json(res, 200, { done: false, question: turn.question });
+          }
+          deps.store.kvSet(TRANSCRIPT_KEY, JSON.stringify(turns));
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
+          return transition(res, path, () => wizard.advance("interview"));
         }
 
         if (path === "/api/onboarding/provision" && req.method === "POST") {
