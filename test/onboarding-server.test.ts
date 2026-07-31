@@ -291,3 +291,287 @@ describe("template gallery and provisioning", () => {
     expect(runs).toBe(0);
   });
 });
+
+describe("the interview", () => {
+  const proposal = {
+    departments: [{ department: "operations", mission: "Front door.", memoDomain: "general", lead: "nova", capabilities: [], playbooks: [] }],
+    agents: [{
+      name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+      charter: "Route.", persona: "Brief.", prompt: "You route.", capabilities: [], skills: [],
+    }],
+    firstJob: "Say hello.",
+  };
+
+  it("asks a question and keeps the wizard on the interview step", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: false, question: "What do you do?" }),
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "I run a bakery" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ done: false, question: "What do you do?" });
+    expect(store.kvGet("onboarding.step")).toBe("interview");
+  });
+
+  it("replays the whole transcript on the next turn", async () => {
+    const prompts: string[] = [];
+    const { base } = await boot(noop, {
+      architect: async (_s, p) => { prompts.push(p); return { done: false, question: "and then?" }; },
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "first thing" });
+    await postJson(base, "/api/onboarding/interview", { message: "second thing" });
+    expect(prompts[1]).toContain("first thing");
+    expect(prompts[1]).toContain("and then?");
+    expect(prompts[1]).toContain("second thing");
+  });
+
+  it("stores the proposal and advances to review when the Architect is done", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: true, proposal }),
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "that's everything" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("review");
+    expect(store.kvGet("onboarding.proposal")).toContain("nova");
+    expect(store.kvGet("onboarding.proposal")).toContain("interview");
+  });
+
+  it("serves the transcript back so a reload resumes mid-interview", async () => {
+    const { base } = await boot(noop, {
+      architect: async () => ({ done: false, question: "What do you do?" }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "I run a bakery" });
+    const r = await fetch(`${base}/api/onboarding/interview`);
+    const body = (await r.json()) as { turns: Array<{ role: string; text: string }> };
+    expect(body.turns.map((t) => t.role)).toEqual(["user", "architect"]);
+    expect(body.turns[0].text).toBe("I run a bakery");
+  });
+
+  it("surfaces an Architect failure as 400 without advancing", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => { throw new Error("api_error_status 401"); },
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "hi" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("401");
+    expect(store.kvGet("onboarding.step")).toBe("interview");
+  });
+
+  it("rejects a proposal that fails the structural gate, and stays put", async () => {
+    const twoCoordinators = { ...proposal, agents: [proposal.agents[0], { ...proposal.agents[0], name: "nova2" }] };
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: true, proposal: twoCoordinators }),
+    }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "go" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("exactly one coordinator");
+    expect(store.kvGet("onboarding.step")).toBe("interview");
+    expect(store.kvGet("onboarding.proposal")).toBeUndefined();
+  });
+
+  it("refuses an empty message", async () => {
+    const { base } = await boot(noop, { architect: async () => ({ done: false, question: "?" }) }, "interview");
+    const r = await postJson(base, "/api/onboarding/interview", { message: "   " });
+    expect(r.status).toBe(400);
+  });
+
+  it("refuses interview turns from the wrong step", async () => {
+    const { base } = await boot(noop, { architect: async () => ({ done: false, question: "?" }) }, "welcome");
+    expect((await postJson(base, "/api/onboarding/interview", { message: "hi" })).status).toBe(400);
+  });
+
+  it("restart clears the transcript", async () => {
+    const { base, store } = await boot(noop, {
+      architect: async () => ({ done: false, question: "q" }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "hi" });
+    expect(store.kvGet("onboarding.transcript")).toContain("hi");
+    const r = await postJson(base, "/api/onboarding/interview/restart", {});
+    expect(r.status).toBe(200);
+    expect(JSON.parse(store.kvGet("onboarding.transcript") ?? "[]")).toEqual([]);
+  });
+});
+
+describe("editing the proposal", () => {
+  async function atReview(over = {}) {
+    const b = await boot(noop, over, "interview");
+    await postJson(b.base, "/api/onboarding/template", { name: "starter" });
+    return b;
+  }
+
+  it("edits a prose field on one agent", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "charter", value: "Rewritten charter." }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; charter: string }> } };
+    expect(body.proposal.agents.find((a) => a.name === "nova")!.charter).toBe("Rewritten charter.");
+  });
+
+  it("persists the edit for the next read", async () => {
+    const { base } = await atReview();
+    await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "title", value: "Chief of Staff" }),
+    });
+    const r = await fetch(`${base}/api/onboarding/proposal`);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; title: string }> } };
+    expect(body.proposal.agents.find((a) => a.name === "nova")!.title).toBe("Chief of Staff");
+  });
+
+  it("replaces capability and skill chips", async () => {
+    const { base } = await atReview();
+    await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "scout", capabilities: ["web"] }),
+    });
+    const r = await fetch(`${base}/api/onboarding/proposal`);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; capabilities: string[] }> } };
+    expect(body.proposal.agents.find((a) => a.name === "scout")!.capabilities).toEqual(["web"]);
+  });
+
+  it("edits firstJob", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ firstJob: "Do the thing." }),
+    });
+    expect(((await r.json()) as { proposal: { firstJob: string } }).proposal.firstJob).toBe("Do the thing.");
+  });
+
+  it("refuses an unknown agent", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "ghost", field: "title", value: "x" }),
+    });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("ghost");
+  });
+
+  it("refuses a field that is not editable", async () => {
+    const { base } = await atReview();
+    // Renaming an agent here would orphan the department lead and any playbook role naming it.
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "name", value: "hacked" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("refuses an empty prose value", async () => {
+    const { base } = await atReview();
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ agent: "nova", field: "charter", value: "  " }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("404s when there is no proposal to edit", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    const r = await fetch(`${base}/api/onboarding/proposal`, {
+      method: "PATCH", body: JSON.stringify({ firstJob: "x" }),
+    });
+    expect(r.status).toBe(404);
+  });
+});
+
+describe("redraft endpoint", () => {
+  it("replaces one agent in the stored proposal", async () => {
+    const { base } = await boot(noop, {
+      architect: async () => ({
+        done: true,
+        proposal: {
+          departments: [{ department: "operations", mission: "m", memoDomain: "general", capabilities: [], playbooks: [] }],
+          agents: [{
+            name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+            charter: "c", persona: "Warm and unhurried.", prompt: "p", capabilities: [], skills: [],
+          }],
+          firstJob: "f",
+        },
+      }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(base, "/api/onboarding/redraft", { agent: "nova", note: "warmer" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; persona: string }> } };
+    expect(body.proposal.agents.find((a) => a.name === "nova")!.persona).toBe("Warm and unhurried.");
+    // The other agents are untouched.
+    expect(body.proposal.agents).toHaveLength(3);
+  });
+
+  it("surfaces a redraft failure as 400 leaving the proposal alone", async () => {
+    const { base } = await boot(noop, { architect: async () => { throw new Error("model unavailable"); } }, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(base, "/api/onboarding/redraft", { agent: "nova", note: "warmer" });
+    expect(r.status).toBe(400);
+    const after = await (await fetch(`${base}/api/onboarding/proposal`)).json() as { proposal: { agents: unknown[] } };
+    expect(after.proposal.agents).toHaveLength(3);
+  });
+});
+
+describe("regenerate", () => {
+  const drafted = (persona: string) => ({
+    done: true,
+    proposal: {
+      departments: [{ department: "operations", mission: "m", memoDomain: "general", capabilities: [], playbooks: [] }],
+      agents: [{
+        name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+        charter: "c", persona, prompt: "p", capabilities: [], skills: [],
+      }],
+      firstJob: "f",
+    },
+  });
+
+  it("re-runs the last turn against the same answers and replaces the proposal", async () => {
+    let call = 0;
+    const { base } = await boot(noop, {
+      architect: async () => drafted(++call === 1 ? "First draft." : "Second draft."),
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "that's everything" });
+    const r = await postJson(base, "/api/onboarding/regenerate", {});
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: Array<{ persona: string }> } };
+    expect(body.proposal.agents[0].persona).toBe("Second draft.");
+  });
+
+  it("keeps the user's answers — that is what separates it from restart", async () => {
+    const prompts: string[] = [];
+    const { base, store } = await boot(noop, {
+      architect: async (_s, p) => { prompts.push(p); return drafted("x"); },
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "I run a bakery" });
+    await postJson(base, "/api/onboarding/regenerate", {});
+    expect(prompts[1]).toContain("I run a bakery");
+    expect(store.kvGet("onboarding.transcript")).toContain("I run a bakery");
+  });
+
+  it("400s with no transcript to re-run", async () => {
+    const { base } = await boot(noop, { architect: async () => drafted("x") }, "review");
+    expect((await postJson(base, "/api/onboarding/regenerate", {})).status).toBe(400);
+  });
+});
+
+describe("the capability catalog before provision", () => {
+  // seedCapabilities plants agents/_capabilities.yaml at PROVISION, but the interview runs
+  // before that. Reading only the user's agents dir therefore hands the Architect an empty
+  // catalog on every fresh install, and it drafts agents with no capabilities at all — which is
+  // to say, agents with no tools. Observed live during the plan-2b smoke.
+  it("offers the product catalog to the Architect on a fresh install", async () => {
+    let seenSystem = "";
+    const { base } = await boot(noop, {
+      architect: async (s) => { seenSystem = s; return { done: false, question: "?" }; },
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "hi" });
+    // Slice the capability section out: the worked examples further down also mention "web",
+    // so asserting on the whole prompt would pass even with an empty catalog.
+    const section = seenSystem.slice(
+      seenSystem.indexOf("CAPABILITIES YOU MAY USE"), seenSystem.indexOf("SKILLS YOU MAY ATTACH"));
+    expect(section).toContain("web");
+    expect(section).toContain("coordination");
+  });
+
+  it("serves the same catalog to the review screen's chips", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    const r = await fetch(`${base}/api/onboarding/catalog`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { capabilities: string[]; skills: string[] };
+    expect(body.capabilities).toContain("web");
+    expect(body.capabilities.length).toBeGreaterThan(5);
+  });
+});

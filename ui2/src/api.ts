@@ -80,6 +80,27 @@ export const api = {
   onboardingPickTemplate: (name: string) =>
     request<{ step: string }>("/api/onboarding/template", { method: "POST", body: JSON.stringify({ name }) }),
   onboardingProposal: () => request<{ proposal: OrgProposalView }>("/api/onboarding/proposal"),
+  interviewTurns: () =>
+    request<{ turns: Array<{ role: "user" | "architect"; text: string }> }>("/api/onboarding/interview"),
+  interviewSay: (message: string) =>
+    request<{ done?: boolean; question?: string; step?: string }>("/api/onboarding/interview", {
+      method: "POST", body: JSON.stringify({ message }),
+    }),
+  interviewRestart: () =>
+    request<{ turns: [] }>("/api/onboarding/interview/restart", { method: "POST", body: JSON.stringify({}) }),
+  patchProposal: (patch: Record<string, unknown>) =>
+    request<{ proposal: OrgProposalView }>("/api/onboarding/proposal", {
+      method: "PATCH", body: JSON.stringify(patch),
+    }),
+  redraftAgent: (agent: string, note: string) =>
+    request<{ proposal: OrgProposalView }>("/api/onboarding/redraft", {
+      method: "POST", body: JSON.stringify({ agent, note }),
+    }),
+  regenerate: () =>
+    request<{ proposal: OrgProposalView }>("/api/onboarding/regenerate", {
+      method: "POST", body: JSON.stringify({}),
+    }),
+  capabilityCatalog: () => request<{ capabilities: string[]; skills: string[] }>("/api/onboarding/catalog"),
   /** Not `request`: a rejected provision carries per-card `errors` that request() would discard,
    *  since it reads only `error` off a failed response. Same reason onboardingAuth bypasses it. */
   onboardingProvision: async (): Promise<

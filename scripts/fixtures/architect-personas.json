@@ -1,0 +1,47 @@
+[
+  {
+    "name": "bakery",
+    "answers": [
+      "I run a small bakery. Two staff, lots of wholesale orders.",
+      "Chasing invoices and working out what to bake each week from last week's sales.",
+      "Nothing should be emailed to a customer without me seeing it first.",
+      "That's everything."
+    ],
+    "expect": { "maxAgents": 5, "minAgents": 2, "maxDepartments": 3 }
+  },
+  {
+    "name": "freelance-dev",
+    "answers": [
+      "I'm a freelance developer working with three clients.",
+      "Context-switching between codebases, and writing status updates nobody reads.",
+      "Never push to a client repo without asking me.",
+      "That's it."
+    ],
+    "expect": { "maxAgents": 5, "minAgents": 2, "maxDepartments": 3 }
+  },
+  {
+    "name": "phd-student",
+    "answers": [
+      "I'm a PhD student in molecular biology, second year.",
+      "Reading papers and keeping track of what I already read.",
+      "Never cite something you haven't actually read.",
+      "Done."
+    ],
+    "expect": { "maxAgents": 5, "minAgents": 2, "maxDepartments": 3 }
+  },
+  {
+    "name": "parent",
+    "answers": [
+      "I'm not using this for work. I want help running my household.",
+      "Remembering appointments, and where the money goes each month.",
+      "Don't spend anything or message anyone as me.",
+      "That's all."
+    ],
+    "expect": { "maxAgents": 5, "minAgents": 2, "maxDepartments": 3 }
+  },
+  {
+    "name": "terse",
+    "answers": ["consulting", "reports", "nothing", "done"],
+    "expect": { "maxAgents": 5, "minAgents": 2, "maxDepartments": 3 }
+  }
+]

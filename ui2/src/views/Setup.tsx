@@ -1,7 +1,7 @@
 // ui2/src/views/Setup.tsx — onboarding wizard shell (spec §1-2): welcome + auth are live,
 // the org steps land in the next phase. The server owns the state machine — this view renders
 // the step it is handed and posts intents; every transition comes back from the daemon.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
 
@@ -17,7 +17,7 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       <Rail step={step} />
       {step === "welcome" && <Welcome onNext={onStepChange} />}
       {step === "auth" && <Auth onNext={onStepChange} />}
-      {step === "interview" && <Gallery onNext={onStepChange} />}
+      {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
       {(step === "workspace" || step === "provision" || step === "first-job" || step === "done") && (
         <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
@@ -185,6 +185,138 @@ function Gallery({ onNext }: { onNext: (s: string) => void }) {
   );
 }
 
+function Interview({ onNext }: { onNext: (s: string) => void }) {
+  const [turns, setTurns] = useState<Array<{ role: "user" | "architect"; text: string }>>([]);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [showGallery, setShowGallery] = useState(false);
+  // The priming turn below is a real, billed model call that also commits a turn to the server
+  // transcript. StrictMode double-invokes mount effects in dev, and both passes would read an
+  // empty transcript before either committed — so the guard is a ref, not the turns state.
+  const primed = useRef(false);
+
+  useEffect(() => {
+    api.interviewTurns()
+      .then((r) => {
+        setTurns(r.turns);
+        // Nothing said yet: prime the first question so the user is not staring at a blank box.
+        if (r.turns.length === 0 && !primed.current) {
+          primed.current = true;
+          void send("Hello — I'd like to set up my org.", true);
+        }
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  async function send(message: string, silent = false) {
+    setBusy(true); setError("");
+    if (!silent) setTurns((t) => [...t, { role: "user", text: message }]);
+    try {
+      const r = await api.interviewSay(message);
+      if (r.step) return onNext(r.step); // the Architect finished — proposal is stored
+      const q = r.question ?? "";
+      setTurns((t) => (silent ? [{ role: "architect", text: q }] : [...t, { role: "architect", text: q }]));
+    } catch (err) {
+      setError((err as Error).message);
+      // The server did not commit the failed turn, so drop the optimistic echo too.
+      if (!silent) setTurns((t) => t.slice(0, -1));
+    } finally {
+      setBusy(false);
+      setValue("");
+    }
+  }
+
+  return (
+    <div className="panel w-full max-w-2xl p-6 flex flex-col gap-4">
+      <div className="text-strong text-[15px]">Tell me about your work</div>
+      <p className="leading-relaxed">
+        A few questions, then I'll draft an org for you. Nothing is created until you approve it.
+      </p>
+
+      <div className="flex flex-col gap-3 max-h-[46vh] overflow-y-auto">
+        {turns.map((t, i) => (
+          <div key={i} className={t.role === "user" ? "self-end max-w-[80%]" : "max-w-[85%]"}>
+            <div className={`rounded-md px-3 py-2 leading-relaxed ${
+              t.role === "user" ? "bg-bg border border-line" : "text-fg"}`}>
+              {t.text}
+            </div>
+          </div>
+        ))}
+        {busy && <div className="text-dim text-[12px]">thinking…</div>}
+      </div>
+
+      {error && <div className="text-[12px] text-err">{error}</div>}
+
+      <div className="flex items-center gap-2">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !busy && value.trim() && void send(value.trim())}
+          placeholder="Type your answer"
+          className="flex-1 bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim"
+        />
+        <Button variant="primary" disabled={busy || !value.trim()} onClick={() => void send(value.trim())}>
+          Send
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-3 text-[11px]">
+        <button onClick={() => { void api.interviewRestart().then(() => setTurns([])); }}
+          className="text-dim hover:text-fg underline underline-offset-2">Start over</button>
+        <button onClick={() => setShowGallery((v) => !v)}
+          className="text-dim hover:text-fg underline underline-offset-2 ml-auto">
+          {showGallery ? "Back to the interview" : "Skip — pick a template instead"}
+        </button>
+      </div>
+
+      {showGallery && <Gallery onNext={onNext} />}
+    </div>
+  );
+}
+
+function EditableField({
+  label, value, onSave,
+}: { label: string; value: string; onSave: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]); // a redraft replaces this from the server
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-dim text-[11px] uppercase tracking-[0.12em]">{label}</span>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => draft.trim() && draft !== value && onSave(draft.trim())}
+        rows={Math.min(6, Math.max(2, Math.ceil(draft.length / 70)))}
+        className="w-full bg-bg border border-line rounded-md px-2 py-1.5 text-fg text-[12px] leading-relaxed outline-none focus:border-dim resize-y"
+      />
+    </label>
+  );
+}
+
+function Chips({
+  label, all, selected, onChange,
+}: { label: string; all: string[]; selected: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-dim text-[11px] uppercase tracking-[0.12em]">{label}</span>
+      <div className="flex flex-wrap gap-1">
+        {all.map((name) => {
+          const on = selected.includes(name);
+          return (
+            <button key={name}
+              onClick={() => onChange(on ? selected.filter((s) => s !== name) : [...selected, name])}
+              className={`text-[11px] rounded-full px-2 py-0.5 border ${
+                on ? "border-dim text-strong" : "border-line text-dim hover:text-fg"}`}>
+              {name}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Review({ onNext }: { onNext: (s: string) => void }) {
   const [proposal, setProposal] = useState<OrgProposalView | null>(null);
   const [errors, setErrors] = useState<Array<{ name?: string; error: string }>>([]);
@@ -193,12 +325,35 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
   const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [catalog, setCatalog] = useState<{ capabilities: string[]; skills: string[] }>({ capabilities: [], skills: [] });
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     api.onboardingProposal()
       .then((r) => setProposal(r.proposal))
       .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  useEffect(() => { void api.capabilityCatalog().then(setCatalog).catch(() => {}); }, []);
+
+  const patch = (body: Record<string, unknown>) => {
+    api.patchProposal(body)
+      .then((r) => setProposal(r.proposal))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+
+  const redraft = async (name: string) => {
+    setBusy(true); setError("");
+    try {
+      const r = await api.redraftAgent(name, notes[name] ?? "");
+      setProposal(r.proposal);
+      setNotes((n) => ({ ...n, [name]: "" }));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const approve = () => {
     setBusy(true); setError(""); setErrors([]);
@@ -241,11 +396,26 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
                 <span className="text-strong">{a.name}</span>
                 <span className="text-dim"> — {a.title} ({a.kind})</span>
               </summary>
-              <div className="text-[12px] leading-relaxed flex flex-col gap-1 mt-2">
-                <div><span className="text-dim">Charter: </span>{a.charter}</div>
-                <div><span className="text-dim">Persona: </span>{a.persona}</div>
-                <div><span className="text-dim">Prompt: </span>{a.prompt}</div>
-                <div><span className="text-dim">Capabilities: </span>{a.capabilities.join(", ") || "none"}</div>
+              <div className="text-[12px] leading-relaxed flex flex-col gap-2 mt-2">
+                <EditableField label="Title" value={a.title}
+                  onSave={(v) => patch({ agent: a.name, field: "title", value: v })} />
+                <EditableField label="Charter" value={a.charter}
+                  onSave={(v) => patch({ agent: a.name, field: "charter", value: v })} />
+                <EditableField label="Persona" value={a.persona}
+                  onSave={(v) => patch({ agent: a.name, field: "persona", value: v })} />
+                <EditableField label="Prompt" value={a.prompt}
+                  onSave={(v) => patch({ agent: a.name, field: "prompt", value: v })} />
+                <Chips label="Capabilities" all={catalog.capabilities} selected={a.capabilities}
+                  onChange={(next) => patch({ agent: a.name, capabilities: next })} />
+                <Chips label="Skills" all={catalog.skills} selected={a.skills}
+                  onChange={(next) => patch({ agent: a.name, skills: next })} />
+                <div className="flex items-center gap-2">
+                  <input placeholder="e.g. make this one warmer"
+                    value={notes[a.name] ?? ""}
+                    onChange={(e) => setNotes((n) => ({ ...n, [a.name]: e.target.value }))}
+                    className="flex-1 bg-bg border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-dim" />
+                  <Button disabled={busy} onClick={() => void redraft(a.name)}>Redraft</Button>
+                </div>
               </div>
               {errorFor(a.name) && <div className="text-[12px] text-err mt-1">{errorFor(a.name)}</div>}
             </details>
@@ -256,6 +426,15 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
         <Button disabled={busy} onClick={() => {
           api.onboardingBack("interview").then((r) => onNext(r.step)).catch(() => {});
         }}>Pick another</Button>
+        {proposal.source.kind === "interview" && (
+          <Button disabled={busy} onClick={() => {
+            setBusy(true); setError("");
+            api.regenerate()
+              .then((r) => setProposal(r.proposal))
+              .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+              .finally(() => setBusy(false));
+          }}>Regenerate</Button>
+        )}
         <Button variant="primary" className="ml-auto" disabled={busy} onClick={approve}>
           {busy ? "Creating…" : "Create this org"}
         </Button>

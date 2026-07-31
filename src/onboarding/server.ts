@@ -11,6 +11,13 @@ import { listTemplates, loadTemplate } from "./templates.js";
 import { templateToProposal, type OrgProposal } from "./proposal.js";
 import { provision, type ProvisionResult } from "./provision.js";
 import { loadRegistry } from "../agents/registry/loader.js";
+import {
+  buildArchitectContext, interviewTurn, productCapabilities, redraftAgent, sdkArchitect,
+  type Architect, type Turn,
+} from "./architect.js";
+import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
+import { loadCapabilities } from "../agents/registry/capabilities.js";
+import { CAPABILITIES_FILE } from "./seed.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
@@ -30,6 +37,8 @@ export interface SetupDeps {
   provisionFn?: (proposal: OrgProposal) => ProvisionResult;
   /** Resume probe: did a previous run already write the org? */
   orgExists?: () => boolean;
+  /** Injected in tests so the interview never touches the network. */
+  architect?: Architect;
   log?: (line: string) => void;
 }
 
@@ -81,6 +90,30 @@ export function startSetupServer(deps: SetupDeps): Server {
   let verifying = false;
 
   const PROPOSAL_KEY = "onboarding.proposal";
+  const TRANSCRIPT_KEY = "onboarding.transcript";
+  const ask = deps.architect ?? sdkArchitect;
+  const transcript = (): Turn[] => JSON.parse(deps.store.kvGet(TRANSCRIPT_KEY) ?? "[]") as Turn[];
+
+  /**
+   * seedCapabilities plants the catalog in the user's agents dir at PROVISION, but the interview
+   * and the review chips both run before that. Reading only agentsDir therefore hands a fresh
+   * install an empty catalog — and the Architect drafts every agent with no capabilities, which
+   * is to say no tools. Prefer the user's copy once it exists; they may have edited it.
+   */
+  const capabilityCatalog = (): Array<{ name: string; labels: string[] }> => {
+    const user = join(deps.agentsDir, CAPABILITIES_FILE);
+    const path = existsSync(user) ? user : join(deps.templatesDir, CAPABILITIES_FILE);
+    return [...loadCapabilities(path)].map(([name, def]) => ({ name, labels: def.labels }));
+  };
+
+  /** Rebuilt per turn: the catalogues are files on disk and the user may be editing them. */
+  const architectContext = (): string => buildArchitectContext({
+    capabilities: capabilityCatalog(),
+    skills: listSkills(skillsPluginRoot()),
+    templates: listTemplates(deps.templatesDir, log)
+      .map((t) => loadTemplate(deps.templatesDir, t.name))
+      .filter((t): t is NonNullable<typeof t> => Boolean(t)),
+  });
   const doProvision = deps.provisionFn ?? ((p: OrgProposal) => provision(p, {
     agentsDir: deps.agentsDir, playbooksDir: deps.playbooksDir, templatesDir: deps.templatesDir,
     loadRegistry, log,
@@ -190,6 +223,140 @@ export function startSetupServer(deps: SetupDeps): Server {
           const raw = deps.store.kvGet(PROPOSAL_KEY);
           if (!raw) return json(res, 404, { error: "no proposal yet" });
           return json(res, 200, { proposal: JSON.parse(raw) as OrgProposal });
+        }
+
+        if (path === "/api/onboarding/catalog" && req.method === "GET") {
+          return json(res, 200, {
+            capabilities: productCapabilities(capabilityCatalog()),
+            skills: listSkills(skillsPluginRoot()).map((s) => s.name),
+          });
+        }
+
+        if (path === "/api/onboarding/proposal" && req.method === "PATCH") {
+          const raw = deps.store.kvGet(PROPOSAL_KEY);
+          if (!raw) return json(res, 404, { error: "no proposal yet" });
+          const body = await readJson<Record<string, unknown>>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const proposal = JSON.parse(raw) as OrgProposal;
+
+          if (typeof body.firstJob === "string") {
+            if (!body.firstJob.trim()) return json(res, 400, { error: "firstJob required" });
+            proposal.firstJob = body.firstJob.trim();
+            deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(proposal));
+            return json(res, 200, { proposal });
+          }
+
+          const agent = proposal.agents.find((a) => a.name === body.agent);
+          if (!agent) return json(res, 400, { error: `no agent "${String(body.agent)}" in the proposal` });
+
+          // name and department are deliberately NOT editable: a rename here would orphan the
+          // department lead and any playbook role naming this agent, which the user cannot see
+          // from this screen. Picking a different template is the way to change structure.
+          const PROSE = ["title", "charter", "persona", "prompt"] as const;
+          if (typeof body.field === "string") {
+            if (!(PROSE as readonly string[]).includes(body.field)) {
+              return json(res, 400, { error: `field must be one of ${PROSE.join(", ")}` });
+            }
+            if (typeof body.value !== "string" || !body.value.trim()) {
+              return json(res, 400, { error: `${body.field} required` });
+            }
+            agent[body.field as (typeof PROSE)[number]] = body.value.trim();
+          } else if (Array.isArray(body.capabilities)) {
+            if (body.capabilities.some((c) => typeof c !== "string")) {
+              return json(res, 400, { error: "capabilities must be strings" });
+            }
+            agent.capabilities = body.capabilities as string[];
+          } else if (Array.isArray(body.skills)) {
+            if (body.skills.some((s) => typeof s !== "string")) {
+              return json(res, 400, { error: "skills must be strings" });
+            }
+            agent.skills = body.skills as string[];
+          } else {
+            return json(res, 400, { error: "nothing to patch" });
+          }
+          // Unknown capability names are NOT rejected here — provision() re-validates every
+          // field and reports them as card errors on this same screen.
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(proposal));
+          return json(res, 200, { proposal });
+        }
+
+        if (path === "/api/onboarding/interview" && req.method === "GET") {
+          return json(res, 200, { turns: transcript() });
+        }
+
+        if (path === "/api/onboarding/interview/restart" && req.method === "POST") {
+          if (wizard.current() !== "interview") {
+            return json(res, 400, { error: `the interview runs at the interview step, not ${wizard.current()}` });
+          }
+          deps.store.kvSet(TRANSCRIPT_KEY, "[]");
+          return json(res, 200, { turns: [] });
+        }
+
+        if (path === "/api/onboarding/interview" && req.method === "POST") {
+          if (wizard.current() !== "interview") {
+            return json(res, 400, { error: `the interview runs at the interview step, not ${wizard.current()}` });
+          }
+          const body = await readJson<{ message?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const message = typeof body.message === "string" ? body.message.trim() : "";
+          if (!message) return json(res, 400, { error: "message required" });
+
+          const turns: Turn[] = [...transcript(), { role: "user", text: message }];
+          let turn;
+          try {
+            turn = await interviewTurn(turns, architectContext(), ask);
+          } catch (err) {
+            // The user's message is NOT committed on failure: replaying a transcript whose last
+            // turn got no answer would ask the model to respond to it twice.
+            log(`interview turn failed: ${(err as Error).message}`);
+            return json(res, 400, { error: (err as Error).message });
+          }
+          if (!turn.done) {
+            deps.store.kvSet(TRANSCRIPT_KEY, JSON.stringify([...turns, { role: "architect", text: turn.question }]));
+            return json(res, 200, { done: false, question: turn.question });
+          }
+          deps.store.kvSet(TRANSCRIPT_KEY, JSON.stringify(turns));
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
+          return transition(res, path, () => wizard.advance("interview"));
+        }
+
+        if (path === "/api/onboarding/redraft" && req.method === "POST") {
+          const raw = deps.store.kvGet(PROPOSAL_KEY);
+          if (!raw) return json(res, 404, { error: "no proposal yet" });
+          const body = await readJson<{ agent?: unknown; note?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const name = typeof body.agent === "string" ? body.agent : "";
+          const note = typeof body.note === "string" ? body.note.trim() : "";
+          if (!name) return json(res, 400, { error: "agent required" });
+          const proposal = JSON.parse(raw) as OrgProposal;
+          let drafted;
+          try {
+            drafted = await redraftAgent(proposal, name, note || "improve this agent", architectContext(), ask);
+          } catch (err) {
+            log(`redraft failed: ${(err as Error).message}`);
+            return json(res, 400, { error: (err as Error).message });
+          }
+          proposal.agents = proposal.agents.map((a) => (a.name === name ? drafted : a));
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(proposal));
+          return json(res, 200, { proposal });
+        }
+
+        if (path === "/api/onboarding/regenerate" && req.method === "POST") {
+          const turns = transcript();
+          if (turns.length === 0) return json(res, 400, { error: "no interview to regenerate from" });
+          let turn;
+          try {
+            turn = await interviewTurn(turns, architectContext(), ask);
+          } catch (err) {
+            log(`regenerate failed: ${(err as Error).message}`);
+            return json(res, 400, { error: (err as Error).message });
+          }
+          // The Architect already had every answer once, so a question here means it changed its
+          // mind about being finished — the user is on the review screen and has nowhere to put
+          // a question, so treat it as a failed regenerate rather than reopening the interview.
+          if (!turn.done) return json(res, 400, { error: "the Architect asked another question instead of redrafting" });
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
+          return json(res, 200, { proposal: turn.proposal });
         }
 
         if (path === "/api/onboarding/provision" && req.method === "POST") {
