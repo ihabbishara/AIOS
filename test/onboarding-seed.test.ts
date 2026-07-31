@@ -42,3 +42,15 @@ describe("seedCapabilities", () => {
       .toThrow(/capability catalog missing/);
   });
 });
+
+// The catalog is tracked in BOTH places for now: templates/ is the product copy the seeder
+// plants into new installs, and agents/ is the one this repo's own org loads from. That
+// duplication exists only until agents/ becomes user data — at which point the agents/ copy
+// is deleted and this test goes with it. Until then they must not drift: editing one and
+// not the other silently changes what existing installs get versus what new ones are seeded.
+describe("the two tracked catalogs", () => {
+  it("are byte-identical", () => {
+    expect(readFileSync("agents/_capabilities.yaml", "utf8"))
+      .toBe(readFileSync("templates/_capabilities.yaml", "utf8"));
+  });
+});
