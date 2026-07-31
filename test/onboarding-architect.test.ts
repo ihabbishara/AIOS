@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ARCHITECT_SYSTEM, INTERVIEW_SCHEMA, buildArchitectContext, renderTranscript, productCapabilities,
+  interviewTurn,
 } from "../src/onboarding/architect.js";
 import type { OrgTemplate } from "../src/onboarding/templates.js";
 
@@ -68,7 +69,7 @@ describe("ARCHITECT_SYSTEM", () => {
 describe("INTERVIEW_SCHEMA", () => {
   it("forces a done flag and forbids extra keys", () => {
     expect(INTERVIEW_SCHEMA.additionalProperties).toBe(false);
-    expect((INTERVIEW_SCHEMA.required as string[])).toContain("done");
+    expect((INTERVIEW_SCHEMA.required as readonly string[])).toContain("done");
     const props = INTERVIEW_SCHEMA.properties as Record<string, unknown>;
     expect(props.question).toBeTruthy();
     expect(props.proposal).toBeTruthy();
@@ -98,5 +99,70 @@ describe("renderTranscript", () => {
 
   it("survives an empty transcript — the first turn has nothing to replay", () => {
     expect(() => renderTranscript([])).not.toThrow();
+  });
+});
+
+describe("interviewTurn", () => {
+  const ctx = "CAPABILITIES YOU MAY USE:\nweb, coordination";
+  const goodProposal = {
+    departments: [{ department: "operations", mission: "Front door.", memoDomain: "general", lead: "nova", capabilities: [], playbooks: [] }],
+    agents: [{
+      name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+      charter: "Route.", persona: "Brief.", prompt: "You route.", capabilities: [], skills: [],
+    }],
+    firstJob: "Say hello.",
+  };
+
+  it("returns the next question when the Architect is not done", async () => {
+    const r = await interviewTurn([{ role: "user", text: "hi" }], ctx,
+      async () => ({ done: false, question: "What do you do?" }));
+    expect(r).toEqual({ done: false, question: "What do you do?" });
+  });
+
+  it("returns a proposal stamped with the interview source", async () => {
+    const r = await interviewTurn([], ctx, async () => ({ done: true, proposal: goodProposal }));
+    expect(r.done).toBe(true);
+    if (!r.done) return;
+    expect(r.proposal.source).toEqual({ kind: "interview" });
+    expect(r.proposal.agents[0].name).toBe("nova");
+  });
+
+  it("passes the system prompt and the replayed transcript to the model", async () => {
+    let seenSystem = "", seenPrompt = "";
+    await interviewTurn([{ role: "user", text: "I run a bakery" }], ctx, async (s, p) => {
+      seenSystem = s; seenPrompt = p;
+      return { done: false, question: "ok?" };
+    });
+    expect(seenSystem).toContain("exactly one coordinator".toLowerCase().slice(0, 8));
+    expect(seenSystem).toContain("CAPABILITIES YOU MAY USE");
+    expect(seenPrompt).toContain("I run a bakery");
+  });
+
+  // The whole architecture principle: LLM creativity upstream, deterministic validation
+  // downstream. A bad proposal must die here, not at provision.
+  it("rejects a proposal that fails the structural gate", async () => {
+    const twoCoordinators = {
+      ...goodProposal,
+      agents: [goodProposal.agents[0], { ...goodProposal.agents[0], name: "nova2" }],
+    };
+    await expect(interviewTurn([], ctx, async () => ({ done: true, proposal: twoCoordinators })))
+      .rejects.toThrow(/exactly one coordinator/);
+  });
+
+  it("rejects a done response with no proposal", async () => {
+    await expect(interviewTurn([], ctx, async () => ({ done: true })))
+      .rejects.toThrow(/no proposal/i);
+  });
+
+  it("rejects a not-done response with no question", async () => {
+    await expect(interviewTurn([], ctx, async () => ({ done: false })))
+      .rejects.toThrow(/no question/i);
+  });
+
+  // structured_output is undefined whenever the SDK denied the StructuredOutput tool — the
+  // exact failure that made this a named constraint.
+  it("names the structured-output failure rather than throwing on undefined", async () => {
+    await expect(interviewTurn([], ctx, async () => undefined))
+      .rejects.toThrow(/structured output/i);
   });
 });

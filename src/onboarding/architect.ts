@@ -9,7 +9,10 @@
 // Interviews are 4-6 turns, so the cost is trivial, and it sidesteps SDK session-resume
 // semantics entirely (a resumed session freezes its systemPrompt at creation, so per-turn
 // context has to ride on the user message anyway).
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OrgTemplate } from "./templates.js";
+import { proposalShape, type OrgProposal } from "./proposal.js";
+import { pingFailure } from "./auth.js";
 
 export interface Turn { role: "user" | "architect"; text: string }
 
@@ -136,4 +139,62 @@ export function buildArchitectContext(input: {
 export function renderTranscript(turns: Turn[]): string {
   if (turns.length === 0) return "(the conversation has not started — greet them and ask your first question)";
   return turns.map((t) => (t.role === "user" ? `THEM: ${t.text}` : `YOU: ${t.text}`)).join("\n\n");
+}
+
+/** Injectable so tests never touch the network — same shape as auth.ts's `Ping`. */
+export type Architect = (system: string, prompt: string) => Promise<unknown>;
+
+/**
+ * One stateless turn. No tools beyond StructuredOutput, no session, no filesystem.
+ *
+ * allowedTools MUST list "StructuredOutput": forced JSON arrives through that tool, and if it
+ * is not allowed the SDK denies it and msg.structured_output comes back undefined with no error
+ * anywhere (runner.ts:171 widens the allowlist for exactly this reason).
+ */
+export const sdkArchitect: Architect = async (system, prompt) => {
+  const q = query({
+    prompt,
+    options: {
+      systemPrompt: system,
+      allowedTools: ["StructuredOutput"],
+      maxTurns: 1,
+      settingSources: [],
+      persistSession: false,
+      outputFormat: { type: "json_schema" as const, schema: INTERVIEW_SCHEMA as Record<string, unknown> },
+    },
+  });
+  for await (const msg of q) {
+    if (msg.type === "result") {
+      // Subtype first: it is what narrows msg to the variant that carries structured_output.
+      if (msg.subtype !== "success") throw new Error(`architect call failed: ${msg.subtype}`);
+      // A rejected call still arrives as subtype "success" with is_error set. pingFailure is
+      // already that lie-detector — is_error AND api_error_status — so it is reused rather than
+      // re-implemented; on a success subtype it returns the API's own message, unprefixed.
+      const failure = pingFailure(msg);
+      if (failure) throw new Error(failure);
+      return msg.structured_output;
+    }
+  }
+  throw new Error("architect call failed: no result from SDK");
+};
+
+export async function interviewTurn(
+  turns: Turn[], context: string, ask: Architect,
+): Promise<{ done: false; question: string } | { done: true; proposal: OrgProposal }> {
+  const out = await ask(`${ARCHITECT_SYSTEM}\n\n${context}`, renderTranscript(turns));
+  if (out === undefined || out === null || typeof out !== "object") {
+    throw new Error("the Architect returned no structured output");
+  }
+  const r = out as { done?: unknown; question?: unknown; proposal?: unknown };
+  if (r.done !== true) {
+    if (typeof r.question !== "string" || !r.question.trim()) {
+      throw new Error("the Architect returned no question and is not done");
+    }
+    return { done: false, question: r.question.trim() };
+  }
+  if (!r.proposal || typeof r.proposal !== "object") throw new Error("the Architect said done but sent no proposal");
+  // Deterministic validation downstream: creativity is allowed upstream of this line only.
+  const shaped = proposalShape({ ...(r.proposal as object), source: { kind: "interview" } });
+  if (!shaped.ok) throw new Error(shaped.error);
+  return { done: true, proposal: shaped.proposal };
 }
