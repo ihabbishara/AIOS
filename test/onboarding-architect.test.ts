@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ARCHITECT_SYSTEM, INTERVIEW_SCHEMA, buildArchitectContext, renderTranscript, productCapabilities,
-  interviewTurn,
+  interviewTurn, redraftAgent,
 } from "../src/onboarding/architect.js";
 import type { OrgTemplate } from "../src/onboarding/templates.js";
 
@@ -164,5 +164,55 @@ describe("interviewTurn", () => {
   it("names the structured-output failure rather than throwing on undefined", async () => {
     await expect(interviewTurn([], ctx, async () => undefined))
       .rejects.toThrow(/structured output/i);
+  });
+});
+
+describe("redraftAgent", () => {
+  const proposal = {
+    source: { kind: "interview" as const },
+    departments: [{ department: "operations", mission: "Front door.", memoDomain: "general", capabilities: [], playbooks: [] }],
+    agents: [{
+      name: "nova", department: "operations", kind: "coordinator" as const, title: "Coordinator",
+      charter: "Route.", persona: "Brief.", prompt: "You route.", capabilities: [], skills: [],
+    }],
+    firstJob: "Say hello.",
+  };
+
+  it("returns a redrafted agent keeping its identity", async () => {
+    const r = await redraftAgent(proposal, "nova", "make it warmer", "ctx", async () => ({
+      done: true,
+      proposal: { ...proposal, agents: [{ ...proposal.agents[0], persona: "Warm and unhurried." }] },
+    }));
+    expect(r.name).toBe("nova");
+    expect(r.department).toBe("operations");
+    expect(r.kind).toBe("coordinator");
+    expect(r.persona).toBe("Warm and unhurried.");
+  });
+
+  it("puts the note and the current draft in front of the model", async () => {
+    let seen = "";
+    await redraftAgent(proposal, "nova", "make it warmer", "ctx", async (_s, p) => {
+      seen = p;
+      return { done: true, proposal };
+    });
+    expect(seen).toContain("make it warmer");
+    expect(seen).toContain("You route.");
+  });
+
+  it("refuses an agent that is not in the proposal", async () => {
+    await expect(redraftAgent(proposal, "ghost", "x", "ctx", async () => ({ done: true, proposal })))
+      .rejects.toThrow(/ghost/);
+  });
+
+  // Identity is the anchor for the department lead and playbook roles — a redraft that renames
+  // or moves the agent would silently break both.
+  it("ignores a model attempt to rename or move the agent", async () => {
+    const r = await redraftAgent(proposal, "nova", "x", "ctx", async () => ({
+      done: true,
+      proposal: { ...proposal, agents: [{ ...proposal.agents[0], name: "renamed", department: "elsewhere", kind: "worker" }] },
+    }));
+    expect(r.name).toBe("nova");
+    expect(r.department).toBe("operations");
+    expect(r.kind).toBe("coordinator");
   });
 });

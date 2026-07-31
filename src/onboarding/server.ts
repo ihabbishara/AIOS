@@ -12,7 +12,7 @@ import { templateToProposal, type OrgProposal } from "./proposal.js";
 import { provision, type ProvisionResult } from "./provision.js";
 import { loadRegistry } from "../agents/registry/loader.js";
 import {
-  buildArchitectContext, interviewTurn, sdkArchitect, type Architect, type Turn,
+  buildArchitectContext, interviewTurn, redraftAgent, sdkArchitect, type Architect, type Turn,
 } from "./architect.js";
 import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
 import { loadCapabilities } from "../agents/registry/capabilities.js";
@@ -298,6 +298,45 @@ export function startSetupServer(deps: SetupDeps): Server {
           deps.store.kvSet(TRANSCRIPT_KEY, JSON.stringify(turns));
           deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
           return transition(res, path, () => wizard.advance("interview"));
+        }
+
+        if (path === "/api/onboarding/redraft" && req.method === "POST") {
+          const raw = deps.store.kvGet(PROPOSAL_KEY);
+          if (!raw) return json(res, 404, { error: "no proposal yet" });
+          const body = await readJson<{ agent?: unknown; note?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const name = typeof body.agent === "string" ? body.agent : "";
+          const note = typeof body.note === "string" ? body.note.trim() : "";
+          if (!name) return json(res, 400, { error: "agent required" });
+          const proposal = JSON.parse(raw) as OrgProposal;
+          let drafted;
+          try {
+            drafted = await redraftAgent(proposal, name, note || "improve this agent", architectContext(), ask);
+          } catch (err) {
+            log(`redraft failed: ${(err as Error).message}`);
+            return json(res, 400, { error: (err as Error).message });
+          }
+          proposal.agents = proposal.agents.map((a) => (a.name === name ? drafted : a));
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(proposal));
+          return json(res, 200, { proposal });
+        }
+
+        if (path === "/api/onboarding/regenerate" && req.method === "POST") {
+          const turns = transcript();
+          if (turns.length === 0) return json(res, 400, { error: "no interview to regenerate from" });
+          let turn;
+          try {
+            turn = await interviewTurn(turns, architectContext(), ask);
+          } catch (err) {
+            log(`regenerate failed: ${(err as Error).message}`);
+            return json(res, 400, { error: (err as Error).message });
+          }
+          // The Architect already had every answer once, so a question here means it changed its
+          // mind about being finished — the user is on the review screen and has nowhere to put
+          // a question, so treat it as a failed regenerate rather than reopening the interview.
+          if (!turn.done) return json(res, 400, { error: "the Architect asked another question instead of redrafting" });
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
+          return json(res, 200, { proposal: turn.proposal });
         }
 
         if (path === "/api/onboarding/provision" && req.method === "POST") {

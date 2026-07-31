@@ -11,7 +11,7 @@
 // context has to ride on the user message anyway).
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OrgTemplate } from "./templates.js";
-import { proposalShape, type OrgProposal } from "./proposal.js";
+import { proposalShape, type OrgProposal, type ProposalAgent } from "./proposal.js";
 import { pingFailure } from "./auth.js";
 
 export interface Turn { role: "user" | "architect"; text: string }
@@ -197,4 +197,40 @@ export async function interviewTurn(
   const shaped = proposalShape({ ...(r.proposal as object), source: { kind: "interview" } });
   if (!shaped.ok) throw new Error(shaped.error);
   return { done: true, proposal: shaped.proposal };
+}
+
+const REDRAFT_NOTE = `
+Redraft ONE agent in the org below, applying the note. Return done: true with the whole
+proposal, changing only that agent's title, charter, persona, capabilities, and skills.
+Keep every other agent exactly as it is.
+`.trim();
+
+/**
+ * Identity is deliberately re-imposed rather than trusted: the agent's name anchors its
+ * department's lead and any playbook role naming it, so a model that renames or moves it during
+ * a redraft would silently break both.
+ */
+export async function redraftAgent(
+  proposal: OrgProposal, name: string, note: string, context: string, ask: Architect,
+): Promise<ProposalAgent> {
+  const current = proposal.agents.find((a) => a.name === name);
+  if (!current) throw new Error(`no agent "${name}" in the proposal`);
+  const prompt = [
+    REDRAFT_NOTE,
+    `NOTE FROM THE USER: ${note}`,
+    `AGENT TO REDRAFT: ${name}`,
+    "CURRENT DRAFT:",
+    JSON.stringify(proposal, null, 2),
+  ].join("\n\n");
+  const out = await ask(`${ARCHITECT_SYSTEM}\n\n${context}`, prompt);
+  const r = (out ?? {}) as { proposal?: { agents?: ProposalAgent[] } };
+  const drafted = r.proposal?.agents?.find((a) => a.name === name)
+    ?? r.proposal?.agents?.[0];
+  if (!drafted) throw new Error("the Architect returned no redrafted agent");
+  return {
+    ...drafted,
+    name: current.name, department: current.department, kind: current.kind,
+    capabilities: drafted.capabilities ?? current.capabilities,
+    skills: drafted.skills ?? current.skills,
+  };
 }

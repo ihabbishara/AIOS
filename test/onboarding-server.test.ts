@@ -470,3 +470,79 @@ describe("editing the proposal", () => {
     expect(r.status).toBe(404);
   });
 });
+
+describe("redraft endpoint", () => {
+  it("replaces one agent in the stored proposal", async () => {
+    const { base } = await boot(noop, {
+      architect: async () => ({
+        done: true,
+        proposal: {
+          departments: [{ department: "operations", mission: "m", memoDomain: "general", capabilities: [], playbooks: [] }],
+          agents: [{
+            name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+            charter: "c", persona: "Warm and unhurried.", prompt: "p", capabilities: [], skills: [],
+          }],
+          firstJob: "f",
+        },
+      }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(base, "/api/onboarding/redraft", { agent: "nova", note: "warmer" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: Array<{ name: string; persona: string }> } };
+    expect(body.proposal.agents.find((a) => a.name === "nova")!.persona).toBe("Warm and unhurried.");
+    // The other agents are untouched.
+    expect(body.proposal.agents).toHaveLength(3);
+  });
+
+  it("surfaces a redraft failure as 400 leaving the proposal alone", async () => {
+    const { base } = await boot(noop, { architect: async () => { throw new Error("model unavailable"); } }, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(base, "/api/onboarding/redraft", { agent: "nova", note: "warmer" });
+    expect(r.status).toBe(400);
+    const after = await (await fetch(`${base}/api/onboarding/proposal`)).json() as { proposal: { agents: unknown[] } };
+    expect(after.proposal.agents).toHaveLength(3);
+  });
+});
+
+describe("regenerate", () => {
+  const drafted = (persona: string) => ({
+    done: true,
+    proposal: {
+      departments: [{ department: "operations", mission: "m", memoDomain: "general", capabilities: [], playbooks: [] }],
+      agents: [{
+        name: "nova", department: "operations", kind: "coordinator", title: "Coordinator",
+        charter: "c", persona, prompt: "p", capabilities: [], skills: [],
+      }],
+      firstJob: "f",
+    },
+  });
+
+  it("re-runs the last turn against the same answers and replaces the proposal", async () => {
+    let call = 0;
+    const { base } = await boot(noop, {
+      architect: async () => drafted(++call === 1 ? "First draft." : "Second draft."),
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "that's everything" });
+    const r = await postJson(base, "/api/onboarding/regenerate", {});
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: Array<{ persona: string }> } };
+    expect(body.proposal.agents[0].persona).toBe("Second draft.");
+  });
+
+  it("keeps the user's answers — that is what separates it from restart", async () => {
+    const prompts: string[] = [];
+    const { base, store } = await boot(noop, {
+      architect: async (_s, p) => { prompts.push(p); return drafted("x"); },
+    }, "interview");
+    await postJson(base, "/api/onboarding/interview", { message: "I run a bakery" });
+    await postJson(base, "/api/onboarding/regenerate", {});
+    expect(prompts[1]).toContain("I run a bakery");
+    expect(store.kvGet("onboarding.transcript")).toContain("I run a bakery");
+  });
+
+  it("400s with no transcript to re-run", async () => {
+    const { base } = await boot(noop, { architect: async () => drafted("x") }, "review");
+    expect((await postJson(base, "/api/onboarding/regenerate", {})).status).toBe(400);
+  });
+});
