@@ -1,0 +1,14 @@
+name: ship-feature
+description: >-
+  Implement a change and have it reviewed before it is called done. The engineer
+  writes, the reviewer looks for what breaks, and the engineer answers the findings.
+needsProjectDir: true
+stages:
+  - type: loop
+    id: implement
+    producer: forge
+    critic: warden
+    maxRounds: 2
+    brief: >-
+      Implement the requested change. The reviewer will check correctness, edge cases,
+      and whether the change matches the conventions of the surrounding code.

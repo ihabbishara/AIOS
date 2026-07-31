@@ -1,0 +1,12 @@
+name: weekly-review
+description: >-
+  Look across tasks, reminders, and commitments and report what actually needs
+  the user this week.
+needsProjectDir: false
+stages:
+  - type: single
+    id: review
+    role: pilot
+    brief: >-
+      Review outstanding tasks and reminders. Report what is due this week, what has
+      slipped, and what can wait — soonest first, no commentary.

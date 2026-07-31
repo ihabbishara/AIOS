@@ -85,7 +85,8 @@ async function main(): Promise<void> {
   if (mode === "setup") {
     const store = new Store(config.dbPath);
     startSetupServer({
-      store, envPath: config.envPath, uiDist: config.uiDist, port: config.uiPort, log,
+      store, envPath: config.envPath, uiDist: config.uiDist, port: config.uiPort,
+      agentsDir: config.agentsDir, playbooksDir: config.playbooksDir, templatesDir: config.templatesDir, log,
     });
     log(`setup mode: open http://localhost:${config.uiPort} to begin onboarding`);
     return; // restart after onboarding completes boots normal mode

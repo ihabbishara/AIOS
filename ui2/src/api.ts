@@ -44,6 +44,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** The org the wizard is proposing. Nothing has been written when this is on screen. */
+export interface OrgProposalView {
+  source: { kind: "template"; template: string } | { kind: "interview" };
+  departments: Array<{ department: string; mission: string; lead?: string }>;
+  agents: Array<{
+    name: string; department: string; kind: string; title: string;
+    charter: string; persona: string; prompt: string; capabilities: string[]; skills: string[];
+  }>;
+  firstJob: string;
+}
+
 export const api = {
   state: () => request<StateInfo>("/api/state"),
   onboardingAdvance: (from: string) =>
@@ -63,6 +74,29 @@ export const api = {
     const body = await res.json().catch(() => ({})) as { step?: string; error?: string };
     if (body.step) return { step: body.step };
     throw new Error(body.error ?? `HTTP ${res.status}`);
+  },
+  onboardingTemplates: () =>
+    request<{ templates: Array<{ name: string; title: string; summary: string }> }>("/api/onboarding/templates"),
+  onboardingPickTemplate: (name: string) =>
+    request<{ step: string }>("/api/onboarding/template", { method: "POST", body: JSON.stringify({ name }) }),
+  onboardingProposal: () => request<{ proposal: OrgProposalView }>("/api/onboarding/proposal"),
+  /** Not `request`: a rejected provision carries per-card `errors` that request() would discard,
+   *  since it reads only `error` off a failed response. Same reason onboardingAuth bypasses it. */
+  onboardingProvision: async (): Promise<
+    | { ok: true; step: string; departments: string[]; agents: string[] }
+    | { ok: false; errors: Array<{ scope: string; name?: string; error: string }>; message: string }
+  > => {
+    const res = await fetch("/api/onboarding/provision", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      step?: string; departments?: string[]; agents?: string[];
+      error?: string; errors?: Array<{ scope: string; name?: string; error: string }>;
+    };
+    if (res.ok) {
+      return { ok: true, step: body.step!, departments: body.departments ?? [], agents: body.agents ?? [] };
+    }
+    return { ok: false, errors: body.errors ?? [], message: body.error ?? `HTTP ${res.status}` };
   },
   attention: () => request<AttentionItem[]>("/api/attention"),
   health: () => request<HealthInfo>("/api/health"),

@@ -14,20 +14,43 @@ export interface HireBody {
 
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
 const KINDS = new Set(["lead", "worker", "critic"]);
+const ALL_KINDS = new Set(["coordinator", "lead", "worker", "critic"]);
 
-export function validateHire(
-  body: unknown, registry: LoadedRegistry,
-): { ok: true; manifest: HireBody } | { ok: false; error: string } {
-  const b = body as Partial<HireBody> | null;
+export interface ProposalAgentBody extends Omit<HireBody, "kind"> {
+  kind: "coordinator" | "lead" | "worker" | "critic";
+  skills: string[];
+}
+
+interface CheckOpts {
+  /** Coordinator is refusable for hiring into a live org, required when creating a new one. */
+  allowCoordinator?: boolean;
+  /** Names claimed by siblings in the same proposal — not yet in the registry. */
+  taken?: Set<string>;
+  /** Departments about to be written — not yet in the registry. */
+  knownDepartments?: Set<string>;
+}
+
+/** Shared core. validateHire and validateProposalAgent differ only in the coordinator rule and
+ *  in what they treat as "already exists"; everything else must never drift between them. */
+function checkAgentBody(
+  body: unknown, registry: LoadedRegistry, opts: CheckOpts,
+): { ok: true; manifest: ProposalAgentBody } | { ok: false; error: string } {
+  const b = body as Partial<ProposalAgentBody> | null;
   const fail = (error: string) => ({ ok: false as const, error });
   if (!b || typeof b !== "object") return fail("body required");
   if (typeof b.name !== "string" || !NAME_RE.test(b.name)) return fail("name must match ^[a-z][a-z0-9-]*$");
-  if (registry.agentOf.has(b.name)) return fail(`name "${b.name}" is taken (agent or alias)`);
-  if (typeof b.department !== "string" || !registry.departments.has(b.department)) {
+  if (registry.agentOf.has(b.name) || opts.taken?.has(b.name)) {
+    return fail(`name "${b.name}" is taken (agent or alias)`);
+  }
+  if (typeof b.department !== "string"
+    || !(registry.departments.has(b.department) || opts.knownDepartments?.has(b.department))) {
     return fail(`unknown department "${String(b.department)}"`);
   }
-  if (typeof b.kind !== "string" || !KINDS.has(b.kind)) {
-    return fail("kind must be lead|worker|critic (coordinator cannot be hired)");
+  const kinds = opts.allowCoordinator ? ALL_KINDS : KINDS;
+  if (typeof b.kind !== "string" || !kinds.has(b.kind)) {
+    return fail(opts.allowCoordinator
+      ? "kind must be coordinator|lead|worker|critic"
+      : "kind must be lead|worker|critic (coordinator cannot be hired)");
   }
   for (const f of ["title", "charter", "persona", "prompt"] as const) {
     if (typeof b[f] !== "string" || !b[f]!.trim()) return fail(`${f} required`);
@@ -36,21 +59,51 @@ export function validateHire(
   for (const c of b.capabilities) {
     if (typeof c !== "string" || !registry.capabilities.has(c)) return fail(`unknown capability "${String(c)}"`);
   }
-  // Dept privacy wall: validate the tool surface the loader will actually grant (dept ∪ requested caps).
-  const dept = registry.departments.get(b.department)!;
-  const capNames = [...new Set([...dept.capabilities, ...(b.capabilities as string[])])];
+  const skills = b.skills ?? [];
+  if (!Array.isArray(skills) || skills.some((s) => typeof s !== "string")) {
+    return fail("skills must be an array of strings");
+  }
+  // Dept privacy wall: validate the tool surface the loader will actually grant (dept ∪ requested
+  // caps). A department being written in this same proposal contributes no defaults yet — its own
+  // capabilities are validated separately by validateDepartment.
+  const dept = registry.departments.get(b.department);
+  const capNames = [...new Set([...(dept?.capabilities ?? []), ...(b.capabilities as string[])])];
   const violations = deptWallViolations(b.department, toolsFromCaps(registry.capabilities, capNames));
   if (violations.length > 0) {
     return fail(`capability wall: ${b.department} department agents may not carry ${violations.join(", ")}`);
   }
-  const { name, department, kind, title, charter, persona, prompt, capabilities } = b as HireBody;
-  return { ok: true, manifest: { name, department, kind, title, charter, persona, prompt, capabilities } };
+  const { name, department, kind, title, charter, persona, prompt, capabilities } = b as ProposalAgentBody;
+  return {
+    ok: true,
+    manifest: { name, department, kind, title, charter, persona, prompt, capabilities, skills },
+  };
+}
+
+export function validateHire(
+  body: unknown, registry: LoadedRegistry,
+): { ok: true; manifest: HireBody } | { ok: false; error: string } {
+  const v = checkAgentBody(body, registry, {});
+  if (!v.ok) return v;
+  const { skills: _skills, ...rest } = v.manifest;
+  return { ok: true, manifest: rest as HireBody };
+}
+
+/** Provisioning path (spec §4): a new org must contain exactly one coordinator, and its agents
+ *  reference departments and siblings that are being written in the same pass. */
+export function validateProposalAgent(
+  body: unknown, registry: LoadedRegistry,
+  opts: { taken?: Set<string>; knownDepartments?: Set<string> } = {},
+): { ok: true; manifest: ProposalAgentBody } | { ok: false; error: string } {
+  return checkAgentBody(body, registry, { ...opts, allowCoordinator: true });
 }
 
 /** Block scalar: arbitrary text as YAML `>`-folded block, 2-space indented, blank lines kept. */
 const block = (s: string) => ">\n" + s.trim().split("\n").map((l) => (l.trim() ? `  ${l.trim()}` : "")).join("\n");
 
-export function renderAgentYaml(m: HireBody): string {
+/** Kind is a plain string, not HireBody["kind"]: provisioning renders coordinators, and widening
+ *  HireBody itself would let one slip past validateHire's type. `skills:` is emitted only when
+ *  non-empty — an empty array is the schema default and would add noise to every hired agent. */
+export function renderAgentYaml(m: Omit<HireBody, "kind"> & { kind: string; skills?: string[] }): string {
   return [
     `name: ${m.name}`,
     `title: ${JSON.stringify(m.title)}`,
@@ -62,6 +115,73 @@ export function renderAgentYaml(m: HireBody): string {
     "permissionMode: dontAsk",
     `kind: ${m.kind}`,
     `capabilities: [${m.capabilities.join(", ")}]`,
+    ...(m.skills?.length ? [`skills: [${m.skills.join(", ")}]`] : []),
+    "",
+  ].join("\n");
+}
+
+export interface DepartmentBody {
+  department: string; mission: string; memoDomain: string;
+  lead?: string; capabilities: string[]; playbooks: string[];
+}
+
+/**
+ * The one new validated mutation onboarding needs (spec §4). Two rules come straight from the
+ * loader: a department whose playbook is missing is SILENTLY SKIPPED at load (loader.ts:141) —
+ * the org would come up short a department with no error anywhere — and the dir name must equal
+ * the `department:` field, which the writer guarantees.
+ *
+ * `leadPending` is for provisioning, where the lead agent is written after its department.
+ * `knownPlaybooks` is for provisioning too: template playbooks are copied in, so they are not
+ * in the registry yet when the department is validated.
+ */
+export function validateDepartment(
+  body: unknown, registry: LoadedRegistry,
+  opts: { knownPlaybooks?: Set<string>; leadPending?: boolean } = {},
+): { ok: true; manifest: DepartmentBody } | { ok: false; error: string } {
+  const b = body as Partial<DepartmentBody> | null;
+  const fail = (error: string) => ({ ok: false as const, error });
+  if (!b || typeof b !== "object") return fail("body required");
+  if (typeof b.department !== "string" || !NAME_RE.test(b.department)) {
+    return fail("department must match ^[a-z][a-z0-9-]*$");
+  }
+  if (registry.departments.has(b.department)) return fail(`department "${b.department}" already exists`);
+  for (const f of ["mission", "memoDomain"] as const) {
+    if (typeof b[f] !== "string" || !b[f]!.trim()) return fail(`${f} required`);
+  }
+  const capabilities = b.capabilities ?? [];
+  if (!Array.isArray(capabilities)) return fail("capabilities must be an array");
+  for (const c of capabilities) {
+    if (typeof c !== "string" || !registry.capabilities.has(c)) return fail(`unknown capability "${String(c)}"`);
+  }
+  const playbooks = b.playbooks ?? [];
+  if (!Array.isArray(playbooks)) return fail("playbooks must be an array");
+  for (const p of playbooks) {
+    if (typeof p !== "string" || !(registry.playbooks.has(p) || opts.knownPlaybooks?.has(p))) {
+      return fail(`unknown playbook "${String(p)}"`);
+    }
+  }
+  if (b.lead !== undefined) {
+    if (typeof b.lead !== "string" || !NAME_RE.test(b.lead)) return fail("lead must match ^[a-z][a-z0-9-]*$");
+    if (!opts.leadPending && !registry.agentOf.has(b.lead)) {
+      return fail(`lead "${b.lead}" is not a registered agent`);
+    }
+  }
+  const { department, mission, memoDomain, lead } = b as DepartmentBody;
+  return {
+    ok: true,
+    manifest: { department, mission, memoDomain, ...(lead ? { lead } : {}), capabilities, playbooks },
+  };
+}
+
+export function renderDepartmentYaml(m: DepartmentBody): string {
+  return [
+    `department: ${m.department}`,
+    `mission: ${block(m.mission)}`,
+    ...(m.lead ? [`lead: ${m.lead}`] : []),
+    `memoDomain: ${m.memoDomain}`,
+    `capabilities: [${m.capabilities.join(", ")}]`,
+    `playbooks: [${m.playbooks.join(", ")}]`,
     "",
   ].join("\n");
 }

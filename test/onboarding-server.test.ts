@@ -15,14 +15,21 @@ function kv() {
 let server: Server;
 afterEach(() => server?.close());
 
-async function boot(ping: () => Promise<void>, over: Partial<SetupDeps> = {}) {
+async function boot(ping: () => Promise<void>, over: Partial<SetupDeps> = {}, step?: string) {
   const dir = mkdtempSync(join(tmpdir(), "setup-"));
   writeFileSync(join(dir, "index.html"), "<html>wizard</html>");
   const envPath = join(dir, ".env");
-  server = startSetupServer({ store: kv(), envPath, uiDist: dir, port: 0, ping, ...over });
+  const store = kv();
+  if (step) store.kvSet("onboarding.step", step);
+  server = startSetupServer({
+    store, envPath, uiDist: dir, port: 0, ping,
+    agentsDir: join(dir, "agents"), playbooksDir: join(dir, "playbooks"),
+    templatesDir: join(process.cwd(), "templates"),
+    ...over,
+  });
   await new Promise((r) => server.once("listening", r));
   const port = (server.address() as { port: number }).port;
-  return { base: `http://127.0.0.1:${port}`, envPath };
+  return { base: `http://127.0.0.1:${port}`, envPath, store };
 }
 
 describe("setup server", () => {
@@ -182,5 +189,105 @@ describe("setup server", () => {
     expect(r.status).toBe(500);
     expect((await r.json()).error).toContain("db is gone");
     expect(lines.some((l) => l.includes("setup error /api/state") && l.includes("db is gone"))).toBe(true);
+  });
+});
+
+const noop = async () => {};
+const postJson = (base: string, path: string, body: unknown) =>
+  fetch(`${base}${path}`, { method: "POST", body: JSON.stringify(body) });
+
+describe("template gallery and provisioning", () => {
+  it("lists the shipped templates", async () => {
+    const { base } = await boot(noop);
+    const r = await fetch(`${base}/api/onboarding/templates`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { templates: Array<{ name: string }> };
+    expect(body.templates.map((t) => t.name)).toContain("starter");
+  });
+
+  it("selecting a template stores a proposal and advances to review", async () => {
+    const { base, store } = await boot(noop, {}, "interview");
+    const r = await postJson(base, "/api/onboarding/template", { name: "starter" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("review");
+    expect(store.kvGet("onboarding.proposal")).toContain("starter");
+  });
+
+  it("refuses an unknown template", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    const r = await postJson(base, "/api/onboarding/template", { name: "nope" });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: 'unknown template "nope"' });
+  });
+
+  it("refuses template selection from the wrong step", async () => {
+    const { base } = await boot(noop, {}, "welcome");
+    const r = await postJson(base, "/api/onboarding/template", { name: "starter" });
+    expect(r.status).toBe(400);
+  });
+
+  it("serves the stored proposal back for the review screen", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await fetch(`${base}/api/onboarding/proposal`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { proposal: { agents: unknown[] } };
+    expect(body.proposal.agents.length).toBeGreaterThan(0);
+  });
+
+  it("404s the proposal before one is chosen", async () => {
+    const { base } = await boot(noop, {}, "interview");
+    expect((await fetch(`${base}/api/onboarding/proposal`)).status).toBe(404);
+  });
+
+  it("provisions from review and lands on first-job", async () => {
+    const calls: unknown[] = [];
+    const { base } = await boot(noop, {
+      provisionFn: (p) => {
+        calls.push(p);
+        return { ok: true as const, departments: ["operations"], agents: ["nova"], playbooks: [] };
+      },
+    }, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(base, "/api/onboarding/provision", {});
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("first-job");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("returns card errors and stays on review when provisioning is rejected", async () => {
+    const { base, store } = await boot(noop, {
+      provisionFn: () => ({
+        ok: false as const,
+        errors: [{ scope: "agent" as const, name: "nova", error: 'unknown capability "telepathy"' }],
+      }),
+    }, "interview");
+    await postJson(base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(base, "/api/onboarding/provision", {});
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string; errors: Array<{ name: string }> };
+    expect(body.errors[0].name).toBe("nova");
+    // `error` must be present too: ui2's shared request() reads only that key off a failure.
+    expect(body.error).toContain("telepathy");
+    expect(store.kvGet("onboarding.step")).toBe("review");
+  });
+
+  it("refuses to provision with no proposal stored", async () => {
+    const { base } = await boot(noop, {}, "review");
+    const r = await postJson(base, "/api/onboarding/provision", {});
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: "no proposal to provision" });
+  });
+
+  it("a resumed wizard stuck on the provision step finishes without provisioning twice", async () => {
+    let runs = 0;
+    const { base } = await boot(noop, {
+      provisionFn: () => { runs++; return { ok: true as const, departments: [], agents: [], playbooks: [] }; },
+      orgExists: () => true, // a crash between the two advances left a real org on disk
+    }, "provision");
+    const r = await postJson(base, "/api/onboarding/provision", {});
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("first-job");
+    expect(runs).toBe(0);
   });
 });

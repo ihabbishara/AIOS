@@ -1,8 +1,8 @@
 // ui2/src/views/Setup.tsx — onboarding wizard shell (spec §1-2): welcome + auth are live,
 // the org steps land in the next phase. The server owns the state machine — this view renders
 // the step it is handed and posts intents; every transition comes back from the daemon.
-import { useState } from "react";
-import { api } from "../api.js";
+import { useEffect, useState } from "react";
+import { api, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
 
 const STEPS = ["welcome", "auth", "workspace", "interview", "review", "provision", "first-job", "done"];
@@ -17,13 +17,17 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       <Rail step={step} />
       {step === "welcome" && <Welcome onNext={onStepChange} />}
       {step === "auth" && <Auth onNext={onStepChange} />}
-      {step !== "welcome" && step !== "auth" && (
-        <div className="panel w-full max-w-md p-6 flex flex-col gap-2 text-center">
-          <div className="text-strong text-[15px]">Almost there</div>
+      {step === "interview" && <Gallery onNext={onStepChange} />}
+      {step === "review" && <Review onNext={onStepChange} />}
+      {(step === "workspace" || step === "provision" || step === "first-job" || step === "done") && (
+        <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
+          <div className="text-strong text-[15px]">{LABELS[step] ?? step}</div>
           <p className="leading-relaxed">
-            Org setup ({LABELS[step] ?? step}) arrives in the next phase. Add agents manually and
-            restart the daemon, or wait for the org wizard.
+            {step === "workspace"
+              ? "Choosing where your files live arrives in the next phase — the built-in workspace is used for now."
+              : "This step arrives in the next phase."}
           </p>
+          {step === "workspace" && <SkipStep step="workspace" onNext={onStepChange} />}
         </div>
       )}
     </div>
@@ -117,6 +121,143 @@ function Auth({ onNext }: { onNext: (s: string) => void }) {
         <Button onClick={back} disabled={busy}>Back</Button>
         <Button variant="primary" className="ml-auto" disabled={busy || !value.trim()} onClick={() => void submit()}>
           {busy ? "Verifying…" : "Verify & continue"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Choosing a workspace lands in plan 3; until then the step is a pass-through so the org
+ *  path is reachable. The built-in default is what the daemon already uses. */
+function SkipStep({ step, onNext }: { step: string; onNext: (s: string) => void }) {
+  const [error, setError] = useState("");
+  return (
+    <>
+      {error && <div className="text-[12px] text-err">{error}</div>}
+      <Button variant="primary" onClick={() => {
+        api.onboardingAdvance(step)
+          .then((r) => onNext(r.step))
+          .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      }}>Continue</Button>
+    </>
+  );
+}
+
+function Gallery({ onNext }: { onNext: (s: string) => void }) {
+  const [rows, setRows] = useState<Array<{ name: string; title: string; summary: string }>>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+
+  useEffect(() => {
+    api.onboardingTemplates()
+      .then((r) => setRows(r.templates))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const pick = (name: string) => {
+    setBusy(name); setError("");
+    api.onboardingPickTemplate(name)
+      .then((r) => onNext(r.step))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(""));
+  };
+
+  return (
+    <div className="panel w-full max-w-2xl p-6 flex flex-col gap-4">
+      <div className="text-strong text-[15px]">Pick a starting org</div>
+      <p className="leading-relaxed">
+        Each one is a working team you can change later — hire, retire, and edit any agent
+        once you are in.
+      </p>
+      {error && <div className="text-[12px] text-err">{error}</div>}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {rows.map((t) => (
+          <button key={t.name} disabled={!!busy} onClick={() => pick(t.name)}
+            className="text-left border border-line rounded-md p-3 hover:border-dim disabled:opacity-50">
+            <div className="text-strong">{t.title}</div>
+            <div className="text-[12px] text-dim leading-relaxed">{t.summary}</div>
+            {busy === t.name && <div className="text-[11px] text-dim mt-1">Loading…</div>}
+          </button>
+        ))}
+        {rows.length === 0 && !error && <div className="text-dim text-[12px]">Loading templates…</div>}
+      </div>
+    </div>
+  );
+}
+
+function Review({ onNext }: { onNext: (s: string) => void }) {
+  const [proposal, setProposal] = useState<OrgProposalView | null>(null);
+  const [errors, setErrors] = useState<Array<{ name?: string; error: string }>>([]);
+  // Two distinct failures: loadError means there is nothing to show, error means the org we
+  // ARE showing was rejected. Collapsing them would blank the screen on a rejected provision.
+  const [loadError, setLoadError] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.onboardingProposal()
+      .then((r) => setProposal(r.proposal))
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const approve = () => {
+    setBusy(true); setError(""); setErrors([]);
+    api.onboardingProvision()
+      .then((r) => {
+        if (r.ok) return onNext(r.step);
+        // Card errors highlight their agent; the summary covers proposal-level rejections,
+        // which belong to no card and would otherwise leave the screen silently unchanged.
+        setErrors(r.errors);
+        if (r.errors.every((e) => !e.name)) setError(r.message);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  if (loadError) return <div className="panel w-full max-w-md p-6 text-[12px] text-err">{loadError}</div>;
+  if (!proposal) return <div className="panel w-full max-w-md p-6 text-dim">Loading your org…</div>;
+
+  const errorFor = (name: string) => errors.find((e) => e.name === name)?.error;
+
+  return (
+    <div className="panel w-full max-w-2xl p-6 flex flex-col gap-4">
+      <div className="text-strong text-[15px]">Your org</div>
+      <p className="leading-relaxed">
+        Nothing has been written yet. Read it, then approve — you can change any of it afterwards.
+      </p>
+      {errors.length > 0 && (
+        <div className="text-[12px] text-err">
+          This org could not be created. Fix the flagged agents or pick a different template.
+        </div>
+      )}
+      {error && <div className="text-[12px] text-err">{error}</div>}
+      {proposal.departments.map((d) => (
+        <div key={d.department} className="border border-line rounded-md p-3 flex flex-col gap-2">
+          <div className="text-strong">{d.department}</div>
+          <div className="text-[12px] text-dim leading-relaxed">{d.mission}</div>
+          {proposal.agents.filter((a) => a.department === d.department).map((a) => (
+            <details key={a.name} className={`border rounded-md p-2 ${errorFor(a.name) ? "border-err" : "border-line"}`}>
+              <summary className="cursor-pointer">
+                <span className="text-strong">{a.name}</span>
+                <span className="text-dim"> — {a.title} ({a.kind})</span>
+              </summary>
+              <div className="text-[12px] leading-relaxed flex flex-col gap-1 mt-2">
+                <div><span className="text-dim">Charter: </span>{a.charter}</div>
+                <div><span className="text-dim">Persona: </span>{a.persona}</div>
+                <div><span className="text-dim">Prompt: </span>{a.prompt}</div>
+                <div><span className="text-dim">Capabilities: </span>{a.capabilities.join(", ") || "none"}</div>
+              </div>
+              {errorFor(a.name) && <div className="text-[12px] text-err mt-1">{errorFor(a.name)}</div>}
+            </details>
+          ))}
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <Button disabled={busy} onClick={() => {
+          api.onboardingBack("interview").then((r) => onNext(r.step)).catch(() => {});
+        }}>Pick another</Button>
+        <Button variant="primary" className="ml-auto" disabled={busy} onClick={approve}>
+          {busy ? "Creating…" : "Create this org"}
         </Button>
       </div>
     </div>

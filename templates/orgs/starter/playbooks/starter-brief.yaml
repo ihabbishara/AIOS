@@ -1,0 +1,18 @@
+name: starter-brief
+description: >-
+  Research a topic and write a one-page brief on it. The researcher gathers
+  and checks material, the writer turns it into something readable.
+needsProjectDir: false
+stages:
+  - type: single
+    id: research
+    role: scout
+    brief: >-
+      Research the requested topic. Produce notes with sources, separating what you
+      read from what you inferred. Note anything you could not find.
+  - type: single
+    id: write
+    role: scribe
+    brief: >-
+      Using the research notes, write a one-page brief. Lead with the answer, keep
+      sources attached to their claims, and end with what remains uncertain.

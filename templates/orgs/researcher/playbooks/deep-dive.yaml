@@ -1,0 +1,15 @@
+name: deep-dive
+description: >-
+  Investigate a question thoroughly and have the findings checked before they
+  are reported — sourcing, reasoning, and unsupported claims.
+needsProjectDir: false
+stages:
+  - type: loop
+    id: investigate
+    producer: delve
+    critic: sift
+    maxRounds: 2
+    brief: >-
+      Investigate the question in depth. The reviewer will check that every claim has a
+      source, that inference is labelled as such, and that the conclusion follows from
+      what was actually found.

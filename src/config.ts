@@ -12,6 +12,8 @@ export interface Config {
   dbPath: string;
   playbooksDir: string;
   agentsDir: string;
+  /** Product data: org templates and the capability catalog seeded into a fresh agentsDir. */
+  templatesDir: string;
   projectsRoot: string;
   workspaceRoot: string;
   codeReadRoots: string[];
@@ -209,6 +211,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     dbPath: join(dataDir, "aios.sqlite"),
     playbooksDir: process.env.AIOS_PLAYBOOKS_DIR ?? join(root, "playbooks"),
     agentsDir: env.AIOS_AGENTS_DIR ?? join(root, "agents"),
+    templatesDir: process.env.AIOS_TEMPLATES_DIR ?? join(root, "templates"),
     projectsRoot,
     workspaceRoot: env.AIOS_WORKSPACE_ROOT ?? join(home, "projects", "AIOS-Workspace"),
     codeReadRoots: (env.AIOS_CODE_READ_ROOTS ?? projectsRoot)
