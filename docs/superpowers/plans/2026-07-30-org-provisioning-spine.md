@@ -1,6 +1,21 @@
 # Org Provisioning Spine (plan 2a/4) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> ## ⛔ THIS PLAN IS COMPLETE — DO NOT EXECUTE IT
+>
+> **Tasks 1-12 were implemented, verified, and merged to `main` (82290af) on 2026-07-31.**
+> Re-running them would duplicate existing files and re-apply landed refactors.
+>
+> **Tasks 13 and 14 were DEFERRED BY THE REPO OWNER and must NOT be executed by an agent.**
+> Task 13 copies the owner's real agent manifests into `test/fixtures/org/` and commits them —
+> that requires a human privacy review of ~785 lines of prose that no agent should approve on
+> its own. Their checkbox syntax has been deliberately stripped so nothing reads as actionable.
+> The remaining work is tracked in the "Execution outcome" section at the bottom and belongs to
+> a future plan (2a-bis), not to this one.
+>
+> If you are looking for work to do, this file is not it.
+
+> **For agentic workers (historical, tasks 1-12 only):** this plan was executed with
+> superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A new user picks an org template in the wizard and a real, live org lands on disk — departments, agents, and playbooks — provisioned through the same deterministic validators that guard manual hiring.
 
@@ -2782,7 +2797,7 @@ Inline editing lands with the interview in the next plan."
 
 ---
 
-### Task 13: Re-anchor the suite onto a fixture org
+### Task 13 — DEFERRED, DO NOT EXECUTE: Re-anchor the suite onto a fixture org
 
 `agents/` is about to leave version control, which would take the whole suite's registry with it — seven files load the live tree, and most other tests reach it through `test/fixtures/registry.ts`.
 
@@ -2797,7 +2812,7 @@ Anchoring on a *product template* would be the obvious move and is wrong: the pe
 - Consumes: the capability catalog at `templates/_capabilities.yaml`.
 - Produces: `FIXTURE_AGENTS_DIR` and `FIXTURE_PLAYBOOKS_DIR` exported from `test/fixtures/registry.ts`; `testRegistry()` keeps its current signature so importers do not change.
 
-- [ ] **Step 1: Write the coverage test that the fixture must satisfy**
+- ~~Step 1: Write the coverage test that the fixture must satisfy**
 
 ```ts
 // test/fixtures-org.test.ts
@@ -2828,12 +2843,12 @@ describe("fixture org", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- ~~Step 2: Run test to verify it fails**
 
 Run: `npx vitest run test/fixtures-org.test.ts`
 Expected: FAIL — `FIXTURE_AGENTS_DIR` is not exported
 
-- [ ] **Step 3: Build the fixture org**
+- ~~Step 3: Build the fixture org**
 
 Start from the live tree so no capability is lost, then de-personalize:
 
@@ -2849,7 +2864,7 @@ Then edit the copies so they are fixtures rather than someone's org: no real com
 
 Run the coverage test after editing; it names any capability that fell out.
 
-- [ ] **Step 4: Point the shared helper at the fixture**
+- ~~Step 4: Point the shared helper at the fixture**
 
 ```ts
 // test/fixtures/registry.ts
@@ -2887,7 +2902,7 @@ export function roleOf(nameOrAlias: string): RoleDef {
 }
 ```
 
-- [ ] **Step 5: Re-anchor the six direct callers**
+- ~~Step 5: Re-anchor the six direct callers**
 
 In each file below, replace the agents/playbooks path arguments with the fixture constants imported from `./fixtures/registry.js` (or `../fixtures/registry.js` as the file's depth requires):
 
@@ -2898,12 +2913,12 @@ In each file below, replace the agents/playbooks path arguments with the fixture
 - `test/code-integration.test.ts` — same substitution
 - `test/org-golden.test.ts` — same substitution
 
-- [ ] **Step 6: Run the suite and read the failures**
+- ~~Step 6: Run the suite and read the failures**
 
 Run: `npx vitest run`
 Expected: `test/org-golden.test.ts` fails on the golden diff (the fixture's tool surface is being compared against a golden pinned from the live tree). Everything else should pass — if a name-based assertion fails, Step 3's byte-identical rule was broken; fix the fixture, not the test.
 
-- [ ] **Step 7: Re-pin the golden — the one sanctioned regeneration**
+- ~~Step 7: Re-pin the golden — the one sanctioned regeneration**
 
 This is the only place in this plan where regenerating `test/fixtures/org-golden.json` is correct. Regenerate using whatever script `test/org-golden.test.ts` documents, then **diff it by eye**:
 
@@ -2913,12 +2928,12 @@ git diff test/fixtures/org-golden.json | head -60
 
 Expected: agent *names* unchanged, tool *lists* unchanged per agent. A changed tool list means the fixture edit altered a capability — go back to Step 3. Only the file's provenance is changing, not its content.
 
-- [ ] **Step 8: Run the full suite and tsc**
+- ~~Step 8: Run the full suite and tsc**
 
 Run: `npx vitest run && npx tsc --noEmit`
 Expected: no failures, no tsc output
 
-- [ ] **Step 9: Commit**
+- ~~Step 9: Commit**
 
 ```bash
 git add test/fixtures/org test/fixtures/org-playbooks test/fixtures/registry.ts test/fixtures/org-golden.json \
@@ -2935,7 +2950,7 @@ carry every capability in the catalog, pinned by a test."
 
 ---
 
-### Task 14: `agents/` and `playbooks/` become user data
+### Task 14 — DEFERRED, DO NOT EXECUTE: `agents/` and `playbooks/` become user data
 
 The last step, and the one that makes the wizard reachable for anyone who clones the repo: today a fresh clone inherits an org, so `bootMode` sees agents and goes straight to `normal` — the wizard never runs.
 
@@ -2949,7 +2964,7 @@ The last step, and the one that makes the wizard reachable for anyone who clones
 - Consumes: nothing.
 - Produces: nothing consumed downstream.
 
-- [ ] **Step 1: Write the failing test for the migration shim**
+- ~~Step 1: Write the failing test for the migration shim**
 
 Append to `test/onboarding-mode.test.ts`:
 
@@ -2974,12 +2989,12 @@ describe("existing installs are never taken over by the wizard", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes or fails**
+- ~~Step 2: Run test to verify it passes or fails**
 
 Run: `npx vitest run test/onboarding-mode.test.ts`
 Expected: PASS — `bootMode` already implements this. The test is here to pin the guarantee before `agents/` stops being tracked, so a later refactor cannot break the shim silently.
 
-- [ ] **Step 3: Untrack the org, leave it on disk**
+- ~~Step 3: Untrack the org, leave it on disk**
 
 ```bash
 git rm -r --cached agents playbooks
@@ -2991,7 +3006,7 @@ Verify nothing left the disk:
 ls agents playbooks
 ```
 
-- [ ] **Step 4: Ignore them**
+- ~~Step 4: Ignore them**
 
 Append to `.gitignore`:
 
@@ -3004,7 +3019,7 @@ Append to `.gitignore`:
 /playbooks/
 ```
 
-- [ ] **Step 5: Confirm a fresh clone reaches the wizard**
+- ~~Step 5: Confirm a fresh clone reaches the wizard**
 
 ```bash
 rm -rf /tmp/aios-clone-check && git clone . /tmp/aios-clone-check 2>/dev/null
@@ -3013,7 +3028,7 @@ ls /tmp/aios-clone-check
 
 Expected: no `agents/` and no `playbooks/` directory. That is what makes `bootMode` return `setup` for a new user.
 
-- [ ] **Step 6: Document it**
+- ~~Step 6: Document it**
 
 Add to `README.md`, under the setup section:
 
@@ -3029,12 +3044,12 @@ pulling an update never touches your org and your agents never land in a diff.
 - Back them up yourself, or point `AIOS_AGENTS_DIR` somewhere you already back up.
 ```
 
-- [ ] **Step 7: Run the full suite and tsc**
+- ~~Step 7: Run the full suite and tsc**
 
 Run: `npx vitest run && npx tsc --noEmit`
 Expected: no failures (Task 13 already moved the suite off `agents/`), no tsc output
 
-- [ ] **Step 8: Commit**
+- ~~Step 8: Commit**
 
 ```bash
 git add .gitignore README.md test/onboarding-mode.test.ts
