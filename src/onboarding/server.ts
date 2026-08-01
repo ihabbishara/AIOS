@@ -199,6 +199,11 @@ export function startSetupServer(deps: SetupDeps): Server {
         // Retry after a failed hot boot. The org is already provisioned by the time this can
         // matter, so this brings up the engine alone — it never re-runs provisioning.
         if (path === "/api/onboarding/boot" && req.method === "POST") {
+          // Booting before an org exists latches `world` to a zero-agent daemon — loadRegistry
+          // only throws when there are agents but no coordinator, so an empty dir loads fine —
+          // and the provision-time boot would then short-circuit on it, running the first job
+          // against an empty registry. There is no valid reason to boot without an org.
+          if (!orgExists()) return json(res, 409, { error: "no org yet — provision one first" });
           const w = await ensureBooted();
           return json(res, w ? 200 : 500,
             w ? { booted: true } : { booted: false, error: bootError || "no boot function configured" });

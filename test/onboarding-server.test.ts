@@ -594,7 +594,9 @@ describe("hot boot", () => {
    *  empty store makes provision 400 with "no proposal to provision" — which would make every
    *  assertion below about a boot that never happened. */
   async function reviewWithProposal(over: Partial<SetupDeps>) {
-    const b = await boot(noop, over, "interview");
+    // orgExists defaults true because provisionFn is faked here and writes no agents to disk;
+    // after a real provision the org is there, which is what the retry endpoint's guard reads.
+    const b = await boot(noop, { orgExists: () => true, ...over }, "interview");
     await postJson(b.base, "/api/onboarding/template", { name: "starter" });
     return b;
   }
@@ -669,5 +671,21 @@ describe("hot boot", () => {
     expect(prov.status).toBe(200);
     expect(retry.status).toBe(200);
     expect(attempts).toBe(1);
+  });
+
+  it("refuses to boot before an org exists", async () => {
+    let attempts = 0;
+    const { base } = await boot(noop, {
+      orgExists: () => false,
+      boot: async () => { attempts++; return fakeWorld(); },
+    }, "review");
+
+    const r = await fetch(`${base}/api/onboarding/boot`, { method: "POST", body: "{}" });
+    expect(r.status).toBe(409);
+    // The status is not the point. bootNormal succeeds against an empty registry — loadRegistry
+    // only throws when there are agents but no coordinator — so reaching it at all would latch
+    // `world` to a zero-agent daemon that the provision-time boot then short-circuits on.
+    expect(attempts).toBe(0);
+    expect((await (await fetch(`${base}/api/state`)).json()).booted).toBe(false);
   });
 });
