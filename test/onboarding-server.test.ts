@@ -649,6 +649,12 @@ describe("hot boot", () => {
     expect(r.status).toBe(200);
     expect((await r.json()).booted).toBe(true);
     expect(attempts).toBe(2);
+
+    // The first attempt's error must be cleared on success, or the UI renders booted: true
+    // next to a stale "first attempt fails".
+    const s = await (await fetch(`${base}/api/state`)).json();
+    expect(s.booted).toBe(true);
+    expect(s.bootError).toBeUndefined();
   });
 
   it("never boots twice when provision and retry race", async () => {
@@ -671,6 +677,39 @@ describe("hot boot", () => {
     expect(prov.status).toBe(200);
     expect(retry.status).toBe(200);
     expect(attempts).toBe(1);
+  });
+
+  // The crash-resume branch is a second, separate call site for ensureBooted: it answers through
+  // transition() rather than json(), and the existing resume test injects no `boot` at all, so
+  // deleting the await there used to leave the suite green.
+  it("boots on a crash-resume that finds the org already written", async () => {
+    let booted = 0;
+    const { base } = await boot(noop, {
+      orgExists: () => true, // a crash between the two advances left a real org on disk
+      boot: async () => { booted++; return fakeWorld(); },
+    }, "provision");
+
+    const r = await postJson(base, "/api/onboarding/provision", {});
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("first-job");
+    expect(booted).toBe(1);
+    expect((await (await fetch(`${base}/api/state`)).json()).booted).toBe(true);
+  });
+
+  it("still finishes a crash-resume when the boot fails", async () => {
+    const { base } = await boot(noop, {
+      orgExists: () => true,
+      boot: async () => { throw new Error("resume boot exploded"); },
+    }, "provision");
+
+    const r = await postJson(base, "/api/onboarding/provision", {});
+    // Same rule as the provision path: the org is on disk and valid, so a boot failure is
+    // recorded, never a reason to strand the wizard on the provision step.
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("first-job");
+    const s = await (await fetch(`${base}/api/state`)).json();
+    expect(s.booted).toBe(false);
+    expect(s.bootError).toContain("resume boot exploded");
   });
 
   it("refuses to boot before an org exists", async () => {

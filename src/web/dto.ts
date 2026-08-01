@@ -14,8 +14,9 @@ export interface AgentInfo {
 }
 
 /**
- * Two wire shapes share this one type. The setup-mode server sends only `{ mode: "setup", step }`
- * and omits every field below it; the cockpit sends those and omits nothing. Consumers must branch
+ * Two wire shapes share this one type. The setup-mode server sends `{ mode: "setup", step, booted }`
+ * — plus `bootError` once an in-process boot has failed — and omits every field below those; the
+ * cockpit sends those lower fields and omits `booted`/`bootError`. Consumers must branch
  * on `mode` before touching the cockpit fields — they are typed required but absent in setup mode.
  * Splitting this into a discriminated union is planned for plan 2.
  */
