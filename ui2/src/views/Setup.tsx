@@ -533,7 +533,10 @@ function FirstJob({ onNext }: { onNext: (s: string) => void }) {
       // beats the suggestion it started from. Seeding from the proposal regardless would show
       // the user a request they had edited away from before sending.
       const s = await api.firstJobStatus().catch(() => null);
-      if (s) setJob(s);
+      // Functional for the same reason as the box below: a user who types and clicks Run before
+      // this first read lands has already put a dispatched job in state, and overwriting it with
+      // the `idle` this read started out fetching would leave that job with nothing polling it.
+      if (s) setJob((cur) => cur ?? s);
       if (s?.request) { setRequest(s.request); return; }
       const p = await api.onboardingProposal().catch(() => null);
       // Functional, not a bare set: this lands after two awaits and the box is editable the
@@ -562,7 +565,9 @@ function FirstJob({ onNext }: { onNext: (s: string) => void }) {
     // thing that tells them apart. "Already running" is almost always a double-click: the job
     // the user asked for is in flight, so adopt it and watch it rather than reporting a
     // failure they did not cause. "No org yet" is a genuine wrong-state error and stays one.
-    if (msg.includes("already running")) {
+    // Matched on the whole phrase, not the tail: a 400 carries the boot error as its message,
+    // and that text is arbitrary — "already running" alone could turn up inside one.
+    if (msg.includes("first job is already running")) {
       return api.firstJobStatus().then(setJob).catch(() => setError(msg));
     }
     setError(msg);

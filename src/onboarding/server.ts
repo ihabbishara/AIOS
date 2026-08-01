@@ -528,6 +528,11 @@ export function startSetupServer(deps: SetupDeps): Server {
           // `done` with the reply to a request the user has already superseded. Guarded the way
           // this server already guards its other one-at-a-time work: `verifying` on /auth, the
           // `booting` promise on the hot boot.
+          // This prose is load-bearing: it shares its status code with the "no org yet" 409 above
+          // (line 517), so ui2 tells the two apart by matching "first job is already running" in
+          // the message (Setup.tsx:570, FirstJob's dispatchFailed) — one is a double-click to
+          // adopt, the other a real error to show. Rewording this string silently turns a
+          // double-click back into an error the user did not cause.
           if (dispatching) return json(res, 409, { error: "a first job is already running" });
           // Written before the flag goes up, and both are synchronous so the check-and-set stays
           // atomic. Order matters: kvSet can throw (SQLITE_BUSY), and raising the flag first would

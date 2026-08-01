@@ -10,15 +10,16 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 type Reply = { status?: number; body: unknown };
 
 /** Stub fetch with a "METHOD /path" table. Unlike test/stubs.ts this one carries status codes
- *  and methods, because both 409s and the boot retry are only reachable through them. */
-function stub(routes: Record<string, Reply | (() => Reply)>) {
+ *  and methods, because both 409s and the boot retry are only reachable through them. A route
+ *  may answer asynchronously, which is how a reply is held open to order it against a click. */
+function stub(routes: Record<string, Reply | (() => Reply | Promise<Reply>)>) {
   const calls: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${String(input).split("?")[0]}`;
     calls.push(key);
     const route = routes[key];
     if (!route) return new Response(JSON.stringify({ error: `no stub for ${key}` }), { status: 404 });
-    const r = typeof route === "function" ? route() : route;
+    const r = await (typeof route === "function" ? route() : route);
     return new Response(JSON.stringify(r.body), { status: r.status ?? 200 });
   }));
   return calls;
@@ -45,6 +46,8 @@ const GOAL = {
 const box = () => screen.getByLabelText("first job") as HTMLTextAreaElement;
 const btn = (label: string) => screen.getByText(label) as HTMLButtonElement;
 const flush = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0); }); };
+/** Same, on real timers: let every settled promise land before asserting. */
+const settle = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
 
 describe("first-job step", () => {
   it("seeds the box from the approved proposal and shows nothing until it runs", async () => {
@@ -171,6 +174,48 @@ describe("first-job step", () => {
     booted = true;
     fireEvent.click(btn("Try again"));
     expect(await screen.findByDisplayValue("Draft a launch plan")).toBeTruthy();
+  });
+
+  it("does not un-watch a job dispatched before the first status read lands", async () => {
+    // The narrow race the seeding effect's functional set exists for: type into the still-empty
+    // box and dispatch while the mount-time GET is still in flight, and a plain `setJob(s)`
+    // would overwrite the running job with the `idle` that read set out to fetch — leaving a
+    // real dispatch with nothing polling it.
+    let open: () => void = () => {};
+    const held = new Promise<void>((r) => { open = r; });
+    let first = true;
+    stub({
+      "GET /api/onboarding/first-job": async () => {
+        if (first) { first = false; await held; }
+        return { body: { status: "idle", goals: [] } };
+      },
+      "POST /api/onboarding/first-job": { body: { status: "running" } },
+      "GET /api/onboarding/proposal": { body: PROPOSAL },
+      "GET /api/state": { body: STATE },
+    });
+    render(<Setup step="first-job" onStepChange={() => {}} />);
+    fireEvent.change(box(), { target: { value: "Do the thing" } });
+    fireEvent.click(btn("Run it"));
+    expect(await screen.findByText("Working…")).toBeTruthy();
+
+    open();
+    await settle();
+    expect(screen.getByText("Working…")).toBeTruthy();
+    expect(box().value).toBe("Do the thing"); // and the typing survives the proposal seed
+  });
+
+  it("shows why Continue failed rather than silently doing nothing", async () => {
+    stub({
+      "GET /api/onboarding/first-job": {
+        body: { status: "done", request: "Draft a launch plan", reply: "All set.", goals: [] },
+      },
+      "GET /api/state": { body: STATE },
+      "POST /api/onboarding/advance": { status: 400, body: { error: "cannot advance from first-job" } },
+    });
+    render(<Setup step="first-job" onStepChange={() => {}} />);
+    await screen.findByText("All set.");
+    fireEvent.click(btn("Continue"));
+    expect(await screen.findByText("cannot advance from first-job")).toBeTruthy();
   });
 
   it("keeps Continue live after an interrupted job, and it advances the wizard", async () => {
