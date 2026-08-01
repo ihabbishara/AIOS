@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join as pjoin } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import type { Server } from "node:http";
 import { resolveWorkspace } from "../src/onboarding/workspace.js";
 import { startSetupServer, type SetupDeps } from "../src/onboarding/server.js";
@@ -182,13 +182,45 @@ async function boot(over: Partial<SetupDeps> = {}) {
 const post = (base: string, body: unknown) =>
   fetch(`${base}/api/onboarding/workspace`, { method: "POST", body: JSON.stringify(body) });
 
+const BUILTIN = pjoin(homedir(), "AIOS", "workspace");
+
 describe("POST /api/onboarding/workspace", () => {
-  it("advances on builtin without writing env", async () => {
+  it("advances on builtin, recording the built-in path rather than nothing", async () => {
     const { base, dir } = await boot();
     const r = await post(base, { mode: "builtin" });
     expect(r.status).toBe(200);
-    expect((await r.json()).step).toBe("interview");
-    expect(existsSync(pjoin(dir, ".env"))).toBe(false);
+    expect(await r.json()).toStrictEqual({ step: "interview" });
+    // config.ts already defaults to this path, so the write looks redundant — it is not; see
+    // the back-navigation test below, where not writing it strands the daemon on a rejected
+    // folder. Nothing is probed or created here: that path belongs to the daemon, and a probe
+    // would mkdir in the real home directory of whoever runs this suite.
+    const env = readFileSync(pjoin(dir, ".env"), "utf8");
+    expect(env).toContain(`AIOS_VAULT_PATH=${BUILTIN}`);
+    expect(env).toContain("AIOS_VAULT_SUBDIR=AIOS");
+    expect(process.env.AIOS_VAULT_PATH).toBe(BUILTIN);
+  });
+
+  // The sequence the review found: a sync warning, "Pick another folder", then the built-in
+  // workspace. With the env write gated on custom, .env still named the Dropbox folder the user
+  // had just declined, and Task 4's in-process boot would write the org's artifacts into it.
+  it("clears a rejected custom path when the user falls back to builtin", async () => {
+    const { base, dir } = await boot();
+    const synced = pjoin(dir, "Dropbox", "Vault");
+    const first = await post(base, { mode: "custom", path: synced, subdir: "Brain" });
+    expect((await first.json()).warning).toMatch(/sync/i);
+    const back = await fetch(`${base}/api/onboarding/back`, {
+      method: "POST", body: JSON.stringify({ to: "workspace" }),
+    });
+    expect(back.status).toBe(200);
+    expect((await post(base, { mode: "builtin" })).status).toBe(200);
+
+    const env = readFileSync(pjoin(dir, ".env"), "utf8");
+    expect(env).toContain(`AIOS_VAULT_PATH=${BUILTIN}`);
+    expect(env).toContain("AIOS_VAULT_SUBDIR=AIOS");
+    expect(env).not.toContain(synced);          // upserted, not appended alongside
+    expect(env).not.toContain("Brain");
+    expect(process.env.AIOS_VAULT_PATH).toBe(BUILTIN);
+    expect(process.env.AIOS_VAULT_SUBDIR).toBe("AIOS");
   });
 
   it("creates the directory and writes env for a custom path", async () => {
@@ -269,11 +301,22 @@ describe("POST /api/onboarding/workspace", () => {
     expect(process.env.AIOS_VAULT_SUBDIR).toBeUndefined();
   });
 
+  // On the message, not just the code, and with a case that carries a path: `{mode:"elsewhere"}`
+  // alone 400s through the resolver's "a workspace path is required" even with the mode guard
+  // deleted, so a status-only assertion here stays green while `{mode:"elsewhere", path}` quietly
+  // becomes a custom workspace and advances.
   it("rejects a body that is not a workspace choice", async () => {
-    const { base } = await boot();
-    expect((await post(base, { mode: "elsewhere" })).status).toBe(400);
+    const { base, dir } = await boot();
+    for (const body of [{ mode: "elsewhere" }, { mode: "elsewhere", path: pjoin(dir, "ghost") }, { path: pjoin(dir, "ghost") }]) {
+      const r = await post(base, body);
+      expect(r.status).toBe(400);
+      expect((await r.json()).error).toMatch(/mode must be builtin or custom/);
+    }
     const raw = await fetch(`${base}/api/onboarding/workspace`, { method: "POST", body: "{" });
     expect(raw.status).toBe(400);
+    expect((await raw.json()).error).toMatch(/body must be JSON/);
+    expect(existsSync(pjoin(dir, "ghost"))).toBe(false);
+    expect(existsSync(pjoin(dir, ".env"))).toBe(false);
     expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("workspace");
   });
 

@@ -155,9 +155,14 @@ function Workspace({ onNext }: { onNext: (s: string) => void }) {
       .finally(() => setBusy(false));
   };
 
+  // While the warning is up the choice has already been made and written, so every input on the
+  // screen is dead until "Pick another folder" reopens it — disabled rather than merely ignored.
+  const frozen = warning !== null;
+
   const radio = (v: "builtin" | "custom", label: string, hint: string) => (
-    <label className="flex items-start gap-2 cursor-pointer">
-      <input type="radio" name="ws" checked={mode === v} onChange={() => setMode(v)} className="mt-1" />
+    <label className={`flex items-start gap-2 ${frozen ? "opacity-50" : "cursor-pointer"}`}>
+      <input type="radio" name="ws" checked={mode === v} disabled={frozen}
+        onChange={() => setMode(v)} className="mt-1" />
       <span>
         <span className="text-strong">{label}</span>
         <span className="block text-[12px] text-dim leading-relaxed">{hint}</span>
@@ -177,9 +182,11 @@ function Workspace({ onNext }: { onNext: (s: string) => void }) {
       {mode === "custom" && (
         <div className="flex flex-col gap-2">
           <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/Documents/MyVault"
-            className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim" />
+            disabled={frozen}
+            className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim disabled:opacity-50" />
           <input value={subdir} onChange={(e) => setSubdir(e.target.value)} placeholder="AIOS"
-            className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim" />
+            disabled={frozen}
+            className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim disabled:opacity-50" />
           <span className="text-[11px] text-dim">AIOS writes only inside that subfolder.</span>
         </div>
       )}

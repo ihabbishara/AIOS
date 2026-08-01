@@ -135,10 +135,11 @@ export function startSetupServer(deps: SetupDeps): Server {
     return typeof addr === "object" && addr !== null ? addr.port : deps.port;
   };
 
-  /** A rejected transition (stale tab, illegal jump) is the caller's fault — 400, logged either way. */
-  const transition = (res: ServerResponse, path: string, move: () => Step): void => {
+  /** A rejected transition (stale tab, illegal jump) is the caller's fault — 400, logged either way.
+   *  `extra` rides along on the success body for steps that answer with more than the step. */
+  const transition = (res: ServerResponse, path: string, move: () => Step, extra?: Record<string, unknown>): void => {
     try {
-      json(res, 200, { step: move() });
+      json(res, 200, { step: move(), ...extra });
     } catch (err) {
       log(`setup rejected ${path}: ${(err as Error).message}`);
       json(res, 400, { error: (err as Error).message });
@@ -222,6 +223,11 @@ export function startSetupServer(deps: SetupDeps): Server {
           // runs in <path>/<subdir>, not the vault root, because that is where the daemon writes
           // (boot.ts:138) — which also makes the filesystem, rather than a hardcoded NAME_MAX we
           // would get wrong on some volume, the judge of whether the subdir is a usable name.
+          // Only custom is probed: the builtin path is ours to create, and probing it here would
+          // mean this endpoint writing into the real home directory of whoever runs the tests.
+          // A directory the probe created is deliberately kept, even when the write then fails or
+          // the user backs out of a sync warning: it is the folder we just told them we would use,
+          // and unwinding it risks removing one that was already there.
           if (body.mode === "custom") {
             const dir = join(r.path, r.subdir);
             const probe = join(dir, ".aios-write-probe");
@@ -232,15 +238,20 @@ export function startSetupServer(deps: SetupDeps): Server {
             } catch (err) {
               return json(res, 400, { error: `cannot write to ${dir}: ${(err as Error).message}` });
             }
-            updateEnvFile(deps.envPath, "AIOS_VAULT_PATH", r.path);
-            updateEnvFile(deps.envPath, "AIOS_VAULT_SUBDIR", r.subdir);
-            // bootNormal calls loadConfig() itself, but that reads process.env — which this
-            // process already populated at start. Set it here too or the hot boot uses the old path.
-            process.env.AIOS_VAULT_PATH = r.path;
-            process.env.AIOS_VAULT_SUBDIR = r.subdir;
           }
-          const step = wizard.advance("workspace");
-          return json(res, 200, { step, ...(r.warning ? { warning: r.warning } : {}) });
+          // Written for builtin too, though config.ts already defaults to the same path: after a
+          // back-navigation these keys may already name a folder the user has just rejected, and
+          // "builtin writes nothing" would strand the daemon on it. .env should always name the
+          // real workspace — it records the actual choice, it is debuggable, and it stays right
+          // if the built-in default in config.ts ever moves.
+          updateEnvFile(deps.envPath, "AIOS_VAULT_PATH", r.path);
+          updateEnvFile(deps.envPath, "AIOS_VAULT_SUBDIR", r.subdir);
+          // bootNormal calls loadConfig() itself, but that reads process.env — which this
+          // process already populated at start. Set it here too or the hot boot uses the old path.
+          process.env.AIOS_VAULT_PATH = r.path;
+          process.env.AIOS_VAULT_SUBDIR = r.subdir;
+          return transition(res, path, () => wizard.advance("workspace"),
+            r.warning ? { warning: r.warning } : undefined);
         }
 
         if (path === "/api/onboarding/template" && req.method === "POST") {
