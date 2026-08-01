@@ -26,7 +26,7 @@ import { makeHandOff } from "./moderator/handoff.js";
 import { DirectChats } from "./agents/direct.js";
 import { EventBus } from "./events.js";
 import { MessageRouter } from "./router.js";
-import { startWebServer } from "./web/server.js";
+import { startWebServer, exitOnListenError } from "./web/server.js";
 import { CliChannel } from "./channels/cli.js";
 import { TelegramChannel } from "./channels/telegram.js";
 import { SlackChannel } from "./channels/slack.js";
@@ -865,14 +865,22 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
   ];
 
   // Deferred so the setup server can keep the port while onboarding is still running.
-  const startWeb = () => {
-    startWebServer(
+  // `fatal` is what separates this function's two callers, and it is required rather than
+  // defaulted so neither can state its intent by accident. At startup a taken port means another
+  // daemon already owns this install, and this one must not carry on headless beside it (see
+  // exitOnListenError). The wizard's handover is the opposite: it is taking back a port it just
+  // released, and a failure there must not kill the process still serving the user.
+  const startWeb = (fatal: boolean) => {
+    const web = startWebServer(
       { store, bus, goals, spendGuard, vault, config, router, gate, voice, registry, mailbox, senses: sensesStatus, reloadPacks: reloadRegistry, envPath: config.envPath, uiDist: config.uiDist, log, attachments: attachmentRegistry },
       config.uiPort,
+      fatal ? exitOnListenError(log) : undefined,
     );
-    log(`ready — mission control listening on 127.0.0.1:${config.uiPort}`);
+    // In the listen callback, not beside the call: the bind result lands a tick later, so logging
+    // it here unconditionally printed "ready — …" immediately followed by the failure.
+    web.once("listening", () => log(`ready — mission control listening on 127.0.0.1:${config.uiPort}`));
   };
-  if (opts.startWeb !== false) startWeb();
+  if (opts.startWeb !== false) startWeb(true);
 
   const resumed = goals.resumeUnfinished();
   if (resumed) log(`resumed ${resumed} unfinished job(s)`);
@@ -891,5 +899,8 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
 
   log("aios daemon running");
 
-  return { store, bus, goals, moderator, registry, vault, startWeb, shutdown };
+  // Wrapped, not passed through: BootedWorld.startWeb is `() => void`, and handing the raw
+  // two-arity function to a caller that forwarded an argument — `promise.then(w.startWeb)` —
+  // would make a truthy value mean "exit the process".
+  return { store, bus, goals, moderator, registry, vault, startWeb: () => startWeb(false), shutdown };
 }

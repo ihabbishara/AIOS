@@ -133,7 +133,32 @@ async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer
 const clampLimit = (raw: string | null, dflt: number): number =>
   Math.min(Math.max(1, Number(raw) || dflt), 200);
 
-export function startWebServer(deps: WebDeps, port: number): Server {
+/**
+ * The listen-error handler for whoever owns this port at startup. There is no pidfile, lockfile
+ * or "already running" check anywhere in this codebase, so an unhandled EADDRINUSE was the only
+ * thing stopping a second daemon: `triage.start()` and `clock.start()` run before the web server
+ * and `goals.resumeUnfinished()` after it, so a duplicate gets the full heartbeat, scheduler and
+ * channel stack — plus a job resume — against the same database as the first, with no mission
+ * control for anyone to notice it through. Under launchd (`KeepAlive`, `RunAtLoad`) that would be
+ * silent and durable. Exiting keeps the guard and, unlike the bare throw, says why.
+ *
+ * Only the startup owner passes this. The setup wizard's handover deliberately does not: there,
+ * mission control failing to bind must not also kill the process the user is still talking to.
+ */
+export function exitOnListenError(log: (m: string) => void) {
+  return (): void => {
+    log("another AIOS daemon is probably already holding that port — a second one would run "
+      + "headless against the same database, so this one is exiting");
+    process.exit(1);
+  };
+}
+
+export function startWebServer(
+  deps: WebDeps,
+  port: number,
+  /** Absent means log and carry on, which is what the wizard's handover needs. */
+  onListenError?: (err: NodeJS.ErrnoException) => void,
+): Server {
   const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, attachments, reloadPacks, log = () => {} } = deps;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
@@ -896,7 +921,18 @@ export function startWebServer(deps: WebDeps, port: number): Server {
   // no uncaughtException handler anywhere takes the daemon down. That matters most for the setup
   // wizard's handover, which binds this port microseconds after releasing it: the one thing worse
   // than mission control failing to start is the whole process dying on the way.
-  server.on("error", (err) => log(`FATAL: mission control could not listen on ${port}: ${err.message}`));
-  server.listen(port, "127.0.0.1", () => log(`mission control: http://localhost:${port}`));
+  // `bound` keeps this a listen handler rather than a lifetime catch-all: after a successful bind
+  // an error is something else entirely, and calling it "could not listen" would send the reader
+  // down the wrong path — worse, it would hand a healthy daemon to onListenError and exit it.
+  let bound = false;
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (bound) return log(`mission control error after bind: ${err.message}`);
+    log(`FATAL: mission control could not listen on ${port}: ${err.message}`);
+    onListenError?.(err);
+  });
+  server.listen(port, "127.0.0.1", () => {
+    bound = true;
+    log(`mission control: http://localhost:${port}`);
+  });
   return server;
 }
