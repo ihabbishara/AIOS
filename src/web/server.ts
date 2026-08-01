@@ -891,6 +891,12 @@ export function startWebServer(deps: WebDeps, port: number): Server {
     }
   });
 
+  // A listen failure arrives asynchronously, so a caller's try/catch around startWebServer cannot
+  // see it — and with no listener at all an 'error' event on an EventEmitter is thrown, which with
+  // no uncaughtException handler anywhere takes the daemon down. That matters most for the setup
+  // wizard's handover, which binds this port microseconds after releasing it: the one thing worse
+  // than mission control failing to start is the whole process dying on the way.
+  server.on("error", (err) => log(`FATAL: mission control could not listen on ${port}: ${err.message}`));
   server.listen(port, "127.0.0.1", () => log(`mission control: http://localhost:${port}`));
   return server;
 }

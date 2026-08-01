@@ -220,16 +220,23 @@ export function startSetupServer(deps: SetupDeps): Server {
     }
     json(res, 200, { step, uiToken: process.env.AIOS_UI_TOKEN ?? "", agents: rosterNames() });
 
-    // No daemon means nothing is waiting to take the port, and closing anyway would leave the
-    // user on a dead one with the wizard gone too — "skip for now" on a failed hot boot leads
-    // straight here. Holding the port is the recoverable half of a bad situation.
-    const w = world;
-    if (!w) return void log("no daemon to hand the port to — keeping the setup server up");
+    // Which daemon this port is for, decided now but not necessarily known yet. A boot can still
+    // be in flight: "skip for now" on the failed-boot screen is deliberately never disabled, so
+    // the user can arrive here mid-retry. Reading the `world` latch alone would drop that promise
+    // and leave a daemon that boots seconds later, healthy, and never bound to anything.
+    const ready: Promise<BootedWorld | null> =
+      world ? Promise.resolve(world)
+        : booting ? booting.catch(() => null)
+          : Promise.resolve(null);
 
     // Every step of this order is load-bearing. `finish` means the response is flushed, the
     // setImmediate lets its connection go idle, and only inside close()'s callback is the port
     // genuinely free — binding any earlier races the socket this server still holds.
-    res.on("finish", () => setImmediate(() => {
+    res.on("finish", () => setImmediate(() => void ready.then((w) => {
+      // No daemon at all means nothing is waiting to take the port, and closing anyway would
+      // leave the user on a dead one with the wizard gone too. Holding the port is the
+      // recoverable half of a bad situation; a restart comes up in normal mode either way.
+      if (!w) return void log("no daemon to hand the port to — keeping the setup server up");
       server.close(() => {
         try {
           w.startWeb();
@@ -244,7 +251,7 @@ export function startSetupServer(deps: SetupDeps): Server {
       // not just the idle ones: the wizard is over, so a request still in flight on another
       // connection has nothing left to report and waiting on it only stalls the handover.
       server.closeAllConnections();
-    }));
+    })));
   };
 
   const server = createServer((req, res) => {

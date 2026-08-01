@@ -834,6 +834,67 @@ describe("done handover", () => {
     }
   });
 
+  it("hands the port over to a daemon that finishes booting after the handover", async () => {
+    let started = 0;
+    let attempts = 0;
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    process.env.AIOS_UI_TOKEN = "tok-ui-slow";
+    const { base } = await atFirstJob({
+      boot: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error("first attempt fails");
+        await held; // still booting when the user gives up waiting on it
+        return fakeWorld({ startWeb: () => { started++; } });
+      },
+    });
+
+    try {
+      // The retry the failed-boot screen offers, deliberately not awaited...
+      const retry = postJson(base, "/api/onboarding/boot", {}).catch(() => null);
+      await waitFor(() => attempts === 2, "the retry boot to start");
+
+      // ...and "skip for now" — never disabled, so this is a click the user can really make —
+      // while that boot is still in flight. Reading the `world` latch alone sees null here.
+      const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+      expect((await r.json()).step).toBe("done");
+      expect(started).toBe(0); // nothing to hand the port to yet, so nothing has been handed
+
+      // The daemon lands seconds later, perfectly healthy. Dropping the promise it came from is
+      // what would leave it bound to nothing and the user needing a restart.
+      release();
+      await retry;
+      await waitFor(() => started > 0, "mission control to be started after the late boot");
+      expect(started).toBe(1);
+    } finally {
+      release();
+    }
+  });
+
+  it("flushes the whole response before tearing the connection down", async () => {
+    let started = 0;
+    process.env.AIOS_UI_TOKEN = "tok-ui-big";
+    const { base, store } = await atFirstJob({
+      boot: async () => fakeWorld({ startWeb: () => { started++; } }),
+    });
+    // ~4 MB, and the size is the whole point. The teardown destroys this very connection, so a
+    // body that has not drained by then arrives truncated — Content-Length turns that into a
+    // socket error rather than a quietly short list. Small payloads cannot show this: measured on
+    // this machine, res.end() gets anything up to ~300 KB into the kernel in one go and it
+    // survives even a teardown that never waited for the flush, while 1 MB already fails. The
+    // margin is for a machine whose socket buffers are larger than this one's.
+    const names = Array.from({ length: 40_000 }, (_, i) => `agent-${i}-${"x".repeat(90)}`);
+    store.kvSet("onboarding.proposal", JSON.stringify({ agents: names.map((name) => ({ name })) }));
+
+    const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+    const body = (await r.json()) as { step: string; uiToken: string; agents: string[] };
+    expect(body.step).toBe("done");
+    expect(body.uiToken).toBe("tok-ui-big");
+    expect(body.agents).toHaveLength(names.length);
+    expect(body.agents[names.length - 1]).toBe(names[names.length - 1]);
+    await waitFor(() => started > 0, "mission control to be started");
+  });
+
   it("keeps the setup server up when there is no daemon to take the port", async () => {
     process.env.AIOS_UI_TOKEN = "tok-ui-orphan";
     // The way out of a failed hot boot: "skip for now" advances from first-job with world null.

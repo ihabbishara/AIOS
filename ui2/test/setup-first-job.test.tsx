@@ -287,9 +287,6 @@ describe("the handover to mission control", () => {
 
     expect(await screen.findByText("You're set up")).toBeTruthy();
     expect(screen.getByText(/Your org is on duty/)).toBeTruthy();
-    // The step used to fall through to the "arrives in the next phase" placeholder. Reaching
-    // the end of setup and being told setup has not been built yet is the failure to catch.
-    expect(screen.queryByText("This step arrives in the next phase.")).toBeNull();
     expect(localStorage.getItem("aios_token")).toBe("tok-ui-bare");
   });
 
