@@ -1,11 +1,13 @@
-// ui2/test/setup-first-job.test.tsx — the wizard's first-job step. The screen is a small state
-// machine over one polled endpoint, so these drive it through the transitions that matter:
-// seeding, dispatch, the two 409s that share a status code, a dead daemon, and stopping the poll.
+// ui2/test/setup-first-job.test.tsx — the wizard's first-job step and the handover it ends in.
+// The screen is a small state machine over one polled endpoint, so these drive it through the
+// transitions that matter: seeding, dispatch, the two 409s that share a status code, a dead
+// daemon, stopping the poll — and then the last response the wizard ever gets.
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { useState } from "react";
 import { Setup } from "../src/views/Setup.js";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); localStorage.clear(); });
 
 type Reply = { status?: number; body: unknown };
 
@@ -239,5 +241,66 @@ describe("first-job step", () => {
     fireEvent.click(skip);
     await act(async () => { await Promise.resolve(); });
     expect(seen).toEqual(["done"]);
+  });
+});
+
+/** The wizard as the app actually drives it: the parent owns `step` and Setup hands it the next
+ *  one. The done screen exists only on the far side of a real transition — rendering it directly
+ *  would skip the handover response that is the whole point of it. */
+function Wizard({ from }: { from: string }) {
+  const [step, setStep] = useState(from);
+  return <Setup step={step} onStepChange={setStep} />;
+}
+
+const FINISHED = {
+  "GET /api/onboarding/first-job": {
+    body: { status: "done", request: "Draft a launch plan", reply: "All set.", goals: [] },
+  },
+  "GET /api/state": { body: STATE },
+};
+
+describe("the handover to mission control", () => {
+  it("stores the UI token and names the org that is now on duty", async () => {
+    stub({
+      ...FINISHED,
+      "POST /api/onboarding/advance": {
+        body: { step: "done", uiToken: "tok-ui-abc", agents: ["nova", "scout"] },
+      },
+    });
+    render(<Wizard from="first-job" />);
+    await screen.findByText("All set.");
+    fireEvent.click(btn("Continue"));
+
+    expect(await screen.findByText("You're set up")).toBeTruthy();
+    expect(screen.getByText(/nova, scout are on duty/)).toBeTruthy();
+    // The one thing that has to be true before "Open AIOS" reloads the page: mission control
+    // answers nothing without this token, and the server that handed it over is already gone.
+    expect(localStorage.getItem("aios_token")).toBe("tok-ui-abc");
+    expect(screen.getByText("Open AIOS")).toBeTruthy();
+  });
+
+  it("still reads as finished when the handover carried no roster", async () => {
+    stub({ ...FINISHED, "POST /api/onboarding/advance": { body: { step: "done", uiToken: "tok-ui-bare" } } });
+    render(<Wizard from="first-job" />);
+    await screen.findByText("All set.");
+    fireEvent.click(btn("Continue"));
+
+    expect(await screen.findByText("You're set up")).toBeTruthy();
+    expect(screen.getByText(/Your org is on duty/)).toBeTruthy();
+    // The step used to fall through to the "arrives in the next phase" placeholder. Reaching
+    // the end of setup and being told setup has not been built yet is the failure to catch.
+    expect(screen.queryByText("This step arrives in the next phase.")).toBeNull();
+    expect(localStorage.getItem("aios_token")).toBe("tok-ui-bare");
+  });
+
+  it("reads as one agent when there is one", async () => {
+    stub({
+      ...FINISHED,
+      "POST /api/onboarding/advance": { body: { step: "done", uiToken: "t", agents: ["nova"] } },
+    });
+    render(<Wizard from="first-job" />);
+    await screen.findByText("All set.");
+    fireEvent.click(btn("Continue"));
+    expect(await screen.findByText(/nova is on duty/)).toBeTruthy();
   });
 });

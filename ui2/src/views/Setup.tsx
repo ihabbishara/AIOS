@@ -1,8 +1,9 @@
-// ui2/src/views/Setup.tsx — onboarding wizard shell (spec §1-2): welcome + auth are live,
-// the org steps land in the next phase. The server owns the state machine — this view renders
-// the step it is handed and posts intents; every transition comes back from the daemon.
+// ui2/src/views/Setup.tsx — onboarding wizard shell (spec §1-2): welcome through done. The
+// server owns the state machine — this view renders the step it is handed and posts intents;
+// every transition comes back from the daemon. The last one is also the port handover, which is
+// why this shell, and not the screen that triggers it, is where the UI token is stored.
 import { useEffect, useRef, useState } from "react";
-import { api, type FirstJobStatus, type OrgProposalView } from "../api.js";
+import { api, setToken, type AdvanceResult, type FirstJobStatus, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
 import { MiniDag } from "./MiniDag.js";
 
@@ -13,6 +14,20 @@ const LABELS: Record<string, string> = {
 };
 
 export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: string) => void }) {
+  // Who the org is, kept from the handover response rather than fetched. The done screen renders
+  // on the far side of the port handover, so the server that could name the agents is gone by
+  // the time it mounts — this is the only copy there will be.
+  const [agents, setAgents] = useState<string[]>([]);
+
+  // The last response the wizard ever gets. The token is stored here, before anything navigates,
+  // because "Open AIOS" reloads onto mission control and mission control answers nothing without
+  // it — and the setup server that issued it has already let go of the port.
+  const finish = (r: AdvanceResult) => {
+    if (r.uiToken) setToken(r.uiToken);
+    setAgents(r.agents ?? []);
+    onStepChange(r.step);
+  };
+
   return (
     <div className="h-full overflow-y-auto flex flex-col items-center justify-center gap-6 p-6">
       <Rail step={step} />
@@ -21,11 +36,16 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       {step === "workspace" && <Workspace onNext={onStepChange} />}
       {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
-      {step === "first-job" && <FirstJob onNext={onStepChange} />}
-      {(step === "provision" || step === "done") && (
+      {step === "first-job" && <FirstJob onDone={finish} />}
+      {step === "done" && <Done agents={agents} />}
+      {/* Provision is not a screen the user is meant to sit on: /api/onboarding/provision moves
+          through it and lands on first-job in one call. It is reachable only by reloading into a
+          wizard that crashed between those two writes, which the server then finishes on the next
+          POST — so this says what is happening rather than offering a button that would re-run it. */}
+      {step === "provision" && (
         <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
-          <div className="text-strong text-[15px]">{LABELS[step] ?? step}</div>
-          <p className="leading-relaxed">This step arrives in the next phase.</p>
+          <div className="text-strong text-[15px]">{LABELS.provision}</div>
+          <p className="leading-relaxed">Creating your org…</p>
         </div>
       )}
     </div>
@@ -517,7 +537,7 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
  * approved, dispatched through the coordinator exactly as a chat message would be, and then
  * watched — one MiniDag per goal it spawns, so this step and the cockpit draw the same pipeline.
  */
-function FirstJob({ onNext }: { onNext: (s: string) => void }) {
+function FirstJob({ onDone }: { onDone: (r: AdvanceResult) => void }) {
   const [request, setRequest] = useState("");
   const [job, setJob] = useState<FirstJobStatus | null>(null);
   // Optimistic: /api/state carries `booted` only in setup mode, and a field that has not
@@ -607,10 +627,12 @@ function FirstJob({ onNext }: { onNext: (s: string) => void }) {
   // Never disabled, on either screen: a first job that flops — or a daemon that will not start
   // — must never trap the user in the wizard. The failure is not swallowed either, because a
   // Continue that silently does nothing is the very trap this button exists to prevent.
+  // The whole response goes up, not just the step: this one call is also the port handover, and
+  // the token and roster it carries cannot be fetched a second time.
   const advance = () => {
     setError("");
     api.onboardingAdvance("first-job")
-      .then((r) => onNext(r.step))
+      .then(onDone)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   };
 
@@ -675,6 +697,31 @@ function FirstJob({ onNext }: { onNext: (s: string) => void }) {
           {job?.status === "done" ? "Continue" : "Skip for now"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The end of setup, and the first screen that is not talking to the setup server — by the time it
+ * renders, the port belongs to mission control. Everything it says was carried here on the
+ * handover response; it asks for nothing, because there is no longer anyone to ask.
+ */
+function Done({ agents }: { agents: string[] }) {
+  const roster = agents.length === 0 ? "Your org is on duty."
+    : `${agents.join(", ")} ${agents.length === 1 ? "is" : "are"} on duty.`;
+  return (
+    <div className="panel w-full max-w-md p-6 flex flex-col gap-4 text-center">
+      <div className="text-bright text-[19px] font-bold tracking-tight">You're set up</div>
+      <p className="leading-relaxed">
+        {roster}{" "}
+        Everything they write lands in your workspace, readable right here in the Library.
+      </p>
+      <p className="leading-relaxed text-dim text-[12px]">
+        Next: connect Telegram or email so your team can reach you, or just ask for something in chat.
+      </p>
+      {/* A reload, not a route change: the whole app re-reads /api/state, which now answers from
+          mission control with the token this screen has already stored. */}
+      <Button variant="primary" onClick={() => window.location.reload()}>Open AIOS</Button>
     </div>
   );
 }

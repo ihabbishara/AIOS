@@ -1,9 +1,9 @@
 // test/onboarding-server.test.ts — wizard HTTP walk: welcome → auth → workspace (spec §1-2).
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { connect } from "node:net";
 import { startSetupServer, type SetupDeps } from "../src/onboarding/server.js";
 import type { BootedWorld } from "../src/boot.js";
@@ -726,5 +726,169 @@ describe("hot boot", () => {
     // `world` to a zero-agent daemon that the provision-time boot then short-circuits on.
     expect(attempts).toBe(0);
     expect((await (await fetch(`${base}/api/state`)).json()).booted).toBe(false);
+  });
+});
+
+describe("done handover", () => {
+  // AIOS_UI_TOKEN is a process global that bootNormal writes, so these tests set it directly.
+  // Saved and restored in hooks rather than deleted at the end of a body: a failing assertion
+  // skips the rest of the body, and a token left standing would leak into whatever runs next.
+  let priorToken: string | undefined;
+  beforeEach(() => { priorToken = process.env.AIOS_UI_TOKEN; });
+  afterEach(() => {
+    if (priorToken === undefined) delete process.env.AIOS_UI_TOKEN;
+    else process.env.AIOS_UI_TOKEN = priorToken;
+  });
+
+  /**
+   * Land on first-job the way a user does: a real proposal stored, then provisioned. Starting the
+   * wizard on "review" with an empty store 400s on "no proposal to provision" and leaves it there,
+   * which would make every assertion below about a handover that never ran.
+   */
+  async function atFirstJob(over: Partial<SetupDeps> = {}) {
+    const b = await boot(noop, {
+      orgExists: () => true,
+      provisionFn: () => ({ ok: true, departments: ["operations"], agents: ["nova"], playbooks: [] }),
+      boot: async () => fakeWorld(),
+      ...over,
+    }, "interview");
+    await postJson(b.base, "/api/onboarding/template", { name: "starter" });
+    const r = await postJson(b.base, "/api/onboarding/provision", {});
+    // The handover only exists from first-job; assert we got there rather than assume it.
+    expect((await r.json()).step).toBe("first-job");
+    return b;
+  }
+
+  const waitFor = async (ok: () => boolean, what: string, ms = 3000) => {
+    const until = Date.now() + ms;
+    while (!ok() && Date.now() < until) await new Promise((r) => setTimeout(r, 5));
+    if (!ok()) throw new Error(`timed out waiting for ${what}`);
+  };
+
+  it("answers with the UI token and the roster, and starts mission control, exactly once", async () => {
+    let started = 0;
+    process.env.AIOS_UI_TOKEN = "tok-ui-abc";
+    const { base } = await atFirstJob({
+      boot: async () => fakeWorld({ startWeb: () => { started++; } }),
+    });
+
+    const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { step: string; uiToken: string; agents: string[] };
+    expect(body.step).toBe("done");
+    // The only moment the browser is ever handed this: afterwards every /api/ route is gated.
+    expect(body.uiToken).toBe("tok-ui-abc");
+    // And the roster, for the same reason — the done screen names the org, and by the time it
+    // could ask for it this server is gone.
+    expect(body.agents).toEqual(["nova", "scout", "scribe"]);
+
+    await waitFor(() => started > 0, "mission control to be started");
+    expect(started).toBe(1);
+  });
+
+  it("hands the port over only once the setup server has genuinely let go of it", async () => {
+    process.env.AIOS_UI_TOKEN = "tok-ui-late";
+    let port = 0;
+    let listeningAtHandover: boolean | null = null;
+    let rebind: Promise<string> | null = null;
+    const { base } = await atFirstJob({
+      boot: async () => fakeWorld({
+        startWeb: () => {
+          listeningAtHandover = server.listening;
+          // The invariant itself, not a proxy for it: mission control binds this exact port, so
+          // a handover scheduled one tick too early shows up here as EADDRINUSE.
+          rebind = new Promise<string>((resolve) => {
+            const probe = createServer();
+            probe.once("error", (e) => resolve((e as NodeJS.ErrnoException).code ?? "error"));
+            probe.listen(port, "127.0.0.1", () => probe.close(() => resolve("bound")));
+          });
+        },
+      }),
+    });
+    port = Number(new URL(base).port);
+
+    await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+    await waitFor(() => rebind !== null, "the port handover");
+    expect(listeningAtHandover).toBe(false);
+    expect(await rebind!).toBe("bound");
+  });
+
+  it("hands the port over even while the browser holds a second connection open", async () => {
+    let started = 0;
+    process.env.AIOS_UI_TOKEN = "tok-ui-held";
+    const { base } = await atFirstJob({
+      boot: async () => fakeWorld({ startWeb: () => { started++; } }),
+    });
+
+    // A browser keeps more than one socket to an origin — a preconnect, a second tab, the poll
+    // this screen was running. close() waits for every one of them, so without a deliberate
+    // teardown the handover does not merely lag: it never happens, and mission control never
+    // comes up. This socket sends nothing, which is exactly what makes it a trap.
+    const held = connect(Number(new URL(base).port), "127.0.0.1");
+    await new Promise((r) => held.once("connect", r));
+    try {
+      await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+      await waitFor(() => started > 0, "mission control to be started");
+    } finally {
+      held.destroy();
+    }
+  });
+
+  it("keeps the setup server up when there is no daemon to take the port", async () => {
+    process.env.AIOS_UI_TOKEN = "tok-ui-orphan";
+    // The way out of a failed hot boot: "skip for now" advances from first-job with world null.
+    // Closing anyway would leave nothing listening at all — a dead port and no wizard either.
+    const { base } = await atFirstJob({ boot: async () => { throw new Error("boot exploded"); } });
+
+    const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("done");
+
+    await new Promise((r2) => setTimeout(r2, 60));
+    expect(server.listening).toBe(true);
+    expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("done");
+  });
+
+  it("still hands over when the stored proposal cannot be read", async () => {
+    let started = 0;
+    process.env.AIOS_UI_TOKEN = "tok-ui-corrupt";
+    const { base, store } = await atFirstJob({
+      boot: async () => fakeWorld({ startWeb: () => { started++; } }),
+    });
+    store.kvSet("onboarding.proposal", "{not json");
+
+    const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+    const body = (await r.json()) as { step: string; uiToken: string; agents: string[] };
+    // A roster we cannot name is a nameless done screen, never a lost handover.
+    expect(body).toEqual({ step: "done", uiToken: "tok-ui-corrupt", agents: [] });
+    await waitFor(() => started > 0, "mission control to be started");
+  });
+
+  it("hands out no token and keeps the port on every other advance", async () => {
+    process.env.AIOS_UI_TOKEN = "tok-ui-nope";
+    const { base } = await boot(noop, {}, "welcome");
+
+    const r = await postJson(base, "/api/onboarding/advance", { from: "welcome" });
+    expect(await r.json()).toEqual({ step: "auth" });
+    // The wizard has six more steps to serve — a handover here would end it on step two.
+    await new Promise((r2) => setTimeout(r2, 60));
+    expect(server.listening).toBe(true);
+    expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("auth");
+  });
+
+  it("refuses a stale advance from first-job without handing anything over", async () => {
+    let started = 0;
+    process.env.AIOS_UI_TOKEN = "tok-ui-stale";
+    const { base } = await boot(noop, {
+      orgExists: () => true,
+      boot: async () => fakeWorld({ startWeb: () => { started++; } }),
+    }, "review");
+
+    const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toContain("stale advance");
+    await new Promise((r2) => setTimeout(r2, 60));
+    expect(started).toBe(0);
+    expect(server.listening).toBe(true);
   });
 });

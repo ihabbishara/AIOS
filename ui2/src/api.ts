@@ -69,10 +69,19 @@ export interface OrgProposalView {
   firstJob: string;
 }
 
+/** What an advance answers with. Only the last one — first-job → done — carries the other two
+ *  fields, and it is the only chance to read them: by the time the browser could ask again, the
+ *  setup server has handed the port to mission control and every route is behind the token gate. */
+export interface AdvanceResult {
+  step: string;
+  uiToken?: string;
+  agents?: string[];
+}
+
 export const api = {
   state: () => request<StateInfo>("/api/state"),
   onboardingAdvance: (from: string) =>
-    request<{ step: string }>("/api/onboarding/advance", { method: "POST", body: JSON.stringify({ from }) }),
+    request<AdvanceResult>("/api/onboarding/advance", { method: "POST", body: JSON.stringify({ from }) }),
   onboardingBack: (to: string) =>
     request<{ step: string }>("/api/onboarding/back", { method: "POST", body: JSON.stringify({ to }) }),
   /** Not `request`: the auth 409 carries two different bodies and only one of them is an error.

@@ -192,6 +192,61 @@ export function startSetupServer(deps: SetupDeps): Server {
     }
   };
 
+  /** Who the org is, for the done screen. A proposal that will not parse is not worth losing the
+   *  handover over — the screen has a line for an org it cannot name. */
+  const rosterNames = (): string[] => {
+    try {
+      const raw = deps.store.kvGet(PROPOSAL_KEY);
+      return raw ? (JSON.parse(raw) as OrgProposal).agents.map((a) => a.name) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  /**
+   * first-job → done is the port handover, and the only place the UI token ever reaches the
+   * browser. It rides on THIS response because the moment startWebServer owns the port every
+   * /api/ route is behind the token gate — a second round trip to fetch it would have nothing
+   * left to ask. The roster rides along for the same reason: the done screen names the agents,
+   * and by the time it could fetch them this server is gone.
+   */
+  const handover = (res: ServerResponse, path: string): void => {
+    let step: Step;
+    try {
+      step = wizard.advance("first-job");
+    } catch (err) {
+      log(`setup rejected ${path}: ${(err as Error).message}`);
+      return json(res, 400, { error: (err as Error).message });
+    }
+    json(res, 200, { step, uiToken: process.env.AIOS_UI_TOKEN ?? "", agents: rosterNames() });
+
+    // No daemon means nothing is waiting to take the port, and closing anyway would leave the
+    // user on a dead one with the wizard gone too — "skip for now" on a failed hot boot leads
+    // straight here. Holding the port is the recoverable half of a bad situation.
+    const w = world;
+    if (!w) return void log("no daemon to hand the port to — keeping the setup server up");
+
+    // Every step of this order is load-bearing. `finish` means the response is flushed, the
+    // setImmediate lets its connection go idle, and only inside close()'s callback is the port
+    // genuinely free — binding any earlier races the socket this server still holds.
+    res.on("finish", () => setImmediate(() => {
+      server.close(() => {
+        try {
+          w.startWeb();
+        } catch (err) {
+          log(`FATAL: mission control could not take the port: ${(err as Error).message}`);
+        }
+      });
+      // What makes close() actually finish, and not a tidiness measure. close() waits for every
+      // open connection, and a browser keeps more than one to an origin — a preconnect, a second
+      // tab, the poll this screen was running. Measured: one extra socket that has sent nothing
+      // holds close() open indefinitely, so mission control never comes up at all. All of them,
+      // not just the idle ones: the wizard is over, so a request still in flight on another
+      // connection has nothing left to report and waiting on it only stalls the handover.
+      server.closeAllConnections();
+    }));
+  };
+
   const server = createServer((req, res) => {
     // llhttp accepts request targets `new URL` rejects ("GET //[" is the shortest). This runs
     // in the request listener, where a throw is an uncaughtException — a silently dead daemon.
@@ -237,6 +292,7 @@ export function startSetupServer(deps: SetupDeps): Server {
           if (!isStep(from)) return json(res, 400, { error: "from must be a wizard step" });
           // Auth advances only through the auth endpoint (verified token), never generically.
           if (from === "auth") return json(res, 400, { error: "auth step requires a verified token" });
+          if (from === "first-job") return handover(res, path);
           return transition(res, path, () => wizard.advance(from));
         }
         if (path === "/api/onboarding/back" && req.method === "POST") {
