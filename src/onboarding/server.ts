@@ -2,9 +2,11 @@
 // Deliberately self-contained: web/server.ts needs the whole booted world; this needs a kv store,
 // an env path, and a dist dir. The browser is a thin renderer of this server's state.
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
+import { homedir } from "node:os";
 import { Wizard, STEPS, type Step, type KvLike } from "./wizard.js";
+import { resolveWorkspace, type WorkspaceChoice } from "./workspace.js";
 import { verifyToken, sdkPing, type Ping } from "./auth.js";
 import { updateEnvFile } from "../web/env-file.js";
 import { listTemplates, loadTemplate } from "./templates.js";
@@ -201,6 +203,44 @@ export function startSetupServer(deps: SetupDeps): Server {
         }
         if (path === "/api/onboarding/templates" && req.method === "GET") {
           return json(res, 200, { templates: listTemplates(deps.templatesDir, log) });
+        }
+
+        if (path === "/api/onboarding/workspace" && req.method === "POST") {
+          if (wizard.current() !== "workspace") {
+            return json(res, 400, { error: `the workspace is chosen at the workspace step, not ${wizard.current()}` });
+          }
+          const body = await readJson<WorkspaceChoice>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          if (body.mode !== "builtin" && body.mode !== "custom") {
+            return json(res, 400, { error: "mode must be builtin or custom" });
+          }
+          const r = resolveWorkspace(body, homedir());
+          if (!r.ok) return json(res, 400, { error: r.error });
+
+          // Probe rather than trust: a directory can exist and still be unwritable, and finding
+          // that out at the first artifact write means losing the job that produced it. The probe
+          // runs in <path>/<subdir>, not the vault root, because that is where the daemon writes
+          // (boot.ts:138) — which also makes the filesystem, rather than a hardcoded NAME_MAX we
+          // would get wrong on some volume, the judge of whether the subdir is a usable name.
+          if (body.mode === "custom") {
+            const dir = join(r.path, r.subdir);
+            const probe = join(dir, ".aios-write-probe");
+            try {
+              mkdirSync(dir, { recursive: true });
+              writeFileSync(probe, "");
+              unlinkSync(probe);
+            } catch (err) {
+              return json(res, 400, { error: `cannot write to ${dir}: ${(err as Error).message}` });
+            }
+            updateEnvFile(deps.envPath, "AIOS_VAULT_PATH", r.path);
+            updateEnvFile(deps.envPath, "AIOS_VAULT_SUBDIR", r.subdir);
+            // bootNormal calls loadConfig() itself, but that reads process.env — which this
+            // process already populated at start. Set it here too or the hot boot uses the old path.
+            process.env.AIOS_VAULT_PATH = r.path;
+            process.env.AIOS_VAULT_SUBDIR = r.subdir;
+          }
+          const step = wizard.advance("workspace");
+          return json(res, 200, { step, ...(r.warning ? { warning: r.warning } : {}) });
         }
 
         if (path === "/api/onboarding/template" && req.method === "POST") {

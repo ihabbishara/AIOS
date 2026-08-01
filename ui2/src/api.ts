@@ -75,6 +75,10 @@ export const api = {
     if (body.step) return { step: body.step };
     throw new Error(body.error ?? `HTTP ${res.status}`);
   },
+  onboardingWorkspace: (choice: { mode: "builtin" | "custom"; path?: string; subdir?: string }) =>
+    request<{ step: string; warning?: string }>("/api/onboarding/workspace", {
+      method: "POST", body: JSON.stringify(choice),
+    }),
   onboardingTemplates: () =>
     request<{ templates: Array<{ name: string; title: string; summary: string }> }>("/api/onboarding/templates"),
   onboardingPickTemplate: (name: string) =>

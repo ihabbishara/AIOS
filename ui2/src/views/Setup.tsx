@@ -17,17 +17,13 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       <Rail step={step} />
       {step === "welcome" && <Welcome onNext={onStepChange} />}
       {step === "auth" && <Auth onNext={onStepChange} />}
+      {step === "workspace" && <Workspace onNext={onStepChange} />}
       {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
-      {(step === "workspace" || step === "provision" || step === "first-job" || step === "done") && (
+      {(step === "provision" || step === "first-job" || step === "done") && (
         <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
           <div className="text-strong text-[15px]">{LABELS[step] ?? step}</div>
-          <p className="leading-relaxed">
-            {step === "workspace"
-              ? "Choosing where your files live arrives in the next phase — the built-in workspace is used for now."
-              : "This step arrives in the next phase."}
-          </p>
-          {step === "workspace" && <SkipStep step="workspace" onNext={onStepChange} />}
+          <p className="leading-relaxed">This step arrives in the next phase.</p>
         </div>
       )}
     </div>
@@ -127,19 +123,83 @@ function Auth({ onNext }: { onNext: (s: string) => void }) {
   );
 }
 
-/** Choosing a workspace lands in plan 3; until then the step is a pass-through so the org
- *  path is reachable. The built-in default is what the daemon already uses. */
-function SkipStep({ step, onNext }: { step: string; onNext: (s: string) => void }) {
+function Workspace({ onNext }: { onNext: (s: string) => void }) {
+  const [mode, setMode] = useState<"builtin" | "custom">("builtin");
+  const [path, setPath] = useState("");
+  const [subdir, setSubdir] = useState("AIOS");
+  // Set only when the server warned. It has already advanced and written the choice by then,
+  // so this is an acknowledgement, not a gate — `step` is kept so "use it anyway" is a local
+  // move rather than a second POST the wizard would reject as stale.
+  const [warning, setWarning] = useState<{ text: string; step: string } | null>(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = () => {
+    setBusy(true); setError("");
+    api.onboardingWorkspace(mode === "builtin" ? { mode } : { mode, path, subdir })
+      .then((r) => {
+        if (r.warning) return setWarning({ text: r.warning, step: r.step });
+        onNext(r.step);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  // Stepping back re-enters this screen, which is how a warned choice is undone: the env
+  // upsert means whatever is chosen next simply overwrites it.
+  const pickAnother = () => {
+    setBusy(true); setError("");
+    api.onboardingBack("workspace")
+      .then((r) => { setWarning(null); onNext(r.step); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const radio = (v: "builtin" | "custom", label: string, hint: string) => (
+    <label className="flex items-start gap-2 cursor-pointer">
+      <input type="radio" name="ws" checked={mode === v} onChange={() => setMode(v)} className="mt-1" />
+      <span>
+        <span className="text-strong">{label}</span>
+        <span className="block text-[12px] text-dim leading-relaxed">{hint}</span>
+      </span>
+    </label>
+  );
+
   return (
-    <>
+    <div className="panel w-full max-w-md p-6 flex flex-col gap-4">
+      <div className="text-strong text-[15px]">Where should your files live?</div>
+      <p className="leading-relaxed">
+        Briefs, reports and notes are written as plain markdown. You can read them in AIOS —
+        Obsidian is a bonus viewer, not a requirement.
+      </p>
+      {radio("builtin", "Built-in workspace", "~/AIOS/workspace — created for you.")}
+      {radio("custom", "Use my own folder", "An existing Obsidian vault, or any folder you like.")}
+      {mode === "custom" && (
+        <div className="flex flex-col gap-2">
+          <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/Documents/MyVault"
+            className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim" />
+          <input value={subdir} onChange={(e) => setSubdir(e.target.value)} placeholder="AIOS"
+            className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg outline-none focus:border-dim" />
+          <span className="text-[11px] text-dim">AIOS writes only inside that subfolder.</span>
+        </div>
+      )}
       {error && <div className="text-[12px] text-err">{error}</div>}
-      <Button variant="primary" onClick={() => {
-        api.onboardingAdvance(step)
-          .then((r) => onNext(r.step))
-          .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-      }}>Continue</Button>
-    </>
+      {/* text-dim, not a warning colour: this is advisory — the folder works, it is just a
+          worse place to put a vault — and text-err would read as a refusal. */}
+      {warning ? (
+        <>
+          <div className="text-[12px] text-dim leading-relaxed">{warning.text}</div>
+          <div className="flex items-center gap-2">
+            <Button disabled={busy} onClick={pickAnother}>Pick another folder</Button>
+            <Button variant="primary" className="ml-auto" disabled={busy}
+              onClick={() => onNext(warning.step)}>Use it anyway</Button>
+          </div>
+        </>
+      ) : (
+        <Button variant="primary" disabled={busy || (mode === "custom" && !path.trim())}
+          onClick={submit}>{busy ? "Checking…" : "Continue"}</Button>
+      )}
+    </div>
   );
 }
 

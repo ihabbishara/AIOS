@@ -1,6 +1,11 @@
-// test/onboarding-workspace.test.ts — workspace path resolution (spec §2).
-import { describe, it, expect } from "vitest";
+// test/onboarding-workspace.test.ts — workspace path resolution and its endpoint (spec §2).
+import { describe, it, expect, afterEach } from "vitest";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { join as pjoin } from "node:path";
+import { tmpdir } from "node:os";
+import type { Server } from "node:http";
 import { resolveWorkspace } from "../src/onboarding/workspace.js";
+import { startSetupServer, type SetupDeps } from "../src/onboarding/server.js";
 
 const HOME = "/Users/tester";
 
@@ -125,5 +130,158 @@ describe("resolveWorkspace", () => {
   it("does not warn on an ordinary path", () => {
     const r = resolveWorkspace({ mode: "custom", path: "/Users/tester/Notes" }, HOME);
     expect(r).toStrictEqual({ ok: true, path: "/Users/tester/Notes", subdir: "AIOS" });
+  });
+});
+
+function kv() {
+  const m = new Map<string, string>();
+  return { kvGet: (k: string) => m.get(k), kvSet: (k: string, v: string) => void m.set(k, v) };
+}
+
+let server: Server;
+// Restored, not just closed: the endpoint sets AIOS_VAULT_* on process.env on purpose, and a
+// leaked value would be read by loadConfig() in any test sharing this worker. The chmod list
+// exists so a deliberately unwritable fixture cannot outlive its test (or block tmp cleanup).
+const locked: string[] = [];
+const savedEnv = { path: process.env.AIOS_VAULT_PATH, subdir: process.env.AIOS_VAULT_SUBDIR };
+afterEach(() => {
+  server?.close();
+  while (locked.length) chmodSync(locked.pop()!, 0o700);
+  for (const [k, v] of [["AIOS_VAULT_PATH", savedEnv.path], ["AIOS_VAULT_SUBDIR", savedEnv.subdir]] as const) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
+
+/** chmod is advisory for root and a no-op on Windows, so the unwritable fixtures would pass
+ *  for the wrong reason there — better skipped than green. */
+const CAN_LOCK = process.platform !== "win32" && process.getuid?.() !== 0;
+
+/** Makes `dir` read+execute only, so writes inside it fail with EACCES for the duration. */
+function lock(dir: string): string {
+  chmodSync(dir, 0o500);
+  locked.push(dir);
+  return dir;
+}
+
+async function boot(over: Partial<SetupDeps> = {}) {
+  const dir = mkdtempSync(pjoin(tmpdir(), "ws-"));
+  const store = kv();
+  store.kvSet("onboarding.step", "workspace");
+  server = startSetupServer({
+    store, envPath: pjoin(dir, ".env"), uiDist: dir, port: 0,
+    agentsDir: pjoin(dir, "agents"), playbooksDir: pjoin(dir, "playbooks"),
+    templatesDir: pjoin(process.cwd(), "templates"),
+    ping: async () => {},
+    ...over,
+  });
+  await new Promise((r) => server.once("listening", r));
+  return { base: `http://127.0.0.1:${(server.address() as { port: number }).port}`, dir };
+}
+
+const post = (base: string, body: unknown) =>
+  fetch(`${base}/api/onboarding/workspace`, { method: "POST", body: JSON.stringify(body) });
+
+describe("POST /api/onboarding/workspace", () => {
+  it("advances on builtin without writing env", async () => {
+    const { base, dir } = await boot();
+    const r = await post(base, { mode: "builtin" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("interview");
+    expect(existsSync(pjoin(dir, ".env"))).toBe(false);
+  });
+
+  it("creates the directory and writes env for a custom path", async () => {
+    const { base, dir } = await boot();
+    const target = pjoin(dir, "my vault");
+    const r = await post(base, { mode: "custom", path: target, subdir: "Brain" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toStrictEqual({ step: "interview" }); // no warning key on a plain path
+    expect(existsSync(target)).toBe(true);
+    const env = readFileSync(pjoin(dir, ".env"), "utf8");
+    expect(env).toContain(`AIOS_VAULT_PATH=${target}`);
+    expect(env).toContain("AIOS_VAULT_SUBDIR=Brain");
+    // The daemon reads process.env, not the file it just wrote (config.ts:208-209), and the
+    // hot boot happens in this same process — so the file alone would boot the old path.
+    expect(process.env.AIOS_VAULT_PATH).toBe(target);
+    expect(process.env.AIOS_VAULT_SUBDIR).toBe("Brain");
+  });
+
+  it("leaves no probe file behind", async () => {
+    const { base, dir } = await boot();
+    const target = pjoin(dir, "probe-check");
+    await post(base, { mode: "custom", path: target });
+    // The probe runs inside <path>/<subdir> because that is where the daemon writes, so the
+    // subdir is the one thing that legitimately remains; the probe file itself must not.
+    expect(readdirSync(target)).toEqual(["AIOS"]);
+    expect(readdirSync(pjoin(target, "AIOS"))).toEqual([]);
+  });
+
+  it("returns the sync warning alongside the step", async () => {
+    const { base, dir } = await boot();
+    const r = await post(base, { mode: "custom", path: pjoin(dir, "Dropbox", "Vault") });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.step).toBe("interview");
+    expect(body.warning).toMatch(/sync/i); // advisory: it advanced anyway
+  });
+
+  it.skipIf(!CAN_LOCK)("400s when the workspace cannot be created and does not advance", async () => {
+    const { base, dir } = await boot();
+    const target = pjoin(lock(mkdtempSync(pjoin(tmpdir(), "ro-"))), "vault");
+    const r = await post(base, { mode: "custom", path: target });
+    expect(r.status).toBe(400);
+    // Pinned to the probe's own message: a bare "400 with some error" would also pass on a
+    // rejected body or a wrong-step guard, neither of which is what this test is about.
+    // String checks, not a regex: a macOS temp path can contain "+", which is a quantifier.
+    const err = (await r.json()).error as string;
+    expect(err.startsWith(`cannot write to ${target}`)).toBe(true);
+    expect(err).toContain("EACCES");
+    expect(existsSync(target)).toBe(false);
+    expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("workspace");
+    expect(existsSync(pjoin(dir, ".env"))).toBe(false);
+  });
+
+  // The case the probe exists for: mkdir on an existing directory succeeds, so only an actual
+  // write proves the daemon can put an artifact there.
+  it.skipIf(!CAN_LOCK)("400s when the workspace exists but is not writable", async () => {
+    const { base } = await boot();
+    const target = mkdtempSync(pjoin(tmpdir(), "ro-"));
+    mkdirSync(pjoin(target, "AIOS"));
+    lock(pjoin(target, "AIOS"));
+    const r = await post(base, { mode: "custom", path: target });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/EACCES/);
+    expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("workspace");
+  });
+
+  // Carried finding O-4: the subdir guard is a shape rule with no length bound, and NAME_MAX
+  // stops well short of 1000. The probe is what converts that into a 400 the user can act on
+  // rather than an ENAMETOOLONG at the daemon's first write, long after this screen is gone.
+  it("400s on a subdir no filesystem can hold, and does not advance", async () => {
+    const { base, dir } = await boot();
+    const target = pjoin(dir, "vault");
+    const r = await post(base, { mode: "custom", path: target, subdir: "a".repeat(1000) });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/ENAMETOOLONG/);
+    expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("workspace");
+    expect(existsSync(pjoin(dir, ".env"))).toBe(false);
+    expect(process.env.AIOS_VAULT_SUBDIR).toBeUndefined();
+  });
+
+  it("rejects a body that is not a workspace choice", async () => {
+    const { base } = await boot();
+    expect((await post(base, { mode: "elsewhere" })).status).toBe(400);
+    const raw = await fetch(`${base}/api/onboarding/workspace`, { method: "POST", body: "{" });
+    expect(raw.status).toBe(400);
+    expect((await (await fetch(`${base}/api/state`)).json()).step).toBe("workspace");
+  });
+
+  it("refuses when the wizard is not at the workspace step", async () => {
+    const { base } = await boot();
+    await post(base, { mode: "builtin" });
+    const r = await post(base, { mode: "builtin" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/not interview/);
   });
 });
