@@ -2,8 +2,9 @@
 // the org steps land in the next phase. The server owns the state machine — this view renders
 // the step it is handed and posts intents; every transition comes back from the daemon.
 import { useEffect, useRef, useState } from "react";
-import { api, type OrgProposalView } from "../api.js";
+import { api, type FirstJobStatus, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
+import { MiniDag } from "./MiniDag.js";
 
 const STEPS = ["welcome", "auth", "workspace", "interview", "review", "provision", "first-job", "done"];
 const LABELS: Record<string, string> = {
@@ -20,7 +21,8 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       {step === "workspace" && <Workspace onNext={onStepChange} />}
       {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
-      {(step === "provision" || step === "first-job" || step === "done") && (
+      {step === "first-job" && <FirstJob onNext={onStepChange} />}
+      {(step === "provision" || step === "done") && (
         <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
           <div className="text-strong text-[15px]">{LABELS[step] ?? step}</div>
           <p className="leading-relaxed">This step arrives in the next phase.</p>
@@ -504,6 +506,168 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
         )}
         <Button variant="primary" className="ml-auto" disabled={busy} onClick={approve}>
           {busy ? "Creating…" : "Create this org"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The first thing the org ever does. The request is prefilled from the proposal the user already
+ * approved, dispatched through the coordinator exactly as a chat message would be, and then
+ * watched — one MiniDag per goal it spawns, so this step and the cockpit draw the same pipeline.
+ */
+function FirstJob({ onNext }: { onNext: (s: string) => void }) {
+  const [request, setRequest] = useState("");
+  const [job, setJob] = useState<FirstJobStatus | null>(null);
+  // Optimistic: /api/state carries `booted` only in setup mode, and a field that has not
+  // arrived yet must not flash the failure screen at someone whose daemon is fine.
+  const [booted, setBooted] = useState(true);
+  const [bootError, setBootError] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      // Status first, and only then the proposal: after a reload the job that actually ran
+      // beats the suggestion it started from. Seeding from the proposal regardless would show
+      // the user a request they had edited away from before sending.
+      const s = await api.firstJobStatus().catch(() => null);
+      if (s) setJob(s);
+      if (s?.request) { setRequest(s.request); return; }
+      const p = await api.onboardingProposal().catch(() => null);
+      // Functional, not a bare set: this lands after two awaits and the box is editable the
+      // whole time, so anything already typed wins.
+      if (p) setRequest((cur) => cur || p.proposal.firstJob);
+    })();
+    api.state()
+      .then((s) => { setBooted(s.booted !== false); setBootError(s.bootError ?? ""); })
+      .catch(() => {});
+  }, []);
+
+  const running = job?.status === "running";
+
+  // Poll only while a dispatch is actually in flight — an idle wizard must not tick forever.
+  // The dependency is that boolean and not the job or its status: a poll that answers
+  // `running` again must leave the interval alone rather than tear it down and build another.
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => { void api.firstJobStatus().then(setJob).catch(() => {}); }, 2000);
+    return () => clearInterval(t);
+  }, [running]);
+
+  const dispatchFailed = (e: unknown): Promise<void> => {
+    const msg = e instanceof Error ? e.message : String(e);
+    // Both 409s this endpoint can answer with share a status code, so the message is the only
+    // thing that tells them apart. "Already running" is almost always a double-click: the job
+    // the user asked for is in flight, so adopt it and watch it rather than reporting a
+    // failure they did not cause. "No org yet" is a genuine wrong-state error and stays one.
+    if (msg.includes("already running")) {
+      return api.firstJobStatus().then(setJob).catch(() => setError(msg));
+    }
+    setError(msg);
+    // A dead daemon answers 400 with the boot error as its message — but so do other 400s, and
+    // guessing from the text would be brittle. Ask /api/state which it was: a daemon that is
+    // down needs the retry screen, not a red line under a button that will keep failing.
+    return api.state().then((s) => {
+      if (s.booted === false) { setBooted(false); setBootError(s.bootError ?? msg); setError(""); }
+    }).catch(() => {});
+  };
+
+  const run = () => {
+    const text = request.trim();
+    setBusy(true); setError("");
+    api.runFirstJob(text)
+      // Optimistic, and deliberately not a re-read: the moment the POST is accepted a job is in
+      // flight, and the effect above is the only thing that will ever notice it finish. Making
+      // that depend on a follow-up GET would leave a dispatched job unwatched whenever that one
+      // request hiccups. Built fresh rather than merged so a retry does not show the previous
+      // run's reply and error while the new one works; the next poll refills the rest.
+      .then(() => setJob((j) => ({ status: "running", request: text, goals: j?.goals ?? [] })))
+      .catch(dispatchFailed)
+      .finally(() => setBusy(false));
+  };
+
+  const retryBoot = () => {
+    setBusy(true); setError("");
+    api.onboardingBoot()
+      .then((r) => { setBooted(r.booted); setBootError(r.error ?? ""); })
+      // A refused boot answers 500, and request() turns every non-2xx into a throw — so the new
+      // boot error arrives here, not on the resolved path. It replaces the old one: two red
+      // lines saying the same thing read as two separate faults.
+      .catch((e: unknown) => setBootError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  // Never disabled, on either screen: a first job that flops — or a daemon that will not start
+  // — must never trap the user in the wizard. The failure is not swallowed either, because a
+  // Continue that silently does nothing is the very trap this button exists to prevent.
+  const advance = () => {
+    setError("");
+    api.onboardingAdvance("first-job")
+      .then((r) => onNext(r.step))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+
+  if (!booted) {
+    return (
+      <div className="panel w-full max-w-md p-6 flex flex-col gap-3">
+        <div className="text-strong text-[15px]">Your org was created</div>
+        <p className="leading-relaxed">
+          The agents are on disk, but the daemon could not start. Nothing is lost — try again,
+          or move on and start it later.
+        </p>
+        {bootError && <div className="text-[12px] text-err">{bootError}</div>}
+        {error && <div className="text-[12px] text-err">{error}</div>}
+        <div className="flex items-center gap-2">
+          <Button variant="primary" disabled={busy} onClick={retryBoot}>
+            {busy ? "Starting…" : "Try again"}
+          </Button>
+          <Button className="ml-auto" onClick={advance}>Skip for now</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel w-full max-w-2xl p-6 flex flex-col gap-4">
+      <div className="text-strong text-[15px]">Give your org its first job</div>
+      <p className="leading-relaxed">
+        This is what your team suggested. Change it to anything you like — it goes to your
+        coordinator exactly as if you had typed it in chat.
+      </p>
+      <textarea value={request} onChange={(e) => setRequest(e.target.value)} rows={3} disabled={running}
+        aria-label="first job"
+        className="w-full bg-bg border border-line rounded-md px-3 py-2 text-fg text-[13px] leading-relaxed outline-none focus:border-dim resize-y disabled:opacity-60" />
+      {error && <div className="text-[12px] text-err">{error}</div>}
+
+      {job && job.status !== "idle" && (
+        <div className="border border-line rounded-md p-3 flex flex-col gap-3">
+          <div className="text-[11px] uppercase tracking-[0.12em] text-dim">
+            {job.status === "running" ? "Working…" : job.status === "failed" ? "Did not finish" : "Result"}
+          </div>
+          {job.reply && <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{job.reply}</div>}
+          {/* An interrupted job — the daemon restarted mid-turn — arrives here as `failed` with
+              a message that says so. It takes the same path as any other failure because it is
+              retryable in exactly the same way. */}
+          {job.error && <div className="text-[12px] text-err">{job.error}</div>}
+          {job.goals.map((g) => (
+            <div key={g.id} className="flex flex-col gap-1">
+              <div className="text-[12px]"><span className="text-strong">{g.title}</span>
+                <span className="text-dim"> — {g.status}</span></div>
+              {g.nodes.length > 0 && <MiniDag nodes={g.nodes} />}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button variant="primary" disabled={busy || running || !request.trim()} onClick={run}>
+          {running ? "Running…" : job?.status === "failed" ? "Try again"
+            : job?.status === "done" ? "Run another" : "Run it"}
+        </Button>
+        <Button className="ml-auto" onClick={advance}>
+          {job?.status === "done" ? "Continue" : "Skip for now"}
         </Button>
       </div>
     </div>

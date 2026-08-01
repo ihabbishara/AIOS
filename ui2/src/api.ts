@@ -3,7 +3,7 @@ export type {
   AgentInfo, StateInfo, StoredEvent, ActionInfo, TrustInfo,
   OrgAgentCard, OrgDepartmentView, AgentProfileInfo, AgentActivityInfo, PermissionInfo,
   PackRoleView, PackPlaybookView, PackJobView, PackWorkspaceView, PackView,
-  GoalNodeView, GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
+  GoalNodeView, GoalView, GoalDetail, FirstJobStatus, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, RoutineView, AnchorView, ScheduleReminderView, Recurrence,
   SkillView, WebAttachment,
@@ -11,7 +11,7 @@ export type {
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
   OrgDepartmentView, AgentProfileInfo, AgentActivityInfo, PermissionInfo, PackView,
-  GoalView, GoalDetail, MailView, UserThreadView, BudgetInfo,
+  GoalView, GoalDetail, FirstJobStatus, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, Recurrence, SkillView, WebAttachment,
 } from "../../src/web/dto.js";
@@ -123,6 +123,17 @@ export const api = {
     }
     return { ok: false, errors: body.errors ?? [], message: body.error ?? `HTTP ${res.status}` };
   },
+  firstJobStatus: () => request<FirstJobStatus>("/api/onboarding/first-job"),
+  /** `request_`, not `request`: the module-level helper of that name is what sends it. */
+  runFirstJob: (request_: string) =>
+    request<{ status: string }>("/api/onboarding/first-job", {
+      method: "POST", body: JSON.stringify({ request: request_ }),
+    }),
+  /** Retry after a failed hot boot. A refused boot answers 500/409, which `request` turns into
+   *  a throw — so the resolved `{ booted: false }` shape is unreachable in practice and callers
+   *  must read the new error off the rejection, not off the result. */
+  onboardingBoot: () =>
+    request<{ booted: boolean; error?: string }>("/api/onboarding/boot", { method: "POST", body: "{}" }),
   attention: () => request<AttentionItem[]>("/api/attention"),
   health: () => request<HealthInfo>("/api/health"),
   org: () => request<OrgDepartmentView[]>("/api/org"),
