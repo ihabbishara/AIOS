@@ -9,6 +9,16 @@ import { Setup } from "../src/views/Setup.js";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); localStorage.clear(); });
 
+/** Every way off the done screen is a full page reload, and jsdom has no navigation — so the
+ *  reload is recorded rather than performed. What is recorded is the hash at the moment it was
+ *  called, because the hash is the whole point: it is what decides where the reload lands. */
+function watchReloads(): string[] {
+  const seen: string[] = [];
+  const loc = { hash: "", reload: () => seen.push(loc.hash) };
+  vi.stubGlobal("location", loc);
+  return seen;
+}
+
 type Reply = { status?: number; body: unknown };
 
 /** Stub fetch with a "METHOD /path" table. Unlike test/stubs.ts this one carries status codes
@@ -259,14 +269,14 @@ const FINISHED = {
   "GET /api/state": { body: STATE },
 };
 
+const HANDOVER = {
+  step: "done", uiToken: "tok-ui-abc", departments: ["operations", "studio"],
+  agents: ["nova", "scout"], workspace: "/Users/tester/AIOS/workspace/AIOS",
+};
+
 describe("the handover to mission control", () => {
   it("stores the UI token and names the org that is now on duty", async () => {
-    stub({
-      ...FINISHED,
-      "POST /api/onboarding/advance": {
-        body: { step: "done", uiToken: "tok-ui-abc", agents: ["nova", "scout"] },
-      },
-    });
+    stub({ ...FINISHED, "POST /api/onboarding/advance": { body: HANDOVER } });
     render(<Wizard from="first-job" />);
     await screen.findByText("All set.");
     fireEvent.click(btn("Continue"));
@@ -277,6 +287,67 @@ describe("the handover to mission control", () => {
     // answers nothing without this token, and the server that handed it over is already gone.
     expect(localStorage.getItem("aios_token")).toBe("tok-ui-abc");
     expect(screen.getByText("Open AIOS")).toBeTruthy();
+  });
+
+  // Spec §5: this screen confirms what was actually created. None of it can be fetched — the
+  // setup server let go of the port to answer this very request — so anything missing from the
+  // handover body is missing from the screen forever.
+  it("confirms the departments, the roster and the folder the work lands in", async () => {
+    stub({ ...FINISHED, "POST /api/onboarding/advance": { body: HANDOVER } });
+    render(<Wizard from="first-job" />);
+    await screen.findByText("All set.");
+    fireEvent.click(btn("Continue"));
+
+    await screen.findByText("You're set up");
+    expect(screen.getByText("operations, studio")).toBeTruthy();
+    expect(screen.getByText("nova, scout")).toBeTruthy();
+    // The resolved folder, verbatim: a path the user cannot check against Finder confirms nothing.
+    expect(screen.getByText("/Users/tester/AIOS/workspace/AIOS")).toBeTruthy();
+  });
+
+  // A reload, not a route change: this is still the wizard, and it does not read the route — so
+  // setting the hash alone would leave the user looking at the same screen.
+  it("links into the Library, landing there rather than on Home", async () => {
+    stub({ ...FINISHED, "POST /api/onboarding/advance": { body: HANDOVER } });
+    const reloads = watchReloads();
+    render(<Wizard from="first-job" />);
+    await screen.findByText("All set.");
+    fireEvent.click(btn("Continue"));
+
+    await screen.findByText("You're set up");
+    fireEvent.click(screen.getByText(/Read what your team writes/));
+    expect(reloads).toEqual(["#/library"]);
+
+    // The other suggested action, and then the plain way in, which sets no section of its own.
+    fireEvent.click(screen.getByText(/Meet your agents/));
+    expect(reloads[1]).toBe("#/staff");
+    fireEvent.click(btn("Open AIOS"));
+    expect(reloads[2]).toBe("#/staff"); // whatever the hash already was — never forced back
+  });
+
+  // The path the ledger flagged: "Skip for now" past a failed boot reaches `done` with nothing
+  // running. Telling that user "You're set up" was the one plainly false thing the wizard said —
+  // and every link here would reload straight back onto this same screen, because no mission
+  // control ever took the port.
+  it("does not claim the user is set up when no daemon ever booted", async () => {
+    stub({
+      "GET /api/onboarding/first-job": { body: { status: "idle", goals: [] } },
+      "GET /api/onboarding/proposal": { body: PROPOSAL },
+      "GET /api/state": { body: { ...STATE, booted: false, bootError: "no token in .env" } },
+      "POST /api/onboarding/advance": { body: { ...HANDOVER, uiToken: "" } },
+    });
+    render(<Wizard from="first-job" />);
+    await screen.findByText("no token in .env");
+    fireEvent.click(btn("Skip for now"));
+
+    expect(await screen.findByText("Your org is ready")).toBeTruthy();
+    expect(screen.queryByText("You're set up")).toBeNull();
+    expect(screen.getByText(/nobody is on duty yet/)).toBeTruthy();
+    // What was created is still true and still worth confirming; what is running is not.
+    expect(screen.getByText("operations, studio")).toBeTruthy();
+    // No way in is offered, because there is nothing on the other side of one.
+    expect(screen.queryByText("Open AIOS")).toBeNull();
+    expect(screen.queryByText(/Read what your team writes/)).toBeNull();
   });
 
   it("still reads as finished when the handover carried no roster", async () => {

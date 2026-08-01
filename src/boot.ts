@@ -880,7 +880,12 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
     // it here unconditionally printed "ready — …" immediately followed by the failure.
     web.once("listening", () => log(`ready — mission control listening on 127.0.0.1:${config.uiPort}`));
   };
-  if (opts.startWeb !== false) startWeb(true);
+  // Derived, never written literally. "Is this the startup call?" and "is a taken port fatal?"
+  // are the same fact, and spelling the second one out as `true` lets them drift — which nothing
+  // would catch, since bootNormal never runs under vitest and both call sites are unreachable
+  // from the suite. One name, used twice, cannot separate.
+  const atStartup = opts.startWeb !== false;
+  if (atStartup) startWeb(atStartup);
 
   const resumed = goals.resumeUnfinished();
   if (resumed) log(`resumed ${resumed} unfinished job(s)`);

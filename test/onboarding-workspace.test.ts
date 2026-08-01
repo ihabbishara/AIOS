@@ -56,8 +56,11 @@ describe("resolveWorkspace", () => {
       .toStrictEqual({ ok: true, path: "/Users/tester/AIOS/workspace", subdir: "Brain" });
   });
 
+  // "2026-notes" is the one that earns its place: every other name here leads with a letter, so
+  // narrowing the leading class to \p{L} alone leaves them all green while a perfectly ordinary
+  // dated folder starts being refused.
   it("allows ordinary folder names with spaces, dots, digits and dashes", () => {
-    for (const subdir of ["My Vault", "notes-2026", "v1.2", "AIOS"]) {
+    for (const subdir of ["My Vault", "notes-2026", "2026-notes", "v1.2", "AIOS"]) {
       expect(resolveWorkspace({ mode: "custom", path: "/data/vault", subdir }, HOME))
         .toStrictEqual({ ok: true, path: "/data/vault", subdir });
     }
@@ -88,9 +91,13 @@ describe("resolveWorkspace", () => {
   });
 
   // Widening to \p{L}\p{N}\p{M} must not weaken the leading-character rule: "・" is punctuation
-  // rather than a letter, and a leading dot is still a leading dot in any script.
+  // rather than a letter, and a leading dot is still a leading dot in any script. The bare
+  // combining diaeresis is the other half of that widening — written as an escape because a
+  // leading mark renders as a stray accent on whatever precedes it in an editor. \p{M} belongs
+  // in the trailing class only, and adding it to the leading one is a mutation nothing else here
+  // would catch.
   it("still rejects non-ASCII names that are not a letter or digit first", () => {
-    for (const subdir of ["・", ".メモ"]) {
+    for (const subdir of ["・", ".メモ", "\u0308", "\u0308bersicht"]) {
       expect(resolveWorkspace({ mode: "custom", path: "/data/vault", subdir }, HOME))
         .toStrictEqual({ ok: false, error: "subdir must be a single folder name" });
     }

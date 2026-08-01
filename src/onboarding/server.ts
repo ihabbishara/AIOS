@@ -133,9 +133,12 @@ export function startSetupServer(deps: SetupDeps): Server {
     const raw = deps.store.kvGet(FIRST_JOB_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as JobState;
-    // Reconciled on read, so a restart self-heals without a write at boot. A coordinator turn
-    // takes minutes, so Ctrl-C during one is ordinary; the kv `running` it leaves behind has
-    // nothing left to resolve it, and the wizard would spin on it forever.
+    // Reconciled on read rather than written at boot. NOT for a restart: bootMode answers
+    // "normal" the moment an org exists and auth is set (mode.ts), so a daemon that dies during
+    // the first job comes back as mission control and this wizard is never re-entered. What it
+    // is for is a dispatch that ends inside this process without settling — if the done/failed
+    // write itself throws (SQLITE_BUSY), `dispatching` still drops in the finally and kv is left
+    // on `running` with nothing able to resolve it, and the wizard would spin on it forever.
     if (s.status === "running" && !dispatching) {
       return { ...s, status: "failed", error: "interrupted — try again" };
     }
@@ -182,10 +185,12 @@ export function startSetupServer(deps: SetupDeps): Server {
   };
 
   /** A rejected transition (stale tab, illegal jump) is the caller's fault — 400, logged either way.
-   *  `extra` rides along on the success body for steps that answer with more than the step. */
+   *  `extra` rides along on the success body for steps that answer with more than the step, and is
+   *  spread FIRST: the step is this function's whole contract, and a caller that happened to pass
+   *  a `step` key would otherwise silently move the wizard somewhere the server never went. */
   const transition = (res: ServerResponse, path: string, move: () => Step, extra?: Record<string, unknown>): void => {
     try {
-      json(res, 200, { step: move(), ...extra });
+      json(res, 200, { ...extra, step: move() });
     } catch (err) {
       log(`setup rejected ${path}: ${(err as Error).message}`);
       json(res, 400, { error: (err as Error).message });
@@ -193,22 +198,40 @@ export function startSetupServer(deps: SetupDeps): Server {
   };
 
   /** Who the org is, for the done screen. A proposal that will not parse is not worth losing the
-   *  handover over — the screen has a line for an org it cannot name. */
-  const rosterNames = (): string[] => {
+   *  handover over — the screen has a line for an org it cannot name. Partial, not OrgProposal:
+   *  this is parsed kv, so each half defaults on its own rather than letting one missing key
+   *  throw away the other. */
+  const roster = (): { departments: string[]; agents: string[] } => {
     try {
       const raw = deps.store.kvGet(PROPOSAL_KEY);
-      return raw ? (JSON.parse(raw) as OrgProposal).agents.map((a) => a.name) : [];
+      const p = raw ? (JSON.parse(raw) as Partial<OrgProposal>) : {};
+      return {
+        departments: (p.departments ?? []).map((d) => d.department),
+        agents: (p.agents ?? []).map((a) => a.name),
+      };
     } catch {
-      return [];
+      return { departments: [], agents: [] };
     }
   };
+
+  /** Where the daemon actually writes, for the done screen. A booted world is the truth — its
+   *  VaultWriter already joined the pair and is the object doing the writing. Before one exists
+   *  (the user skipped past a failed boot) fall back to what the workspace step put on
+   *  process.env, with config.ts's own defaults, which is what a boot would read anyway.
+   *  Resolved to one string on purpose: the screen shows a folder, not a pair to re-join. */
+  const workspacePath = (): string =>
+    world?.vault.root ?? join(
+      process.env.AIOS_VAULT_PATH ?? join(homedir(), "AIOS", "workspace"),
+      process.env.AIOS_VAULT_SUBDIR ?? "AIOS",
+    );
 
   /**
    * first-job → done is the port handover, and the only place the UI token ever reaches the
    * browser. It rides on THIS response because the moment startWebServer owns the port every
    * /api/ route is behind the token gate — a second round trip to fetch it would have nothing
-   * left to ask. The roster rides along for the same reason: the done screen names the agents,
-   * and by the time it could fetch them this server is gone.
+   * left to ask. The org summary rides along for the same reason: the done screen names the
+   * departments, the agents and the folder their work lands in, and by the time it could fetch
+   * any of that this server is gone.
    */
   const handover = (res: ServerResponse, path: string): void => {
     let step: Step;
@@ -218,7 +241,9 @@ export function startSetupServer(deps: SetupDeps): Server {
       log(`setup rejected ${path}: ${(err as Error).message}`);
       return json(res, 400, { error: (err as Error).message });
     }
-    json(res, 200, { step, uiToken: process.env.AIOS_UI_TOKEN ?? "", agents: rosterNames() });
+    json(res, 200, {
+      step, uiToken: process.env.AIOS_UI_TOKEN ?? "", ...roster(), workspace: workspacePath(),
+    });
 
     // Which daemon this port is for, decided now but not necessarily known yet. A boot can still
     // be in flight: "skip for now" on the failed-boot screen is deliberately never disabled, so
@@ -229,29 +254,57 @@ export function startSetupServer(deps: SetupDeps): Server {
         : booting ? booting.catch(() => null)
           : Promise.resolve(null);
 
-    // Every step of this order is load-bearing. `finish` means the response is flushed, the
-    // setImmediate lets its connection go idle, and only inside close()'s callback is the port
-    // genuinely free — binding any earlier races the socket this server still holds.
-    res.on("finish", () => setImmediate(() => void ready.then((w) => {
-      // No daemon at all means nothing is waiting to take the port, and closing anyway would
-      // leave the user on a dead one with the wizard gone too. Holding the port is the
-      // recoverable half of a bad situation; a restart comes up in normal mode either way.
-      if (!w) return void log("no daemon to hand the port to — keeping the setup server up");
-      server.close(() => {
-        try {
-          w.startWeb();
-        } catch (err) {
-          log(`FATAL: mission control could not take the port: ${(err as Error).message}`);
-        }
-      });
-      // What makes close() actually finish, and not a tidiness measure. close() waits for every
-      // open connection, and a browser keeps more than one to an origin — a preconnect, a second
-      // tab, the poll this screen was running. Measured: one extra socket that has sent nothing
-      // holds close() open indefinitely, so mission control never comes up at all. All of them,
-      // not just the idle ones: the wizard is over, so a request still in flight on another
-      // connection has nothing left to report and waiting on it only stalls the handover.
-      server.closeAllConnections();
-    })));
+    // Three ways this response can end, and the teardown must run on exactly one of them.
+    // `finish` is the ordinary one. `close` fires after it on every healthy response too, which
+    // is what the once-flag is for: two teardowns is two mission controls racing for one port.
+    // The synchronous check is the one that closes the real hole. Measured on node 23: a socket
+    // destroyed while the response is still being written STILL fires `finish`, so `close` alone
+    // buys nothing — but a client that goes away while this handler is awaiting the request body
+    // has already had `close` emitted before these listeners exist, and `finish` never fires at
+    // all. Subscribing alone would wait forever there, and forever means this server holds the
+    // port with the daemon running headless beside it, which no reload recovers from.
+    let handed = false;
+    const handOver = (aborted: boolean): void => {
+      if (handed) return;
+      handed = true;
+      // Worth a line of its own: the token rode on a response that never arrived, so the reload
+      // behind "Open AIOS" lands on mission control's token gate rather than the cockpit. Handing
+      // the port over anyway is still the better half of a bad situation — the alternative is a
+      // setup server owning the port and a done screen looping back to itself — and the gate has
+      // a way through, with the token in .env and in the boot log above.
+      if (aborted) {
+        log("handover response never reached the browser — mission control is taking the port anyway;" +
+          " the UI token is in .env as AIOS_UI_TOKEN");
+      }
+      // Every step of this order is load-bearing. The setImmediate lets the connection go idle,
+      // and only inside close()'s callback is the port genuinely free — binding any earlier
+      // races the socket this server still holds.
+      setImmediate(() => void ready.then((w) => {
+        // No daemon at all means nothing is waiting to take the port, and closing anyway would
+        // leave the user on a dead one with the wizard gone too. Holding the port is the
+        // recoverable half of a bad situation; a restart comes up in normal mode either way.
+        if (!w) return void log("no daemon to hand the port to — keeping the setup server up");
+        server.close(() => {
+          try {
+            w.startWeb();
+          } catch (err) {
+            log(`FATAL: mission control could not take the port: ${(err as Error).message}`);
+          }
+        });
+        // What makes close() actually finish, and not a tidiness measure. close() waits for every
+        // open connection, and a browser keeps more than one to an origin — a preconnect, a second
+        // tab, the poll this screen was running. Measured: one extra socket that has sent nothing
+        // holds close() open indefinitely, so mission control never comes up at all. All of them,
+        // not just the idle ones: the wizard is over, so a request still in flight on another
+        // connection has nothing left to report and waiting on it only stalls the handover.
+        server.closeAllConnections();
+      }));
+    };
+    res.on("finish", () => handOver(false));
+    // Kept as insurance rather than for a path reachable today: if a future node stops firing
+    // `finish` for a response whose socket died mid-write, this is what keeps the port moving.
+    res.on("close", () => handOver(true));
+    if (res.destroyed) handOver(true);
   };
 
   const server = createServer((req, res) => {
@@ -540,8 +593,10 @@ export function startSetupServer(deps: SetupDeps): Server {
 
         if (path === "/api/onboarding/provision" && req.method === "POST") {
           const at = wizard.current();
-          // Resume: a crash between writing the org and advancing leaves the wizard here with
-          // an org already on disk. Finishing is right; provisioning again would collide.
+          // Resume: a throw between writing the org and the two advances below leaves the wizard
+          // here with an org already on disk. Within this process, not across a restart — a
+          // restart with an org on disk comes up in normal mode (mode.ts) and never reaches this
+          // server at all. Finishing is right; provisioning again would collide.
           if (at === "provision" && orgExists()) {
             await ensureBooted(); // a crash-resume must land on first-job with an engine too
             return transition(res, path, () => wizard.advance("provision"));
@@ -591,11 +646,13 @@ export function startSetupServer(deps: SetupDeps): Server {
           // `done` with the reply to a request the user has already superseded. Guarded the way
           // this server already guards its other one-at-a-time work: `verifying` on /auth, the
           // `booting` promise on the hot boot.
-          // This prose is load-bearing: it shares its status code with the "no org yet" 409 above
-          // (line 517), so ui2 tells the two apart by matching "first job is already running" in
-          // the message (Setup.tsx:570, FirstJob's dispatchFailed) — one is a double-click to
-          // adopt, the other a real error to show. Rewording this string silently turns a
-          // double-click back into an error the user did not cause.
+          // This prose is load-bearing: it shares its status code with the "no org yet" 409 that
+          // opens this same handler, so ui2 tells the two apart by matching "first job is already
+          // running" in the message — see `dispatchFailed` inside FirstJob in
+          // ui2/src/views/Setup.tsx. One is a double-click to adopt, the other a real error to
+          // show. Rewording this string silently turns a double-click back into an error the user
+          // did not cause. Symbols, not line numbers: the numbers this comment used to carry both
+          // rotted within the same branch that added them.
           if (dispatching) return json(res, 409, { error: "a first job is already running" });
           // Written before the flag goes up, and both are synchronous so the check-and-set stays
           // atomic. Order matters: kvSet can throw (SQLITE_BUSY), and raising the flag first would

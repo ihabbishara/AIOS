@@ -69,13 +69,16 @@ export interface OrgProposalView {
   firstJob: string;
 }
 
-/** What an advance answers with. Only the last one — first-job → done — carries the other two
- *  fields, and it is the only chance to read them: by the time the browser could ask again, the
- *  setup server has handed the port to mission control and every route is behind the token gate. */
+/** What an advance answers with. Only the last one — first-job → done — carries anything past
+ *  the step, and it is the only chance to read it: by the time the browser could ask again, the
+ *  setup server has handed the port to mission control and every route is behind the token gate.
+ *  `workspace` is already resolved to a single folder — the daemon's vault root, not a pair. */
 export interface AdvanceResult {
   step: string;
   uiToken?: string;
+  departments?: string[];
   agents?: string[];
+  workspace?: string;
 }
 
 export const api = {

@@ -580,10 +580,16 @@ describe("the capability catalog before provision", () => {
 
 /** Minimum shape the setup server actually touches. Cast once, here, so the tests below
  *  read as real usage rather than as a pile of `as any`. */
+const FAKE_VAULT_ROOT = "/tmp/fake-vault/AIOS";
+
 function fakeWorld(over: Partial<BootedWorld> = {}): BootedWorld {
   return {
     moderator: { handle: async () => ({ text: "done", attachments: [] }) },
     store: { listGoals: () => [], listNodes: () => [] },
+    // Only `root` is used off it, but it is present because the real BootedWorld always has a
+    // VaultWriter — the done screen reads the folder the daemon is genuinely writing into, and
+    // a double that omitted it would make that read look optional when the type says it is not.
+    vault: { root: FAKE_VAULT_ROOT },
     startWeb: () => {},
     ...over,
   } as unknown as BootedWorld;
@@ -729,6 +735,11 @@ describe("hot boot", () => {
   });
 });
 
+/** The last response the wizard ever sends, and the only copy of any of it the browser gets. */
+type Handover = {
+  step: string; uiToken: string; departments: string[]; agents: string[]; workspace: string;
+};
+
 describe("done handover", () => {
   // AIOS_UI_TOKEN is a process global that bootNormal writes, so these tests set it directly.
   // Saved and restored in hooks rather than deleted at the end of a body: a failing assertion
@@ -765,7 +776,7 @@ describe("done handover", () => {
     if (!ok()) throw new Error(`timed out waiting for ${what}`);
   };
 
-  it("answers with the UI token and the roster, and starts mission control, exactly once", async () => {
+  it("answers with the UI token and the whole org summary, starting mission control exactly once", async () => {
     let started = 0;
     process.env.AIOS_UI_TOKEN = "tok-ui-abc";
     const { base } = await atFirstJob({
@@ -774,15 +785,87 @@ describe("done handover", () => {
 
     const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { step: string; uiToken: string; agents: string[] };
+    const body = (await r.json()) as Handover;
     expect(body.step).toBe("done");
     // The only moment the browser is ever handed this: afterwards every /api/ route is gated.
     expect(body.uiToken).toBe("tok-ui-abc");
-    // And the roster, for the same reason — the done screen names the org, and by the time it
-    // could ask for it this server is gone.
+    // And everything the done screen confirms, for the same reason — it names the departments,
+    // the agents and the folder their work lands in, and by the time it could ask for any of it
+    // this server is gone.
     expect(body.agents).toEqual(["nova", "scout", "scribe"]);
+    expect(body.departments).toEqual(["operations", "studio"]);
+    // Read off the booted daemon's own VaultWriter, which is the object actually doing the
+    // writing — not re-derived from env, which is a second copy that can disagree with it.
+    expect(body.workspace).toBe(FAKE_VAULT_ROOT);
 
     await waitFor(() => started > 0, "mission control to be started");
+    expect(started).toBe(1);
+    // `close` fires after `finish` on a healthy response too, so without the once-flag this whole
+    // teardown runs twice — a second mission control racing for the same port.
+    await new Promise((r2) => setTimeout(r2, 60));
+    expect(started).toBe(1);
+  });
+
+  // The other half of the workspace answer: "Skip for now" past a failed boot reaches the
+  // handover with no world at all, and the screen still has to name a folder. Env is what the
+  // workspace step wrote and what a later boot would read, so it is the right fallback — and
+  // resolving it to one string here rather than in the browser is the point of the field.
+  it("names the workspace from env when no daemon ever booted", async () => {
+    process.env.AIOS_UI_TOKEN = "tok-ui-noboot";
+    const saved = { p: process.env.AIOS_VAULT_PATH, s: process.env.AIOS_VAULT_SUBDIR };
+    process.env.AIOS_VAULT_PATH = "/tmp/chosen-vault";
+    process.env.AIOS_VAULT_SUBDIR = "Brain";
+    try {
+      const { base } = await atFirstJob({ boot: async () => { throw new Error("boot exploded"); } });
+      const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
+      const body = (await r.json()) as Handover;
+      expect(body.workspace).toBe(join("/tmp/chosen-vault", "Brain"));
+      // The rest of the summary is unaffected by the failed boot — it comes off the proposal.
+      expect(body.departments).toEqual(["operations", "studio"]);
+    } finally {
+      for (const [k, v] of [["AIOS_VAULT_PATH", saved.p], ["AIOS_VAULT_SUBDIR", saved.s]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  /**
+   * A client that walks away mid-response must still hand the port over. Read the comment before
+   * trusting this one: on node 23 it passes through `finish`, which fires even for a response
+   * whose socket has already been destroyed — so it does NOT exercise the `close` listener or the
+   * `res.destroyed` check that were added for I-2, and it passes with both of them deleted. It is
+   * here as the invariant those two insure, not as their coverage. The genuinely dangerous
+   * window — the client vanishing while this handler awaits the request body, where `close` is
+   * emitted before the listeners exist and `finish` never fires — is one microtask wide and
+   * cannot be scheduled from a black-box HTTP test; it was verified by direct probe instead.
+   */
+  it("hands the port over when the client dies mid-response", async () => {
+    let started = 0;
+    process.env.AIOS_UI_TOKEN = "tok-ui-aborted";
+    const { base, store } = await atFirstJob({
+      boot: async () => fakeWorld({ startWeb: () => { started++; } }),
+    });
+    // The same ~4 MB roster as the flush test, so the response is provably still being written
+    // when the client vanishes rather than long since gone.
+    const names = Array.from({ length: 40_000 }, (_, i) => `agent-${i}-${"x".repeat(90)}`);
+    store.kvSet("onboarding.proposal", JSON.stringify({ agents: names.map((name) => ({ name })) }));
+
+    // Raw socket, not fetch + AbortController: abort tears down before the request is even sent,
+    // so the server never reaches the handover and there is nothing to have gone wrong.
+    const sock = connect(Number(new URL(base).port), "127.0.0.1");
+    await new Promise((r) => sock.once("connect", r));
+    const body = JSON.stringify({ from: "first-job" });
+    sock.write(
+      "POST /api/onboarding/advance HTTP/1.1\r\nHost: 127.0.0.1\r\n" +
+      `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
+    // The first byte means the wizard has already advanced and the token has already been
+    // written, and only then does the client vanish.
+    await new Promise((r) => sock.once("data", r));
+    sock.destroy();
+
+    await waitFor(() => started > 0, "mission control to be started after a dead client");
     expect(started).toBe(1);
   });
 
@@ -887,7 +970,7 @@ describe("done handover", () => {
     store.kvSet("onboarding.proposal", JSON.stringify({ agents: names.map((name) => ({ name })) }));
 
     const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
-    const body = (await r.json()) as { step: string; uiToken: string; agents: string[] };
+    const body = (await r.json()) as Handover;
     expect(body.step).toBe("done");
     expect(body.uiToken).toBe("tok-ui-big");
     expect(body.agents).toHaveLength(names.length);
@@ -919,9 +1002,12 @@ describe("done handover", () => {
     store.kvSet("onboarding.proposal", "{not json");
 
     const r = await postJson(base, "/api/onboarding/advance", { from: "first-job" });
-    const body = (await r.json()) as { step: string; uiToken: string; agents: string[] };
-    // A roster we cannot name is a nameless done screen, never a lost handover.
-    expect(body).toEqual({ step: "done", uiToken: "tok-ui-corrupt", agents: [] });
+    const body = (await r.json()) as Handover;
+    // An org we cannot name is a nameless done screen, never a lost handover. The workspace
+    // still lands: it comes off the booted daemon, not off the proposal that will not parse.
+    expect(body).toEqual({
+      step: "done", uiToken: "tok-ui-corrupt", departments: [], agents: [], workspace: FAKE_VAULT_ROOT,
+    });
     await waitFor(() => started > 0, "mission control to be started");
   });
 

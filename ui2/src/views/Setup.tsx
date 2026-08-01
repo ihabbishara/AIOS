@@ -14,17 +14,22 @@ const LABELS: Record<string, string> = {
 };
 
 export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: string) => void }) {
-  // Who the org is, kept from the handover response rather than fetched. The done screen renders
-  // on the far side of the port handover, so the server that could name the agents is gone by
+  // What the org is, kept from the handover response rather than fetched. The done screen renders
+  // on the far side of the port handover, so the server that could name any of this is gone by
   // the time it mounts — this is the only copy there will be.
-  const [agents, setAgents] = useState<string[]>([]);
+  const [summary, setSummary] = useState<AdvanceResult>({ step: "done" });
+  // Whether anything is actually running behind that screen. Only first-job knows: it is the step
+  // that reads /api/state, and "Skip for now" on the failed-boot screen reaches `done` with no
+  // daemon at all. Without this the done screen would tell that user they are set up.
+  const [booted, setBooted] = useState(true);
 
   // The last response the wizard ever gets. The token is stored here, before anything navigates,
   // because "Open AIOS" reloads onto mission control and mission control answers nothing without
   // it — and the setup server that issued it has already let go of the port.
-  const finish = (r: AdvanceResult) => {
+  const finish = (r: AdvanceResult, daemonUp: boolean) => {
     if (r.uiToken) setToken(r.uiToken);
-    setAgents(r.agents ?? []);
+    setSummary(r);
+    setBooted(daemonUp);
     onStepChange(r.step);
   };
 
@@ -37,7 +42,7 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
       {step === "first-job" && <FirstJob onDone={finish} />}
-      {step === "done" && <Done agents={agents} />}
+      {step === "done" && <Done summary={summary} booted={booted} />}
       {/* Provision is not a screen the user is meant to sit on: /api/onboarding/provision moves
           through it and lands on first-job in one call. It is reachable only by reloading into a
           wizard that crashed between those two writes, which the server then finishes on the next
@@ -537,7 +542,7 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
  * approved, dispatched through the coordinator exactly as a chat message would be, and then
  * watched — one MiniDag per goal it spawns, so this step and the cockpit draw the same pipeline.
  */
-function FirstJob({ onDone }: { onDone: (r: AdvanceResult) => void }) {
+function FirstJob({ onDone }: { onDone: (r: AdvanceResult, booted: boolean) => void }) {
   const [request, setRequest] = useState("");
   const [job, setJob] = useState<FirstJobStatus | null>(null);
   // Optimistic: /api/state carries `booted` only in setup mode, and a field that has not
@@ -628,11 +633,13 @@ function FirstJob({ onDone }: { onDone: (r: AdvanceResult) => void }) {
   // — must never trap the user in the wizard. The failure is not swallowed either, because a
   // Continue that silently does nothing is the very trap this button exists to prevent.
   // The whole response goes up, not just the step: this one call is also the port handover, and
-  // the token and roster it carries cannot be fetched a second time.
+  // the token and org summary it carries cannot be fetched a second time. `booted` goes up with
+  // it because this is the only screen that ever asked — the done screen has no one left to ask,
+  // and on the skip-past-a-failed-boot path there is nothing running for it to congratulate.
   const advance = () => {
     setError("");
     api.onboardingAdvance("first-job")
-      .then(onDone)
+      .then((r) => onDone(r, booted))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   };
 
@@ -674,9 +681,11 @@ function FirstJob({ onDone }: { onDone: (r: AdvanceResult) => void }) {
             {job.status === "running" ? "Working…" : job.status === "failed" ? "Did not finish" : "Result"}
           </div>
           {job.reply && <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{job.reply}</div>}
-          {/* An interrupted job — the daemon restarted mid-turn — arrives here as `failed` with
-              a message that says so. It takes the same path as any other failure because it is
-              retryable in exactly the same way. */}
+          {/* A dispatch that ended without ever settling — the daemon's own done/failed write
+              threw — is reconciled to `failed` on the next read and arrives here with a message
+              saying so. Not a restart: a daemon that restarts with an org on disk comes back as
+              mission control, and this screen is gone. It takes the same path as any other
+              failure because it is retryable in exactly the same way. */}
           {job.error && <div className="text-[12px] text-err">{job.error}</div>}
           {job.goals.map((g) => (
             <div key={g.id} className="flex flex-col gap-1">
@@ -706,22 +715,81 @@ function FirstJob({ onDone }: { onDone: (r: AdvanceResult) => void }) {
  * renders, the port belongs to mission control. Everything it says was carried here on the
  * handover response; it asks for nothing, because there is no longer anyone to ask.
  */
-function Done({ agents }: { agents: string[] }) {
+function Done({ summary, booted }: { summary: AdvanceResult; booted: boolean }) {
+  const agents = summary.agents ?? [];
+  const departments = summary.departments ?? [];
   const roster = agents.length === 0 ? "Your org is on duty."
     : `${agents.join(", ")} ${agents.length === 1 ? "is" : "are"} on duty.`;
+
+  // A reload, not a route change: the whole app re-reads /api/state, which now answers from
+  // mission control with the token this screen has already stored. The hash is set first so the
+  // reload lands on the section the user picked — changing it alone would do nothing, because
+  // this is still the wizard and it does not read the route.
+  const open = (section?: string) => {
+    if (section) window.location.hash = `#/${section}`;
+    window.location.reload();
+  };
+
+  // What was created, either way: the same three facts the spec asks this screen to confirm.
+  const facts = (
+    <dl className="flex flex-col gap-1.5 text-[12px] text-left border border-line rounded-md p-3">
+      {departments.length > 0 && (
+        <div className="flex gap-2">
+          <dt className="text-dim uppercase tracking-[0.12em] text-[10px] pt-0.5 w-24 shrink-0">Departments</dt>
+          <dd className="text-fg">{departments.join(", ")}</dd>
+        </div>
+      )}
+      {agents.length > 0 && (
+        <div className="flex gap-2">
+          <dt className="text-dim uppercase tracking-[0.12em] text-[10px] pt-0.5 w-24 shrink-0">Agents</dt>
+          <dd className="text-fg">{agents.join(", ")}</dd>
+        </div>
+      )}
+      {summary.workspace && (
+        <div className="flex gap-2">
+          <dt className="text-dim uppercase tracking-[0.12em] text-[10px] pt-0.5 w-24 shrink-0">Workspace</dt>
+          {/* break-all, not truncate: a path the user cannot read in full is not a confirmation. */}
+          <dd className="text-fg font-mono text-[11px] break-all">{summary.workspace}</dd>
+        </div>
+      )}
+    </dl>
+  );
+
+  // Nothing took the port, so every link below would come back to this very screen. Telling this
+  // user "You're set up" would be the one plainly false thing the wizard says.
+  if (!booted) {
+    return (
+      <div className="panel w-full max-w-md p-6 flex flex-col gap-4">
+        <div className="text-bright text-[19px] font-bold tracking-tight text-center">Your org is ready</div>
+        <p className="leading-relaxed text-center">
+          It is all on disk — but the daemon is not running, so nobody is on duty yet.
+        </p>
+        {facts}
+        <p className="leading-relaxed text-dim text-[12px]">
+          Restart AIOS to bring the team up. Nothing you did here is lost, and setup will not run again.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="panel w-full max-w-md p-6 flex flex-col gap-4 text-center">
-      <div className="text-bright text-[19px] font-bold tracking-tight">You're set up</div>
-      <p className="leading-relaxed">
-        {roster}{" "}
-        Everything they write lands in your workspace, readable right here in the Library.
-      </p>
-      <p className="leading-relaxed text-dim text-[12px]">
-        Next: connect Telegram or email so your team can reach you, or just ask for something in chat.
-      </p>
-      {/* A reload, not a route change: the whole app re-reads /api/state, which now answers from
-          mission control with the token this screen has already stored. */}
-      <Button variant="primary" onClick={() => window.location.reload()}>Open AIOS</Button>
+    <div className="panel w-full max-w-md p-6 flex flex-col gap-4">
+      <div className="text-bright text-[19px] font-bold tracking-tight text-center">You're set up</div>
+      <p className="leading-relaxed text-center">{roster}</p>
+      {facts}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-dim uppercase tracking-[0.12em] text-[10px]">Try next</span>
+        <button onClick={() => open("library")}
+          className="text-left text-fg hover:text-strong underline underline-offset-2">
+          Read what your team writes, in the Library
+        </button>
+        <button onClick={() => open("staff")}
+          className="text-left text-fg hover:text-strong underline underline-offset-2">
+          Meet your agents, and hire or retire any of them
+        </button>
+        <span className="text-dim text-[12px]">Or press ⌘J anywhere and just ask for something.</span>
+      </div>
+      <Button variant="primary" onClick={() => open()}>Open AIOS</Button>
     </div>
   );
 }
