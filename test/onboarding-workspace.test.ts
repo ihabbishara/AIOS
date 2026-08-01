@@ -58,6 +58,24 @@ describe("resolveWorkspace", () => {
     }
   });
 
+  // The guard is an allowlist for its reject-by-default shape, not because AIOS is ASCII-only:
+  // a subdir names a real folder the user has to live with in Finder.
+  it("keeps a non-ASCII subdir verbatim", () => {
+    for (const subdir of ["メモ", "Übersicht"]) {
+      expect(resolveWorkspace({ mode: "custom", path: "/data/vault", subdir }, HOME))
+        .toStrictEqual({ ok: true, path: "/data/vault", subdir });
+    }
+  });
+
+  // Widening to \p{L}\p{N} must not weaken the leading-character rule: "・" is punctuation
+  // rather than a letter, and a leading dot is still a leading dot in any script.
+  it("still rejects non-ASCII names that are not a letter or digit first", () => {
+    for (const subdir of ["・", ".メモ"]) {
+      expect(resolveWorkspace({ mode: "custom", path: "/data/vault", subdir }, HOME))
+        .toStrictEqual({ ok: false, error: "subdir must be a single folder name" });
+    }
+  });
+
   it("expands a bare tilde to the home directory", () => {
     expect(resolveWorkspace({ mode: "custom", path: "~" }, HOME))
       .toStrictEqual({ ok: true, path: "/Users/tester", subdir: "AIOS" });

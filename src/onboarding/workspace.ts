@@ -19,8 +19,9 @@ const DEFAULT_SUBDIR = "AIOS";
 /** A subdir is one plain folder name joined onto the vault root. Allowlist, not denylist:
  *  a denylist of separators and dot-dot admits ".", "~", and a NUL byte, which respectively
  *  land on the vault root, make a folder that is a shell footgun, and throw inside mkdir.
- *  Requiring a leading alphanumeric excludes every dot-segment by construction. */
-const SUBDIR_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
+ *  The first character must be a letter or digit in any script, which is the clause doing the
+ *  work — it excludes every dot-segment by construction while still allowing メモ or Übersicht. */
+const SUBDIR_RE = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
 
 export function resolveWorkspace(choice: WorkspaceChoice, home: string): WorkspaceResult {
   const subdirRaw = (choice.subdir ?? "").trim();
