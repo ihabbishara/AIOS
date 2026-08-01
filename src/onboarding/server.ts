@@ -18,6 +18,7 @@ import {
   type Architect, type Turn,
 } from "./architect.js";
 import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
+import { buildGoalsForOrigin } from "../web/goals-view.js";
 import { loadCapabilities } from "../agents/registry/capabilities.js";
 import { CAPABILITIES_FILE } from "./seed.js";
 import type { BootedWorld } from "../boot.js";
@@ -120,6 +121,16 @@ export function startSetupServer(deps: SetupDeps): Server {
 
   const PROPOSAL_KEY = "onboarding.proposal";
   const TRANSCRIPT_KEY = "onboarding.transcript";
+  const FIRST_JOB_KEY = "onboarding.firstJob";
+  // The coordinator answers on a chat like any other caller; this tuple is what makes the
+  // goals it spawns findable later without inventing an id registry.
+  const JOB_ORIGIN = { channel: "web", chatId: "onboarding" };
+  type JobState = { status: "running" | "done" | "failed"; request: string; reply?: string; error?: string };
+  const jobState = (): JobState | null => {
+    const raw = deps.store.kvGet(FIRST_JOB_KEY);
+    return raw ? (JSON.parse(raw) as JobState) : null;
+  };
+  const setJobState = (s: JobState) => deps.store.kvSet(FIRST_JOB_KEY, JSON.stringify(s));
   const ask = deps.architect ?? sdkArchitect;
   const transcript = (): Turn[] => JSON.parse(deps.store.kvGet(TRANSCRIPT_KEY) ?? "[]") as Turn[];
 
@@ -480,6 +491,36 @@ export function startSetupServer(deps: SetupDeps): Server {
           // refusing the provision the user just approved.
           await ensureBooted();
           return json(res, 200, { step: wizard.current(), departments: result.departments, agents: result.agents });
+        }
+
+        if (path === "/api/onboarding/first-job" && req.method === "GET") {
+          const s = jobState();
+          const goals = world ? buildGoalsForOrigin(world.store, JOB_ORIGIN.channel, JOB_ORIGIN.chatId) : [];
+          if (!s) return json(res, 200, { status: "idle", goals });
+          return json(res, 200, { ...s, goals });
+        }
+
+        if (path === "/api/onboarding/first-job" && req.method === "POST") {
+          // Same guard as the retry endpoint, for the same reason: booting with no org latches
+          // `world` to a zero-agent daemon. Only probed when there is no world to reuse.
+          if (!world && !orgExists()) return json(res, 409, { error: "no org yet — provision one first" });
+          const w = await ensureBooted();
+          if (!w) return json(res, 400, { error: bootError || "the daemon is not running yet" });
+          const body = await readJson<{ request?: unknown }>(req);
+          if (!body) return json(res, 400, { error: "body must be JSON" });
+          const request = typeof body.request === "string" ? body.request.trim() : "";
+          if (!request) return json(res, 400, { error: "request required" });
+
+          setJobState({ status: "running", request });
+          // Deliberately not awaited: the coordinator can take minutes, and the browser polls GET
+          // for progress. Errors land in kv, so there is no unhandled rejection either way.
+          void w.moderator.handle(JOB_ORIGIN.channel, JOB_ORIGIN.chatId, request)
+            .then((r) => setJobState({ status: "done", request, reply: r.text }))
+            .catch((err) => {
+              log(`first job failed: ${(err as Error).message}`);
+              setJobState({ status: "failed", request, error: (err as Error).message });
+            });
+          return json(res, 200, { status: "running" });
         }
 
         if (path.startsWith("/api/")) return json(res, 404, { error: "not found" });

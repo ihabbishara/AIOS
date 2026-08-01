@@ -32,6 +32,15 @@ export function buildGoalsView(store: Store, limit = 50): GoalView[] {
   return store.listGoals(limit).map((g) => goalView(g, store));
 }
 
+/** Goals originating from one chat. The origin tuple the engine already persists is the
+ *  correlation key, so the wizard needs no job-id registry of its own — and a coordinator
+ *  that spawns several goals from one request is covered for free. */
+export function buildGoalsForOrigin(store: Store, channel: string, chatId: string, limit = 50): GoalView[] {
+  return store.listGoals(limit)
+    .filter((g) => g.origin_channel === channel && g.origin_chat_id === chatId)
+    .map((g) => goalView(g, store));
+}
+
 export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: string) {
   const g = store.getGoal(idOrSlug) ?? store.getGoalBySlug(idOrSlug);
   if (!g) return null;

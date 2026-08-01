@@ -183,6 +183,15 @@ export interface GoalView {
   nodes: GoalNodeView[];
 }
 
+/** Wizard first-job step: what the coordinator is doing with the suggested job. */
+export interface FirstJobStatus {
+  status: "idle" | "running" | "done" | "failed";
+  request?: string;
+  reply?: string;
+  error?: string;
+  goals: GoalView[];
+}
+
 export interface GoalDetail extends GoalView {
   artifacts: Array<{ file: string; content: string }>;
   spawnedBy: { mailId: string; from: string } | null;
