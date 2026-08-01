@@ -283,3 +283,9 @@ export interface SkillView {
   /** Agent (manifest) names whose role declares this skill. */
   usedBy: string[];
 }
+
+// ---- library (read-only workspace browser, spec 2026-08-01 value-path §4) ----
+/** One entry in the read-only workspace browser. `path` is vault-relative. */
+export interface LibraryNode {
+  name: string; path: string; dir: boolean; size: number; children?: LibraryNode[];
+}
