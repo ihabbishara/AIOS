@@ -529,8 +529,12 @@ export function startSetupServer(deps: SetupDeps): Server {
           // this server already guards its other one-at-a-time work: `verifying` on /auth, the
           // `booting` promise on the hot boot.
           if (dispatching) return json(res, 409, { error: "a first job is already running" });
-          dispatching = true;
+          // Written before the flag goes up, and both are synchronous so the check-and-set stays
+          // atomic. Order matters: kvSet can throw (SQLITE_BUSY), and raising the flag first would
+          // leave it up with nothing dispatched to lower it — POST refusing every retry with 409
+          // while GET reports idle, until the process restarts.
           setJobState({ status: "running", request });
+          dispatching = true;
           // Deliberately not awaited: the coordinator can take minutes, and the browser polls GET
           // for progress. Wrapped rather than chained off handle() so a *synchronous* throw takes
           // the same failure path — otherwise it would escape to the 500 handler with kv already

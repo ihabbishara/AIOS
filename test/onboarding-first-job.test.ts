@@ -277,6 +277,28 @@ describe("first job", () => {
     await settle(base);
   });
 
+  it("stays retryable when the initial running write fails", async () => {
+    const m = new Map<string, string>([["onboarding.step", "first-job"]]);
+    let failNext = true;
+    const store = {
+      kvGet: (k: string) => m.get(k),
+      kvSet: (k: string, v: string) => {
+        // The *first* write of the job state fails — the one the settlement test excludes.
+        if (k === "onboarding.firstJob" && failNext) { failNext = false; throw new Error("SQLITE_BUSY"); }
+        m.set(k, v);
+      },
+    };
+    const base = await start({ store, boot: async () => fakeWorld() });
+
+    expect((await post(base, { request: "go" })).status).toBe(500);
+    // A write that failed started nothing, so GET must agree that nothing is running...
+    expect(await get(base)).toMatchObject({ status: "idle" });
+    // ...and the next attempt is a retry, not a duplicate. Refused here, POST would insist a job
+    // is running while GET says idle, for the lifetime of the process.
+    expect((await post(base, { request: "go" })).status).toBe(200);
+    expect(await settle(base)).toMatchObject({ status: "done", request: "go" });
+  });
+
   it("keeps the step usable when the settlement write itself fails", async () => {
     const m = new Map<string, string>([["onboarding.step", "first-job"]]);
     const store = {
