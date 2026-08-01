@@ -1,4 +1,4 @@
-// ui2/src/App.tsx — Ember Cockpit shell: 7 sections stay mounted; route picks visibility (old-UI pattern).
+// ui2/src/App.tsx — Ember Cockpit shell: every section stays mounted; route picks visibility (old-UI pattern).
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import { useEvents, useFetch, useLiveQuery } from "./hooks.js";
@@ -15,10 +15,11 @@ import { Staff } from "./views/Staff.js";
 import { Mail } from "./views/Mail.js";
 import { Schedule } from "./views/Schedule.js";
 import { Skills } from "./views/Skills.js";
+import { Library } from "./views/Library.js";
 import { System } from "./views/System.js";
 import { Setup } from "./views/Setup.js";
 
-const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "mail", r: "schedule", k: "skills", y: "system" };
+const JUMPS: Record<string, string> = { h: "home", g: "goals", s: "staff", m: "mail", r: "schedule", k: "skills", l: "library", y: "system" };
 
 export function App() {
   const route = useRoute();
@@ -40,7 +41,7 @@ export function App() {
     setChatOpen(true);
   };
 
-  // ⌘J chat toggle + `g then h/g/s/m/r/k/y` section jumps (never while typing).
+  // ⌘J chat toggle + `g then h/g/s/m/r/k/l/y` section jumps (never while typing).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
@@ -88,6 +89,7 @@ export function App() {
       <div className={show("mail")}><Mail events={events} route={route} /></div>
       <div className={show("schedule")}><Schedule /></div>
       <div className={show("skills")}><Skills /></div>
+      <div className={show("library")}><Library /></div>
       <div className={show("system")}><System events={events} route={route} /></div>
       <BottomTabs section={route.section} needsYou={attention?.length ?? 0} />
       {/* Phone has no top-bar chat button — floating entry above the tabs. */}

@@ -20,6 +20,7 @@ import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, r
 import { buildOrgView, buildAgentProfile } from "./org-view.js";
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 import { buildAttentionView } from "./attention-view.js";
+import { libraryTree, libraryRead } from "./library-view.js";
 import { buildScheduleView, validateRoutineBody, isValidHHMM, anchorOverrideKey, ANCHOR_NAMES } from "./schedule-view.js";
 import {
   skillsPluginRoot, buildSkillsView, validateSkillMd, readSkill, writeSkill,
@@ -814,6 +815,30 @@ export function startWebServer(deps: WebDeps, port: number): Server {
           if (!m || m.to_agent !== "user") return json(res, 400, { error: "not user mail" });
           mailbox.markDelivered([m.id]);
           return json(res, 200, { ok: true });
+        }
+
+        // ---- library: read-only workspace browser (spec §4) ----
+        if (path === "/api/library/tree" && req.method === "GET") {
+          // No depth parameter on purpose: the walk is the caller's to amplify otherwise, and a
+          // single symlink loop inside the vault inflates the reply by orders of magnitude.
+          return json(res, 200, { nodes: libraryTree(vault.root) });
+        }
+
+        if (path === "/api/library/file" && req.method === "GET") {
+          const rel = url.searchParams.get("path") ?? "";
+          try {
+            const f = libraryRead(vault.root, rel);
+            // nosniff so the octet-stream fallback stays a download — that fallback is where
+            // active content (.svg, .html) lands, and sniffing would undo the whole point.
+            res.writeHead(200, {
+              "Content-Type": f.mime, "Content-Length": f.body.length, "X-Content-Type-Options": "nosniff",
+            });
+            return res.end(f.body);
+          } catch (err) {
+            // Containment failures and missing files are both the caller's problem, and
+            // distinguishing them in the response would confirm what exists outside the vault.
+            return json(res, 404, { error: (err as Error).message });
+          }
         }
 
         if (path === "/api/permissions" && req.method === "GET") {

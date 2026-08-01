@@ -26,7 +26,7 @@ describe("design doctrine (DESIGN.md)", () => {
   });
 
   it("§4 every section view except Home uses the shared .page container", () => {
-    for (const view of ["Goals", "Staff", "Mail", "Schedule", "Skills", "System"]) {
+    for (const view of ["Goals", "Staff", "Mail", "Schedule", "Skills", "Library", "System"]) {
       const text = readFileSync(join(SRC, "views", `${view}.tsx`), "utf8");
       expect(text.includes('"page') || text.includes("'page") || text.includes("className=\"page"), `${view}.tsx must render inside .page`).toBe(true);
     }

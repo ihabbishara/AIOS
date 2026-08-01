@@ -6,14 +6,14 @@ export type {
   GoalNodeView, GoalView, GoalDetail, FirstJobStatus, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, RoutineView, AnchorView, ScheduleReminderView, Recurrence,
-  SkillView, WebAttachment,
+  SkillView, WebAttachment, LibraryNode,
 } from "../../src/web/dto.js";
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
   OrgDepartmentView, AgentProfileInfo, AgentActivityInfo, PermissionInfo, PackView,
   GoalView, GoalDetail, FirstJobStatus, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
-  ScheduleView, Recurrence, SkillView, WebAttachment,
+  ScheduleView, Recurrence, SkillView, WebAttachment, LibraryNode,
 } from "../../src/web/dto.js";
 
 export function getToken(): string {
@@ -42,6 +42,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
   return res.json() as Promise<T>;
+}
+
+/** GET one workspace file with the bearer header. Not `request`: the 200 body is the file's own
+ *  bytes rather than JSON, while a refusal IS JSON — so the not-ok branch has to be handled here
+ *  or a "not a file" error would be rendered to the reader as the document's content. */
+async function libraryFile(path: string): Promise<Response> {
+  const res = await fetch(`/api/library/file?path=${encodeURIComponent(path)}`, {
+    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+  });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) {
+    throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res;
 }
 
 /** The org the wizard is proposing. Nothing has been written when this is on screen. */
@@ -225,6 +239,12 @@ export const api = {
     request<{ md: string }>("/api/skills/fetch", { method: "POST", body: JSON.stringify({ url }) }),
   setAgentSkills: (agent: string, skills: string[]) =>
     request<{ ok: true }>(`/api/agents/${encodeURIComponent(agent)}/skills`, { method: "PATCH", body: JSON.stringify({ skills }) }),
+  libraryTree: () => request<{ nodes: LibraryNode[] }>("/api/library/tree"),
+  libraryText: async (path: string): Promise<string> => (await libraryFile(path)).text(),
+  /** An <img>/<embed> src cannot send a bearer header, so binaries are fetched here as a blob
+   *  URL the browser can point an element at. The caller owns revoking it. */
+  libraryBlobUrl: async (path: string): Promise<string> =>
+    URL.createObjectURL(await (await libraryFile(path)).blob()),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",
