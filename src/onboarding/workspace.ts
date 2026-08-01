@@ -20,8 +20,11 @@ const DEFAULT_SUBDIR = "AIOS";
  *  a denylist of separators and dot-dot admits ".", "~", and a NUL byte, which respectively
  *  land on the vault root, make a folder that is a shell footgun, and throw inside mkdir.
  *  The first character must be a letter or digit in any script, which is the clause doing the
- *  work — it excludes every dot-segment by construction while still allowing メモ or Übersicht. */
-const SUBDIR_RE = /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u;
+ *  work — it excludes every dot-segment by construction while still allowing メモ or Übersicht.
+ *  The trailing class also admits combining marks, because macOS normalizes filenames to NFD:
+ *  a name pasted from a Finder or shell path arrives decomposed, so "Ü" reaches us as a plain
+ *  "U" followed by a separate combining diaeresis. A mark can still never lead. */
+const SUBDIR_RE = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ._-]*$/u;
 
 export function resolveWorkspace(choice: WorkspaceChoice, home: string): WorkspaceResult {
   const subdirRaw = (choice.subdir ?? "").trim();

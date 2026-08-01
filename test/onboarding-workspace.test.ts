@@ -67,7 +67,22 @@ describe("resolveWorkspace", () => {
     }
   });
 
-  // Widening to \p{L}\p{N} must not weaken the leading-character rule: "・" is punctuation
+  // macOS normalizes filenames to NFD, so the same name typed into the wizard (NFC) and pasted
+  // from a Finder path (NFD) are different strings that look identical. Both must be accepted;
+  // rejecting one is invisible to the user. Built with normalize() rather than pasted decomposed
+  // bytes, which would be unreadable here and could be silently recomposed by an editor.
+  it("accepts a decomposed (NFD) name as readily as its composed form", () => {
+    const nfc = "Übersicht".normalize("NFC");
+    const nfd = "Übersicht".normalize("NFD");
+    expect(nfd).not.toBe(nfc);                       // the test is exercising a real decomposition
+    expect(nfd.length).toBeGreaterThan(nfc.length);  // "Ü" split into "U" + combining diaeresis
+    for (const subdir of [nfc, nfd]) {
+      expect(resolveWorkspace({ mode: "custom", path: "/data/vault", subdir }, HOME))
+        .toStrictEqual({ ok: true, path: "/data/vault", subdir });
+    }
+  });
+
+  // Widening to \p{L}\p{N}\p{M} must not weaken the leading-character rule: "・" is punctuation
   // rather than a letter, and a leading dot is still a leading dot in any script.
   it("still rejects non-ASCII names that are not a letter or digit first", () => {
     for (const subdir of ["・", ".メモ"]) {
