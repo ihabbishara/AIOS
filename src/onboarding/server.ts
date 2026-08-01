@@ -18,6 +18,7 @@ import {
 import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
 import { loadCapabilities } from "../agents/registry/capabilities.js";
 import { CAPABILITIES_FILE } from "./seed.js";
+import type { BootedWorld } from "../boot.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
@@ -39,6 +40,8 @@ export interface SetupDeps {
   orgExists?: () => boolean;
   /** Injected in tests so the interview never touches the network. */
   architect?: Architect;
+  /** Brings the real daemon up in-process once an org exists. Injected so tests never boot. */
+  boot?: () => Promise<BootedWorld>;
   log?: (line: string) => void;
 }
 
