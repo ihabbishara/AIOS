@@ -70,6 +70,18 @@ describe("libraryTree", () => {
     expect(libraryTree(root).map((n) => n.name)).toEqual(["goals", "knowledge", "logo.png"]);
   });
 
+  // The dotfile skip is a name check on the unresolved entry, so an ordinary-looking link at a
+  // dot-directory used to walk straight into it: `.git` names and sizes on the wire, and entries
+  // the reader then refuses as hidden — a tree the UI shows but cannot open.
+  it("omits a plainly-named symlink pointing at a dot-directory", () => {
+    mkdirSync(join(root, ".git", "refs"), { recursive: true });
+    writeFileSync(join(root, ".git", "config"), "url = https://user:pw@example.com/x.git");
+    symlinkSync(join(root, ".git"), join(root, "link"));
+    const t = libraryTree(root);
+    expect(t.map((n) => n.name)).toEqual(["goals", "knowledge", "logo.png"]);
+    expect(JSON.stringify(t)).not.toContain("refs");
+  });
+
   it("omits a symlinked file pointing outside the vault", () => {
     symlinkSync(join(outside, "id_rsa"), join(root, "leak.md"));
     expect(libraryTree(root).map((n) => n.name)).toEqual(["goals", "knowledge", "logo.png"]);
@@ -245,5 +257,39 @@ describe("libraryRead", () => {
     expect(() => libraryRead(root, "present.md")).toThrow(/escapes/i);
     // Same verdict for the absent target: "not a file" here would confirm what is NOT out there.
     expect(() => libraryRead(root, "gone.md")).toThrow(/escapes/i);
+  });
+
+  // A chain longer than the hop budget cannot be resolved, and an unresolved path must count as
+  // an escape — falling through would restore the oracle for anyone willing to plant 12 links.
+  it("rejects an over-long link chain identically whether or not its target exists", () => {
+    const chain = (name: string, target: string) => {
+      let next = target;
+      for (let i = 11; i >= 0; i--) {
+        symlinkSync(next, join(root, `${name}${i}`));
+        next = join(root, `${name}${i}`);
+      }
+    };
+    chain("here", join(outside, "id_rsa"));   // 12 links onto a file that exists
+    chain("nowhere", join(outside, "absent.md")); // 12 links onto one that does not
+    expect(() => libraryRead(root, "here0")).toThrow(/escapes/i);
+    expect(() => libraryRead(root, "nowhere0")).toThrow(/escapes/i);
+  });
+
+  it("rejects an escape through a dangling directory link, not just a live one", () => {
+    symlinkSync(outside, join(root, "realdir"));
+    symlinkSync(join(outside, "nodir"), join(root, "danglingdir"));
+    expect(() => libraryRead(root, "realdir/id_rsa")).toThrow(/escapes/i);
+    // The intermediate decides even though nothing on the far side is there to stat.
+    expect(() => libraryRead(root, "danglingdir/x.md")).toThrow(/escapes/i);
+  });
+
+  it.skipIf(!CAN_LOCK)("refuses an unreadable file without naming it on disk", () => {
+    const noread = join(root, "noread.md");
+    writeFileSync(noread, "secret");
+    chmodSync(noread, 0o000);
+    locked.push(noread);
+    expect(() => libraryRead(root, "noread.md")).toThrow(/cannot read: noread\.md/);
+    // The raw EACCES carries the vault's absolute path, and the endpoint echoes the message.
+    expect(() => libraryRead(root, "noread.md")).not.toThrow(new RegExp(root));
   });
 });

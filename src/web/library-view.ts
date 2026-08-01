@@ -2,7 +2,7 @@
 // Containment is the whole risk surface here, so it lives in one function with no HTTP
 // around it: resolve the real path (following symlinks) and require it under the root.
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { extname, join, parse, relative, resolve, sep } from "node:path";
 import { isUnder, resolveReal } from "../code/paths.js";
 import type { LibraryNode } from "./dto.js";
 
@@ -26,26 +26,45 @@ const MAX_DEPTH = 16;
  *  this large, so refuse rather than allocate. */
 export const MAX_READ_BYTES = 8 * 1024 * 1024;
 
-/** Hops a symlink chain by hand, bounded. resolveReal() only resolves links whose target
- *  EXISTS; a dangling one keeps the link's own path, so containment would be judged on where
- *  the link sits rather than on where it points. That is an existence oracle: a link out of the
- *  vault answers "escapes" when its target is there and "not a file" when it is not. */
+/** Resolve `p` the way the kernel would — segment by segment, following every symlink — but
+ *  without requiring it to exist: a tail that is not there stays literal.
+ *
+ *  resolveReal() alone cannot do this, and the gap is an existence oracle rather than a nicety.
+ *  It decides what to resolve with existsSync(), which FOLLOWS links, so any dangling link —
+ *  leaf or directory — reads as "not there yet" and its target is never consulted. Containment
+ *  then gets judged on where the link sits instead of where it points, and a link out of the
+ *  vault answers "escapes" when its target happens to exist and "not a file" when it does not.
+ *  Resolving each segment ourselves means `outward/nodir` decides the verdict for
+ *  `outward/nodir/x.md` whether or not anything is there. */
 const MAX_LINK_HOPS = 8;
-function followLinks(p: string): string {
-  let cur = p;
-  for (let i = 0; i < MAX_LINK_HOPS; i++) {
-    try {
-      if (!lstatSync(cur).isSymbolicLink()) break;
-      cur = resolve(dirname(cur), readlinkSync(cur));
-    } catch { break; } // absent, or a link cycle — whatever we have is what gets checked
+function resolveLinks(p: string): string {
+  const abs = resolve(p);
+  let cur = parse(abs).root;
+  let parts = abs.slice(cur.length).split(sep).filter(Boolean);
+  for (let hops = 0; parts.length;) {
+    const next = join(cur, parts[0]);
+    let st;
+    // Absent (or unreadable): nothing left to follow, so this and every later segment is literal.
+    try { st = lstatSync(next); } catch { cur = next; parts = parts.slice(1); continue; }
+    if (!st.isSymbolicLink()) { cur = next; parts = parts.slice(1); continue; }
+    // Fail closed rather than hand back a still-unresolved path: past the budget the caller
+    // gets an escape, which is what an unresolvable chain has to count as.
+    if (++hops > MAX_LINK_HOPS) throw new Error("too many symbolic links");
+    const target = resolve(cur, readlinkSync(next));
+    const root = parse(target).root;
+    parts = [...target.slice(root.length).split(sep).filter(Boolean), ...parts.slice(1)];
+    cur = root;
   }
   return cur;
 }
 
 /** Resolve `rel` against an already-resolved `base` and prove it stays inside. Symlinks are
- *  resolved BEFORE the check, so a link out of the vault is rejected rather than followed. */
+ *  resolved BEFORE the check, so a link out of the vault is rejected rather than followed, and
+ *  a chain we cannot finish resolving is rejected too. */
 function contained(base: string, rel: string): string {
-  const real = resolveReal(followLinks(resolve(base, rel)));
+  let real: string;
+  try { real = resolveLinks(resolve(base, rel)); }
+  catch { throw new Error(`path escapes the workspace: ${rel}`); }
   if (!isUnder(real, base)) throw new Error(`path escapes the workspace: ${rel}`);
   return real;
 }
@@ -73,10 +92,15 @@ export function libraryTree(root: string, maxDepth = DEFAULT_DEPTH): LibraryNode
       const childRel = rel ? `${rel}/${name}` : name;
       let st;
       try {
-        // A link out of the vault must not be listed either — the tree would otherwise leak
-        // names and sizes from outside it. Same rule as contained(): resolve, then require.
+        // The name check above is on the UNRESOLVED entry, so a link named like an ordinary
+        // file still has to be judged on what it points at: out of the vault leaks names and
+        // sizes from outside it, and at a dot-directory it lists `.git` entries the reader
+        // then refuses — a tree the UI shows but cannot open. Same rule as libraryRead().
         // statSync throws on a dangling link, which the catch turns into a skip.
-        if (lstatSync(childAbs).isSymbolicLink() && !isUnder(childAbs, base)) continue;
+        if (lstatSync(childAbs).isSymbolicLink()) {
+          const real = resolveLinks(childAbs); // throws on a chain we cannot finish → skipped
+          if (!isUnder(real, base) || isHidden(base, real)) continue;
+        }
         st = statSync(childAbs);
       } catch { continue; }
       const node: LibraryNode = { name, path: childRel, dir: st.isDirectory(), size: st.isDirectory() ? 0 : st.size };
@@ -101,5 +125,9 @@ export function libraryRead(root: string, rel: string): { mime: string; body: Bu
   if (!existsSync(abs) || statSync(abs).isDirectory()) throw new Error(`not a file: ${rel}`);
   const { size } = statSync(abs);
   if (size > MAX_READ_BYTES) throw new Error(`file too large: ${rel} (${size} bytes, cap ${MAX_READ_BYTES})`);
-  return { mime: MIME[extname(abs).toLowerCase()] ?? "application/octet-stream", body: readFileSync(abs) };
+  const mime = MIME[extname(abs).toLowerCase()] ?? "application/octet-stream";
+  // Same disclosure as the missing-root guard, one fs call later: an unreadable file throws
+  // EACCES carrying the vault's absolute path, and the endpoint puts that message in the reply.
+  try { return { mime, body: readFileSync(abs) }; }
+  catch { throw new Error(`cannot read: ${rel}`); }
 }
