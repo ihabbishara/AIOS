@@ -94,6 +94,30 @@ export function startSetupServer(deps: SetupDeps): Server {
   // interleave — a second attempt is refused rather than queued (the wizard has one user).
   let verifying = false;
 
+  // The booted daemon, once it exists. Tasks that need the engine read this; `booting` is the
+  // in-flight promise so a refresh, a double-click and the retry endpoint cannot make two worlds.
+  let world: BootedWorld | null = null;
+  let booting: Promise<BootedWorld> | null = null;
+  let bootError = "";
+
+  const ensureBooted = async (): Promise<BootedWorld | null> => {
+    if (world) return world;
+    if (!deps.boot) return null;
+    if (!booting) {
+      booting = deps.boot()
+        .then((w) => { world = w; bootError = ""; log("daemon booted in-process"); return w; })
+        .catch((err) => {
+          // The org is already on disk and valid — a boot failure is a separate fault, so it is
+          // recorded for the UI rather than unwound. Cleared so a retry can try again.
+          bootError = (err as Error).message;
+          log(`hot boot failed: ${bootError}`);
+          throw err;
+        })
+        .finally(() => { booting = null; });
+    }
+    return booting.catch(() => null);
+  };
+
   const PROPOSAL_KEY = "onboarding.proposal";
   const TRANSCRIPT_KEY = "onboarding.transcript";
   const ask = deps.architect ?? sdkArchitect;
@@ -166,7 +190,18 @@ export function startSetupServer(deps: SetupDeps): Server {
           return json(res, 403, { error: "cross-origin request refused" });
         }
         if (path === "/api/state" && req.method === "GET") {
-          return json(res, 200, { mode: "setup", step: wizard.current() });
+          return json(res, 200, {
+            mode: "setup", step: wizard.current(),
+            booted: world !== null,
+            ...(bootError ? { bootError } : {}),
+          });
+        }
+        // Retry after a failed hot boot. The org is already provisioned by the time this can
+        // matter, so this brings up the engine alone — it never re-runs provisioning.
+        if (path === "/api/onboarding/boot" && req.method === "POST") {
+          const w = await ensureBooted();
+          return json(res, w ? 200 : 500,
+            w ? { booted: true } : { booted: false, error: bootError || "no boot function configured" });
         }
         if (path === "/api/onboarding/advance" && req.method === "POST") {
           const body = await readJson<{ from?: unknown }>(req);
@@ -418,6 +453,7 @@ export function startSetupServer(deps: SetupDeps): Server {
           // Resume: a crash between writing the org and advancing leaves the wizard here with
           // an org already on disk. Finishing is right; provisioning again would collide.
           if (at === "provision" && orgExists()) {
+            await ensureBooted(); // a crash-resume must land on first-job with an engine too
             return transition(res, path, () => wizard.advance("provision"));
           }
           if (at !== "review") return json(res, 400, { error: `provisioning happens at the review step, not ${at}` });
@@ -435,6 +471,9 @@ export function startSetupServer(deps: SetupDeps): Server {
           wizard.advance("review");    // → provision
           wizard.advance("provision"); // → first-job
           log(`org provisioned: ${result.agents.join(", ")}`);
+          // The org exists either way; a boot failure surfaces through /api/state, not by
+          // refusing the provision the user just approved.
+          await ensureBooted();
           return json(res, 200, { step: wizard.current(), departments: result.departments, agents: result.agents });
         }
 

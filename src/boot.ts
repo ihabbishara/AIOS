@@ -71,7 +71,7 @@ import { buildLifeopsServer } from "./lifeops/server.js";
 import { computeLifeopsSignals } from "./lifeops/ops.js";
 import { buildLedgerServer } from "./finance/server.js";
 
-export const log =(line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
+export const log = (line: string) => console.log(`[aios ${new Date().toISOString()}] ${line}`);
 
 export interface BootedWorld {
   store: Store;

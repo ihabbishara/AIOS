@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import type { Server } from "node:http";
 import { connect } from "node:net";
 import { startSetupServer, type SetupDeps } from "../src/onboarding/server.js";
+import type { BootedWorld } from "../src/boot.js";
 
 function kv() {
   const m = new Map<string, string>();
@@ -36,7 +37,8 @@ describe("setup server", () => {
   it("walks welcome → auth → workspace over HTTP, persisting the token", async () => {
     const { base, envPath } = await boot(async () => {});
     let r = await fetch(`${base}/api/state`);
-    expect(await r.json()).toEqual({ mode: "setup", step: "welcome" });
+    // Strict shape on purpose: bootError is absent until a hot boot has actually failed.
+    expect(await r.json()).toEqual({ mode: "setup", step: "welcome", booted: false });
 
     r = await fetch(`${base}/api/onboarding/advance`, {
       method: "POST", body: JSON.stringify({ from: "welcome" }),
@@ -573,5 +575,99 @@ describe("the capability catalog before provision", () => {
     const body = (await r.json()) as { capabilities: string[]; skills: string[] };
     expect(body.capabilities).toContain("web");
     expect(body.capabilities.length).toBeGreaterThan(5);
+  });
+});
+
+/** Minimum shape the setup server actually touches. Cast once, here, so the tests below
+ *  read as real usage rather than as a pile of `as any`. */
+function fakeWorld(over: Partial<BootedWorld> = {}): BootedWorld {
+  return {
+    moderator: { handle: async () => ({ text: "done", attachments: [] }) },
+    store: { listGoals: () => [], listNodes: () => [] },
+    startWeb: () => {},
+    ...over,
+  } as unknown as BootedWorld;
+}
+
+describe("hot boot", () => {
+  /** Land on review with a proposal actually stored. Starting the wizard on "review" with an
+   *  empty store makes provision 400 with "no proposal to provision" — which would make every
+   *  assertion below about a boot that never happened. */
+  async function reviewWithProposal(over: Partial<SetupDeps>) {
+    const b = await boot(noop, over, "interview");
+    await postJson(b.base, "/api/onboarding/template", { name: "starter" });
+    return b;
+  }
+
+  it("boots after a successful provision and reports booted", async () => {
+    let booted = 0;
+    const { base } = await reviewWithProposal({
+      provisionFn: () => ({ ok: true, departments: ["ops"], agents: ["nova"], playbooks: [] }),
+      boot: async () => { booted++; return fakeWorld(); },
+    });
+
+    const r = await fetch(`${base}/api/onboarding/provision`, { method: "POST", body: "{}" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("first-job");
+    expect(booted).toBe(1);
+
+    const s = await (await fetch(`${base}/api/state`)).json();
+    expect(s).toMatchObject({ mode: "setup", step: "first-job", booted: true });
+  });
+
+  it("keeps the provisioned org when boot throws, and reports the error", async () => {
+    const { base } = await reviewWithProposal({
+      provisionFn: () => ({ ok: true, departments: ["ops"], agents: ["nova"], playbooks: [] }),
+      boot: async () => { throw new Error("registry exploded"); },
+    });
+
+    const r = await fetch(`${base}/api/onboarding/provision`, { method: "POST", body: "{}" });
+    // The org IS created — boot failing is a separate fault and must not roll it back.
+    expect(r.status).toBe(200);
+    expect((await r.json()).step).toBe("first-job");
+
+    const s = await (await fetch(`${base}/api/state`)).json();
+    expect(s.booted).toBe(false);
+    expect(s.bootError).toContain("registry exploded");
+  });
+
+  it("retries a failed boot through /api/onboarding/boot", async () => {
+    let attempts = 0;
+    const { base } = await reviewWithProposal({
+      provisionFn: () => ({ ok: true, departments: ["ops"], agents: ["nova"], playbooks: [] }),
+      boot: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error("first attempt fails");
+        return fakeWorld();
+      },
+    });
+
+    await fetch(`${base}/api/onboarding/provision`, { method: "POST", body: "{}" });
+    const r = await fetch(`${base}/api/onboarding/boot`, { method: "POST", body: "{}" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).booted).toBe(true);
+    expect(attempts).toBe(2);
+  });
+
+  it("never boots twice when provision and retry race", async () => {
+    let attempts = 0;
+    const { base } = await reviewWithProposal({
+      provisionFn: () => ({ ok: true, departments: ["ops"], agents: ["nova"], playbooks: [] }),
+      boot: async () => {
+        attempts++;
+        await new Promise((r) => setTimeout(r, 20));
+        return fakeWorld();
+      },
+    });
+
+    const [prov, retry] = await Promise.all([
+      fetch(`${base}/api/onboarding/provision`, { method: "POST", body: "{}" }),
+      fetch(`${base}/api/onboarding/boot`, { method: "POST", body: "{}" }),
+    ]);
+    // Both requests must have gone down the boot path — otherwise "exactly one world" is
+    // a claim about a race that never happened.
+    expect(prov.status).toBe(200);
+    expect(retry.status).toBe(200);
+    expect(attempts).toBe(1);
   });
 });

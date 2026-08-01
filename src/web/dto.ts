@@ -24,6 +24,10 @@ export interface StateInfo {
   mode?: "setup" | "normal";
   /** Current wizard step when mode === "setup". */
   step?: string;
+  /** Setup mode only: has the daemon been booted in-process yet? */
+  booted?: boolean;
+  /** Setup mode only: why the in-process boot failed, when it did. */
+  bootError?: string;
   uptimeMs: number;
   voice: boolean;
   agents: AgentInfo[];
