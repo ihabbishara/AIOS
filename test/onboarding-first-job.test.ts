@@ -34,12 +34,32 @@ function fakeWorld(over: Partial<BootedWorld> = {}): BootedWorld {
   } as unknown as BootedWorld;
 }
 
-/** The wizard as it stands when the user reaches this step: org on disk, step first-job. */
-async function start(over: Partial<SetupDeps> = {}) {
+/** A `handle` that parks until released. That window — a coordinator turn takes minutes — is
+ *  where every state defect below lives, so the tests need to stand inside it. */
+function deferredHandle() {
+  const calls: string[] = [];
+  let release!: (reply: string) => void;
+  const gate = new Promise<string>((r) => { release = r; });
+  return {
+    calls,
+    release: (reply: string) => release(reply),
+    moderator: {
+      handle: async (_c: string, _i: string, text: string) => {
+        calls.push(text);
+        return { text: await gate, attachments: [] };
+      },
+    } as unknown as BootedWorld["moderator"],
+  };
+}
+
+/** The wizard as it stands when the user reaches this step: org on disk, step first-job.
+ *  `seed` writes kv before the server reads it — how a previous process's leftovers arrive. */
+async function start(over: Partial<SetupDeps> = {}, seed?: (s: ReturnType<typeof kv>) => void) {
   const dir = mkdtempSync(join(tmpdir(), "fj-"));
   const store = kv();
   store.kvSet("onboarding.step", "first-job");
   store.kvSet("onboarding.proposal", PROPOSAL);
+  seed?.(store);
   server = startSetupServer({
     store, envPath: join(dir, ".env"), uiDist: dir, port: 0, ping: async () => {},
     agentsDir: join(dir, "agents"), playbooksDir: join(dir, "playbooks"),
@@ -191,6 +211,113 @@ describe("first job", () => {
     // zero-agent daemon, and every later job then runs against an empty registry.
     expect(attempts).toBe(0);
     expect((await get(base)).status).toBe("idle");
+  });
+
+  // kv is durable, the flag that says "this process is dispatching" is not — which is exactly
+  // what makes a leftover `running` recognisable as stale rather than live.
+  it("reports a running job left behind by a dead process as failed, and takes a new one", async () => {
+    const base = await start(
+      { boot: async () => fakeWorld() },
+      (s) => s.kvSet("onboarding.firstJob", JSON.stringify({ status: "running", request: "from a dead process" })),
+    );
+    const s = await get(base);
+    expect(s.status).toBe("failed");
+    expect(s.error).toContain("interrupted");
+    expect(s.request).toBe("from a dead process");
+    // Reconciling on read is only half of it: the step must still accept a fresh dispatch, or
+    // the wizard is wedged in a different way than before.
+    expect((await post(base, { request: "again" })).status).toBe(200);
+    expect(await settle(base)).toMatchObject({ status: "done", request: "again" });
+  });
+
+  it("still reports a live dispatch as running", async () => {
+    const d = deferredHandle();
+    const { base } = await boot({ moderator: d.moderator });
+    await post(base, { request: "A" });
+    // The stale check must key on the flag, not on the status: healing every `running` would
+    // report the job the user is watching as failed while it is still working.
+    expect(await get(base)).toMatchObject({ status: "running", request: "A" });
+    d.release("done at last");
+    expect(await settle(base)).toMatchObject({ status: "done", reply: "done at last" });
+  });
+
+  it("refuses a second dispatch in flight, and the first settles onto its own state", async () => {
+    const d = deferredHandle();
+    const { base } = await boot({ moderator: d.moderator });
+    expect((await post(base, { request: "A" })).status).toBe(200);
+
+    const second = await post(base, { request: "B" });
+    expect(second.status).toBe(409);
+    expect(((await second.json()) as { error: string }).error).toBe("a first job is already running");
+    expect(d.calls).toEqual(["A"]);
+    // The refusal left A's state alone — B never overwrote it.
+    expect(await get(base)).toMatchObject({ status: "running", request: "A" });
+
+    d.release("reply to A");
+    // The point of the guard: A resolves onto A. Unguarded, A's reply landed on B's `running`
+    // state and a UI that stops polling at `done` showed the answer to a superseded request.
+    expect(await settle(base)).toMatchObject({ status: "done", request: "A", reply: "reply to A" });
+  });
+
+  it("lets only one of two POSTs that race across the boot through", async () => {
+    const d = deferredHandle();
+    // Nothing is booted, and the boot takes 25ms: both requests are parked inside
+    // `await ensureBooted()` at the same time, so the check-and-set really is interleaved —
+    // a guard placed before that await would let both dispatch.
+    const base = await start({
+      boot: async () => {
+        await new Promise((r) => setTimeout(r, 25));
+        return fakeWorld({ moderator: d.moderator });
+      },
+    });
+    const [a, b] = await Promise.all([post(base, { request: "A" }), post(base, { request: "B" })]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    expect(d.calls.length).toBe(1);
+    d.release("ok");
+    await settle(base);
+  });
+
+  it("keeps the step usable when the settlement write itself fails", async () => {
+    const m = new Map<string, string>([["onboarding.step", "first-job"]]);
+    const store = {
+      kvGet: (k: string) => m.get(k),
+      kvSet: (k: string, v: string) => {
+        // The dispatch records `running` fine; the write of the *result* is what fails, the way
+        // a SQLITE_BUSY would. That is a throw from inside the settlement path itself.
+        if (k === "onboarding.firstJob" && !v.includes(`"running"`)) throw new Error("SQLITE_BUSY");
+        m.set(k, v);
+      },
+    };
+    // Asserted here rather than left to vitest's "Errors" line, which the standing rule to read
+    // the "Tests" line would walk straight past.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => void unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const base = await start({ store, boot: async () => fakeWorld() });
+      expect((await post(base, { request: "go" })).status).toBe(200);
+      // kv is stuck on `running`, so the flag must come down anyway — otherwise the read-path
+      // reconcile never fires and every later POST 409s against a job that cannot finish.
+      const s = await settle(base);
+      expect(s.status).toBe("failed");
+      expect(s.error).toContain("interrupted");
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("records a coordinator that throws synchronously rather than stranding the job", async () => {
+    const { base } = await boot({
+      // Not reachable through today's async Moderator — the point is that the invariant
+      // "a running job always settles" belongs to this code, not to Moderator's signature.
+      moderator: { handle: () => { throw new Error("no session"); } } as unknown as BootedWorld["moderator"],
+    });
+    const r = await post(base, { request: "go" });
+    expect(r.status).toBe(200);
+    const s = await settle(base);
+    expect(s.status).toBe("failed");
+    expect(s.error).toContain("no session");
   });
 
   it("refuses an empty request", async () => {

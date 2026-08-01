@@ -126,9 +126,20 @@ export function startSetupServer(deps: SetupDeps): Server {
   // goals it spawns findable later without inventing an id registry.
   const JOB_ORIGIN = { channel: "web", chatId: "onboarding" };
   type JobState = { status: "running" | "done" | "failed"; request: string; reply?: string; error?: string };
+  // In-process on purpose, and never persisted: kv alone cannot tell a live dispatch from one
+  // whose process died mid-turn. This flag is what makes that distinction knowable.
+  let dispatching = false;
   const jobState = (): JobState | null => {
     const raw = deps.store.kvGet(FIRST_JOB_KEY);
-    return raw ? (JSON.parse(raw) as JobState) : null;
+    if (!raw) return null;
+    const s = JSON.parse(raw) as JobState;
+    // Reconciled on read, so a restart self-heals without a write at boot. A coordinator turn
+    // takes minutes, so Ctrl-C during one is ordinary; the kv `running` it leaves behind has
+    // nothing left to resolve it, and the wizard would spin on it forever.
+    if (s.status === "running" && !dispatching) {
+      return { ...s, status: "failed", error: "interrupted — try again" };
+    }
+    return s;
   };
   const setJobState = (s: JobState) => deps.store.kvSet(FIRST_JOB_KEY, JSON.stringify(s));
   const ask = deps.architect ?? sdkArchitect;
@@ -511,15 +522,32 @@ export function startSetupServer(deps: SetupDeps): Server {
           const request = typeof body.request === "string" ? body.request.trim() : "";
           if (!request) return json(res, 400, { error: "request required" });
 
+          // Checked and set with no await between the two, so two POSTs that interleave across
+          // an await — a double-click, a second tab — cannot both get through. A second dispatch
+          // would overwrite the first job's state and then settle onto the second's, reporting
+          // `done` with the reply to a request the user has already superseded. Guarded the way
+          // this server already guards its other one-at-a-time work: `verifying` on /auth, the
+          // `booting` promise on the hot boot.
+          if (dispatching) return json(res, 409, { error: "a first job is already running" });
+          dispatching = true;
           setJobState({ status: "running", request });
           // Deliberately not awaited: the coordinator can take minutes, and the browser polls GET
-          // for progress. Errors land in kv, so there is no unhandled rejection either way.
-          void w.moderator.handle(JOB_ORIGIN.channel, JOB_ORIGIN.chatId, request)
-            .then((r) => setJobState({ status: "done", request, reply: r.text }))
-            .catch((err) => {
+          // for progress. Wrapped rather than chained off handle() so a *synchronous* throw takes
+          // the same failure path — otherwise it would escape to the 500 handler with kv already
+          // on `running`, which is the stale-running wedge by another route.
+          void (async () => {
+            try {
+              const r = await w.moderator.handle(JOB_ORIGIN.channel, JOB_ORIGIN.chatId, request);
+              setJobState({ status: "done", request, reply: r.text });
+            } catch (err) {
               log(`first job failed: ${(err as Error).message}`);
               setJobState({ status: "failed", request, error: (err as Error).message });
-            });
+            } finally {
+              // Unconditional: a state write that itself throws (SQLITE_BUSY) must still lower the
+              // flag, or every later POST 409s against a job that will never settle.
+              dispatching = false;
+            }
+          })().catch((err) => log(`first job state write failed: ${(err as Error).message}`));
           return json(res, 200, { status: "running" });
         }
 
