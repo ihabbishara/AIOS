@@ -38,17 +38,39 @@ export function tideStep(s: TideState, working: number, now: number): TideState 
 }
 
 /** Drives tideStep from the working count plus a ticker, because the dwell can
- *  elapse with no new event arriving to prompt a re-evaluation. */
-export function useTide(working: number): TideLevel {
-  const [state, setState] = useState<TideState>(() => tideInit(working));
+ *  elapse with no new event arriving to prompt a re-evaluation.
+ *
+ *  Pass `undefined` while the org payload is still in flight. The dwell must NOT
+ *  apply to the first real reading: initialising from a placeholder 0 would park
+ *  every page load at "low" for 8s and then swell, which reads as a bug rather
+ *  than a tide. */
+export function useTide(working: number | undefined): TideLevel {
+  const [state, setState] = useState<TideState | null>(null);
   const latest = useRef(working);
   latest.current = working;
+
+  // Seed during render, not in an effect. An effect would leave one frame where
+  // the status line says work is happening while the field is still compressed —
+  // invisible in a browser, but a genuine flake in tests and a real flash on a
+  // slow first paint. React re-renders immediately without committing this pass.
+  let seeded = state;
+  if (state === null && working !== undefined) {
+    seeded = tideInit(working);
+    setState(seeded);
+  }
+
   useEffect(() => {
-    setState((s) => tideStep(s, working, Date.now()));
+    if (working === undefined) return;
+    setState((s) => (s === null ? tideInit(working) : tideStep(s, working, Date.now())));
   }, [working]);
   useEffect(() => {
-    const id = setInterval(() => setState((s) => tideStep(s, latest.current, Date.now())), 1000);
+    const id = setInterval(() => setState((s) => {
+      const w = latest.current;
+      return s === null || w === undefined ? s : tideStep(s, w, Date.now());
+    }), 1000);
     return () => clearInterval(id);
   }, []);
-  return state.level;
+  // Nothing is known to be running before the first payload, so "low" is the
+  // honest placeholder.
+  return seeded?.level ?? "low";
 }
