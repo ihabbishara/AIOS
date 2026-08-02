@@ -37,7 +37,6 @@ describe("design doctrine (DESIGN.md)", () => {
     // Each name is bound to a fact in 2026-08-02-home-organism-design.md §5.
     const allowed = new Set([
       "breathe",    // an agent is mid-turn
-      "travel",     // one mail.sent crossed between two agents
       "arrive",     // a row/chip newly entered the queue
       "edge-flash", // paired with arrive
       "shimmer",    // a node is executing

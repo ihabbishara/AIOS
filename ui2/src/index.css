@@ -89,25 +89,16 @@ kbd { @apply font-mono text-[10px] text-dim border border-line rounded px-1 py-p
 .breath { animation: breathe 2.4s ease-in-out infinite; }
 .approach { animation: breathe 2.6s ease-in-out infinite; }
 
-/* Travel — fires once per mail.sent between two agents. The single iteration is
-   the point: a loop would be a lie about traffic. */
-@keyframes travel {
-  from { background-position: -60px 0; }
-  to { background-position: calc(100% + 60px) 0; }
-}
-.travel {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--color-now), transparent);
-  background-size: 60px 100%;
-  background-repeat: no-repeat;
-  animation: travel 2.8s ease-in-out 1 forwards;
-}
+/* Deferred: `travel` (one mail.sent crossing between two agents, spec §5). The
+   cluster grid has no agent-to-agent geometry to draw a wire along yet, so the
+   CSS is NOT shipped — an animation nothing fires is the dead weight the
+   allowlist exists to catch. Re-add here and in the doctrine allowlist together. */
 
 /* Tide — the field/clock re-proportion. A transition, not a keyframe, so it
    cannot run on its own. */
 .tide { transition: height 1400ms cubic-bezier(0.4, 0, 0.2, 1); }
 
 @media (prefers-reduced-motion: reduce) {
-  .breathe, .breath, .approach, .arrive, .shimmer, .tick, .orb-ring, .travel { animation: none !important; }
+  .breathe, .breath, .approach, .arrive, .shimmer, .tick, .orb-ring { animation: none !important; }
   * { transition-duration: 0s !important; }
 }
