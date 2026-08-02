@@ -94,8 +94,13 @@ progress), `PageHeader`, `SectionLabel`, `Empty`, plus `TwoStepButton` and `Shee
   undiscoverable shortcuts don't exist.
 - Nothing important lives only in a hover menu or popover. Collapsed-but-visible (disclosure
   with a label and count) is the floor for secondary features.
-- Motion means liveness only: `breathe` (working), `shimmer` (running), `arrive` (new row),
-  `tick` (count change). No decorative animation. `prefers-reduced-motion` kills all of it.
+- **Motion is real or it doesn't exist.** Every animation on screen is bound to a fact:
+  `breath` (an agent is mid-turn), `travel` (one mail.sent crossed, fires once — never
+  loops), `approach` (the single nearest upcoming anchor), `arrive` (a row newly entered),
+  `shimmer` (a node is executing), `tick` (a count changed), `orb-ring` (the mic is
+  recording). Nothing animates for mood. At rest with an empty schedule, nothing on screen
+  moves. `prefers-reduced-motion` kills all of it, so every state must ALSO be legible in
+  hue alone. New keyframes require amending the allowlist in `test/design-doctrine.test.ts`.
 
 ## 7. Data honesty
 
