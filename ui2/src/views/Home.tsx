@@ -140,7 +140,9 @@ export function Home({ events, attention, connected, onOpenChat }: {
   const date = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col relative field-ground" data-tide={level}>
+    // `night` pins this subtree to the dark token set in both themes. The nav
+    // outside Home still follows the toggle, so there is no flash on navigation.
+    <div className="night flex-1 min-h-0 flex flex-col relative field-ground" data-tide={level}>
       <div className="px-5 pt-6 pb-2 shrink-0">
         <div className="text-[42px] font-extralight tracking-[-0.03em] leading-[1.1] text-bright">
           {/* Blank (not "Resting.") until /api/org lands — claiming the org is idle

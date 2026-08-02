@@ -1,7 +1,7 @@
 // ui2/test/field-render.test.tsx — the two claims the field makes: motion stops
 // when the stream dies, and state is legible without motion at all.
 import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import { Field } from "../src/views/home/Field.js";
 import { fieldLayout } from "../src/lib/field.js";
 import type { OrgDepartmentView, OrgAgentCard } from "../src/api.js";
@@ -49,6 +49,27 @@ describe("Field", () => {
     ]);
     const { container } = render(<Field clusters={withPrivate} level="mid" live={true} />);
     expect(container.querySelectorAll("[data-dot]")).toHaveLength(1);
+  });
+
+  it("captions what each working agent is actually doing", () => {
+    const working = fieldLayout([
+      dept("research", [
+        { ...card("clio", "working"), currentTask: "reading 9 of 14 sources" },
+        card("janus", "idle"),
+      ]),
+    ]);
+    render(<Field clusters={working} level="high" live={true} />);
+    expect(screen.getByText("reading 9 of 14 sources")).toBeTruthy();
+    // The idle agent contributes no caption — only real work is described.
+    expect(screen.queryByText(/janus is/)).toBeNull();
+  });
+
+  it("drops the captions at low tide, where nothing is running to describe", () => {
+    const working = fieldLayout([
+      dept("research", [{ ...card("clio", "working"), currentTask: "reading 9 of 14 sources" }]),
+    ]);
+    render(<Field clusters={working} level="low" live={true} />);
+    expect(screen.queryByText("reading 9 of 14 sources")).toBeNull();
   });
 
   it("keeps a waiting agent amber and unmoving — it is blocked, not working", () => {

@@ -1,7 +1,13 @@
 /* ui2/src/tokens.css — Command Deck tokens (spec 2026-07-15). Two runtime themes
    on :root[data-theme]; Tailwind v4 reads through @theme inline so utilities like
    bg-raised/text-strong resolve at runtime and the toggle is pure CSS. */
-:root[data-theme="dark"] {
+/* `.night` carries the whole dark set on a SUBTREE, not just the document. Home's
+   field stays night in both themes (spec 2026-08-02 §9, option A), and a night
+   background with theme-following ink is near-black text on near-black — so the
+   whole subtree has to switch, not just the backdrop. Custom properties inherit,
+   so the nearer declaration wins for everything inside Home regardless of the
+   document theme. */
+:root[data-theme="dark"], .night {
   --t-bg: #0b0d12;
   --t-surface: #0e1117;
   --t-raised: #12151d;

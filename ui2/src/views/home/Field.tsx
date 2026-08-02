@@ -6,7 +6,7 @@ import { DOT_TOKEN, type Cluster } from "../../lib/field.js";
 import type { TideLevel } from "../../lib/tide.js";
 
 const DOT_SIZE: Record<TideLevel, string> = {
-  high: "size-2",
+  high: "size-2.5",
   mid: "size-2",
   low: "size-[5px]",
 };
@@ -18,10 +18,20 @@ export function Field({ clusters, level, live }: {
   live: boolean;
 }) {
   const compact = level === "low";
+  // What the working agents are actually doing, in words. The dots say how many;
+  // this says what — and it is the only thing on screen that fills the field with
+  // information rather than padding.
+  const busy = clusters.flatMap((c) =>
+    c.dots.filter((d) => d.state === "now" && d.currentTask).map((d) => ({ name: d.name, task: d.currentTask! })),
+  );
   return (
+    // content-center, not content-start: the field owns most of the height at high
+    // tide, and top-aligning a few clusters inside it reads as a broken layout
+    // rather than as air.
+    <div className="h-full flex flex-col justify-center gap-7 px-5 py-4">
     <div
-      className={`flex flex-wrap content-start px-5 py-4 transition-all duration-[1400ms] ${
-        compact ? "gap-x-4 gap-y-2" : "gap-x-8 gap-y-6"
+      className={`flex flex-wrap content-center transition-all duration-[1400ms] ${
+        compact ? "gap-x-4 gap-y-2" : "gap-x-10 gap-y-7"
       }`}
     >
       {clusters.map((c) => (
@@ -67,6 +77,20 @@ export function Field({ clusters, level, live }: {
           </div>
         </div>
       ))}
+    </div>
+
+    {/* Hidden at low tide because there is nothing running to describe. */}
+    {!compact && busy.length > 0 && (
+      <div className="flex flex-col gap-1.5 text-[13px] leading-relaxed">
+        {busy.map((b) => (
+          <div key={b.name} className="flex items-baseline gap-2">
+            <span className={`size-1.5 rounded-full shrink-0 translate-y-[-1px] bg-now ${live ? "breath" : ""}`} />
+            <span className="text-strong">{b.name}</span>
+            <span className="text-fg">{b.task}</span>
+          </div>
+        ))}
+      </div>
+    )}
     </div>
   );
 }

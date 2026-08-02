@@ -25,8 +25,12 @@ export function Clock({ marks, nowMinutes, live }: {
     );
   }
   return (
-    <div className="relative h-full px-5">
-      <div className="absolute left-5 right-5 top-8 h-px bg-line" />
+    // The band is most of the screen at low tide. Centring the axis inside it
+    // keeps the clock as a line through the middle rather than a strip stranded
+    // at the top of a tall empty box.
+    <div className="h-full flex items-center px-5">
+    <div className="relative w-full h-16">
+      <div className="absolute left-0 right-0 top-8 h-px bg-line" />
       <div className="absolute top-4 w-px h-6 bg-next" style={{ left: pct(nowMinutes) }} />
       {marks.map((m) => (
         <div
@@ -46,6 +50,7 @@ export function Clock({ marks, nowMinutes, live }: {
           </div>
         </div>
       ))}
+    </div>
     </div>
   );
 }
