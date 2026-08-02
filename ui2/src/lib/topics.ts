@@ -14,6 +14,9 @@ export const T = {
   permissions: ["permission.changed", "tool.denied"],
   costs: ["agent.end"],
   budget: ["agent.end", "goal."],
+  /** What can change a schedule's firedToday / nextFire. Edits go through POST,
+   *  so the mutating caller invalidates locally instead of waiting for an event. */
+  schedule: ["brief.sent", "routine.due", "reminder.due"],
 } as const;
 
 export function matches(type: string, topics: readonly string[]): boolean {

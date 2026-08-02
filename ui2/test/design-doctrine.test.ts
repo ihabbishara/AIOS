@@ -32,6 +32,23 @@ describe("design doctrine (DESIGN.md)", () => {
     }
   });
 
+  it("§6 motion is real — every @keyframes is on the allowlist", () => {
+    // Adding an animation must be a deliberate amendment here, not a drive-by.
+    // Each name is bound to a fact in 2026-08-02-home-organism-design.md §5.
+    const allowed = new Set([
+      "breathe",    // an agent is mid-turn
+      "arrive",     // a row/chip newly entered the queue
+      "edge-flash", // paired with arrive
+      "shimmer",    // a node is executing
+      "tick",       // a count changed
+      "orb-pulse",  // the mic is recording
+    ]);
+    const css = readFileSync(join(SRC, "index.css"), "utf8");
+    const found = [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.filter((n) => !allowed.has(n))).toEqual([]);
+  });
+
   it("§5 status→tone mapping is centralized — no local re-implementation of toneOfStatus", () => {
     const offenders = codeFiles().filter((p) => {
       if (p.endsWith("ui.tsx")) return false;

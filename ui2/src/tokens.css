@@ -1,7 +1,13 @@
 /* ui2/src/tokens.css — Command Deck tokens (spec 2026-07-15). Two runtime themes
    on :root[data-theme]; Tailwind v4 reads through @theme inline so utilities like
    bg-raised/text-strong resolve at runtime and the toggle is pure CSS. */
-:root[data-theme="dark"] {
+/* `.night` carries the whole dark set on a SUBTREE, not just the document. Home's
+   field stays night in both themes (spec 2026-08-02 §9, option A), and a night
+   background with theme-following ink is near-black text on near-black — so the
+   whole subtree has to switch, not just the backdrop. Custom properties inherit,
+   so the nearer declaration wins for everything inside Home regardless of the
+   document theme. */
+:root[data-theme="dark"], .night {
   --t-bg: #0b0d12;
   --t-surface: #0e1117;
   --t-raised: #12151d;
@@ -20,6 +26,16 @@
   --t-info: #7ea6f4;
   --t-agent: #9c8cc9;
   --t-card-shadow: none;
+  /* Organism (spec 2026-08-02). Colour here encodes TIME RELATIONSHIP — has it
+     happened, is it happening, is it coming — not severity. --t-accent stays the
+     one colour meaning "a human is the blocker". */
+  --t-field-base: #07090f;
+  --t-field-bloom: #16233f;
+  --t-field-mid: #0a0e18;
+  --t-now: #7fd7a4;
+  --t-past: #38624e;
+  --t-next: #8fb4ff;
+  --t-rest: #28314a;
 }
 :root[data-theme="light"] {
   --t-bg: #f4f4f2;
@@ -40,6 +56,16 @@
   --t-info: #2f5af5;
   --t-agent: #6d5bc7;
   --t-card-shadow: 0 1px 3px rgba(20, 20, 30, 0.05);
+  /* Identical to dark on purpose: Home's field does not follow the theme
+     (spec §9, user chose option A). The chrome around it still does, via the
+     tokens above. */
+  --t-field-base: #07090f;
+  --t-field-bloom: #16233f;
+  --t-field-mid: #0a0e18;
+  --t-now: #7fd7a4;
+  --t-past: #38624e;
+  --t-next: #8fb4ff;
+  --t-rest: #28314a;
 }
 @theme inline {
   --color-*: initial;
@@ -61,6 +87,13 @@
   --color-err-line: var(--t-err-line);
   --color-info: var(--t-info);
   --color-agent: var(--t-agent);
+  --color-field-base: var(--t-field-base);
+  --color-field-bloom: var(--t-field-bloom);
+  --color-field-mid: var(--t-field-mid);
+  --color-now: var(--t-now);
+  --color-past: var(--t-past);
+  --color-next: var(--t-next);
+  --color-rest: var(--t-rest);
   --font-sans: "Inter Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }

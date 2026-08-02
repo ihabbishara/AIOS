@@ -65,7 +65,40 @@ kbd { @apply font-mono text-[10px] text-dim border border-line rounded px-1 py-p
   pointer-events: none;
 }
 
+/* ---- Organism (spec 2026-08-02) ---- */
+
+/* The ground is a field with a light source, not a box. The grain is not
+   decoration: a bloom this large bands on 8-bit displays and the noise dithers
+   it away. Inline data URI, so no network request. */
+.field-ground {
+  position: relative;
+  background: radial-gradient(120% 100% at 50% 8%,
+    var(--color-field-bloom) 0%, var(--color-field-mid) 58%, var(--color-field-base) 100%);
+}
+.field-ground::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Breath — a dot pulses ONLY while that agent is mid-turn. Approach — only the
+   single nearest upcoming anchor. Both reuse `breathe` at Organism tempo. */
+.breath { animation: breathe 2.4s ease-in-out infinite; }
+.approach { animation: breathe 2.6s ease-in-out infinite; }
+
+/* Deferred: `travel` (one mail.sent crossing between two agents, spec §5). The
+   cluster grid has no agent-to-agent geometry to draw a wire along yet, so the
+   CSS is NOT shipped — an animation nothing fires is the dead weight the
+   allowlist exists to catch. Re-add here and in the doctrine allowlist together. */
+
+/* Tide — the field/clock re-proportion. A transition, not a keyframe, so it
+   cannot run on its own. */
+.tide { transition: height 1400ms cubic-bezier(0.4, 0, 0.2, 1); }
+
 @media (prefers-reduced-motion: reduce) {
-  .breathe, .arrive, .shimmer, .tick, .orb-ring { animation: none !important; }
+  .breathe, .breath, .approach, .arrive, .shimmer, .tick, .orb-ring { animation: none !important; }
   * { transition-duration: 0s !important; }
 }
