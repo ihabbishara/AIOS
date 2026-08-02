@@ -12,6 +12,12 @@ describe("topics", () => {
     expect(matches("goal.created", T.attention)).toBe(false); // exact, not prefix
     expect(matches("mail.received", T.attention)).toBe(false); // Gmail sense stays out
   });
+  it("schedule invalidates on the events that change firedToday / nextFire", () => {
+    expect(matches("brief.sent", T.schedule)).toBe(true);
+    expect(matches("routine.due", T.schedule)).toBe(true);
+    expect(matches("reminder.due", T.schedule)).toBe(true);
+    expect(matches("agent.start", T.schedule)).toBe(false);
+  });
   it("lastMatching returns newest matching id", () => {
     const events = [ev(1, "action.proposed"), ev(2, "chat.out"), ev(3, "mail.read")];
     expect(lastMatching(events, T.attention)).toBe(3);

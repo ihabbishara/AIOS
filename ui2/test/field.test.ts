@@ -9,11 +9,14 @@ const card = (name: string, status: OrgAgentCard["status"]): OrgAgentCard => ({
   status, currentTask: status === "working" ? "node 3/5" : null, costTodayUsd: 0,
 });
 
+const dept = (department: string, agents: OrgAgentCard[]): OrgDepartmentView => ({
+  department, mission: "m", lead: agents[0]?.name ?? null,
+  memoDomain: department, sandbox: false, actions: [], agents,
+});
+
 const org = (statuses: Array<OrgAgentCard["status"]>): OrgDepartmentView[] => [
-  { department: "engineering", mission: "m", lead: "atlas",
-    agents: [card("atlas", statuses[0]), card("vulcan", statuses[1]), card("odin", statuses[2])] },
-  { department: "research", mission: "m", lead: "clio",
-    agents: [card("clio", statuses[3]), card("janus", statuses[4])] },
+  dept("engineering", [card("atlas", statuses[0]), card("vulcan", statuses[1]), card("odin", statuses[2])]),
+  dept("research", [card("clio", statuses[3]), card("janus", statuses[4])]),
 ];
 
 describe("stateOf", () => {
@@ -41,10 +44,7 @@ describe("fieldLayout", () => {
   });
 
   it("wraps a cluster onto a second row past four agents", () => {
-    const wide: OrgDepartmentView[] = [{
-      department: "engineering", mission: "m", lead: "atlas",
-      agents: ["a", "b", "c", "d", "e", "f"].map((n) => card(n, "idle")),
-    }];
+    const wide = [dept("engineering", ["a", "b", "c", "d", "e", "f"].map((n) => card(n, "idle")))];
     const dots = fieldLayout(wide)[0].dots;
     expect(dots.map((d) => d.row)).toEqual([0, 0, 0, 0, 1, 1]);
     expect(dots.map((d) => d.col)).toEqual([0, 1, 2, 3, 0, 1]);
