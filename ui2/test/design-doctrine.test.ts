@@ -57,4 +57,47 @@ describe("design doctrine (DESIGN.md)", () => {
     });
     expect(offenders).toEqual([]);
   });
+
+  it("§2 the clock axis keeps its loudness order in BOTH themes", () => {
+    // The light block used to repeat the dark values verbatim, which inverted the
+    // axis: --now fell to 1.57:1 and --past rose to 6.30:1, so the live thing
+    // vanished and the finished thing shouted. Pin the ORDER, not the hexes.
+    const css = readFileSync(join(SRC, "tokens.css"), "utf8");
+
+    const luminance = (hex: string): number => {
+      const ch = [1, 3, 5]
+        .map((i) => parseInt(hex.substr(i, 2), 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+    };
+    const contrast = (a: string, b: string): number => {
+      const [x, y] = [luminance(a), luminance(b)];
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+    // Grab a theme block's body by its selector, then read tokens out of it.
+    const block = (selector: string): Record<string, string> => {
+      const start = css.indexOf(selector);
+      expect(start, `${selector} must exist in tokens.css`).toBeGreaterThan(-1);
+      const body = css.slice(start, css.indexOf("}", start));
+      return Object.fromEntries(
+        [...body.matchAll(/(--t-[\w-]+):\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2]]),
+      );
+    };
+
+    for (const selector of [':root[data-theme="dark"]', ':root[data-theme="light"]']) {
+      const t = block(selector);
+      const bg = t["--t-bg"];
+      const order = ["--t-now", "--t-next", "--t-past", "--t-rest"];
+      const ratios = order.map((k) => contrast(t[k], bg));
+      for (let i = 1; i < ratios.length; i++) {
+        expect(
+          ratios[i - 1],
+          `${selector}: ${order[i - 1]} (${ratios[i - 1].toFixed(2)}:1) must be louder than ${order[i]} (${ratios[i].toFixed(2)}:1)`,
+        ).toBeGreaterThan(ratios[i]);
+      }
+      // --now and --next carry text, so they must clear 4.5:1 outright.
+      expect(ratios[0], `${selector}: --t-now must be text-legible`).toBeGreaterThanOrEqual(4.5);
+      expect(ratios[1], `${selector}: --t-next must be text-legible`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 });
