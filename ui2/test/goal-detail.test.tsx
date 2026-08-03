@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { Goals } from "../src/views/Goals.js";
 import { stubApi } from "./stubs.js";
+import { CLOCK_TEXT, statusClock } from "../src/lib/goal-clock.js";
 
 afterEach(cleanup);
 
@@ -50,5 +51,27 @@ describe("Goal detail", () => {
     } });
     render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
     expect(await screen.findByText("ENOENT vault/notes")).toBeTruthy();
+  });
+
+  it("renders goal and node status on the clock axis, not Command Deck tone", async () => {
+    // Distinct goal vs. node statuses, and neither equal to "done", so the
+    // header's status text can never collide with the inspector's/thread's —
+    // each assertion below targets an unambiguous element.
+    stubApi({ "/api/goals/deck": {
+      ...DETAIL, status: "running",
+      nodes: [{ ...NODE, status: "needs-review" }],
+    } });
+    render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
+
+    const goalStatusEl = await screen.findByText("running");
+    expect(goalStatusEl.className).toContain(CLOCK_TEXT[statusClock("running")]);
+
+    // "needs-review" renders twice (thread row + inspector); both must carry
+    // the clock class — a reverted inspector would leave one without it.
+    const nodeStatusEls = screen.getAllByText("needs-review");
+    expect(nodeStatusEls.length).toBeGreaterThan(0);
+    for (const el of nodeStatusEls) {
+      expect(el.className).toContain(CLOCK_TEXT[statusClock("needs-review")]);
+    }
   });
 });

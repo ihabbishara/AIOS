@@ -7,7 +7,7 @@ import { navigate, type Route } from "../lib/router.js";
 import { provenance } from "../lib/goal-buckets.js";
 import { groupByBand } from "../lib/goal-recency.js";
 import { statusClock, CLOCK_TOKEN, CLOCK_TEXT, isMuted } from "../lib/goal-clock.js";
-import { Button, Empty, PageHeader, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
+import { Button, Empty, PageHeader, SectionLabel } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
 import { Thread } from "./Thread.js";
