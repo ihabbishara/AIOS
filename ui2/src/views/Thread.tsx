@@ -1,6 +1,6 @@
 // ui2/src/views/Thread.tsx — a goal's nodes as a vertical thread (spec
-// 2026-08-03 §2). Replaces MiniDag: 88% of goals are a single node or a
-// linear chain, so branch structure is cheaper as text than as geometry.
+// 2026-08-03 §2). Replaces the old SVG DAG: 88% of goals are a single node or
+// a linear chain, so branch structure is cheaper as text than as geometry.
 import { threadOrder, elapsed, showsDeps } from "../lib/thread.js";
 import { statusClock, CLOCK_TOKEN, CLOCK_TEXT, isMuted } from "../lib/goal-clock.js";
 import { usd } from "../lib/format.js";

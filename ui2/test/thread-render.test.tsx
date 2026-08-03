@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { Thread } from "../src/views/Thread.js";
+import { CLOCK_TOKEN } from "../src/lib/goal-clock.js";
 import type { GoalNodeView } from "../src/api.js";
 
 afterEach(cleanup);
@@ -47,8 +48,29 @@ describe("Thread", () => {
 
   it("renders a single-node goal with no spine and no deps line", () => {
     render(<Thread nodes={[node("only")]} />);
-    expect(screen.getAllByTestId("thread-row")).toHaveLength(1);
+    const rows = screen.getAllByTestId("thread-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].className).not.toContain("border-l");
     expect(screen.queryByText(/after:/)).toBeNull();
+  });
+
+  it("draws a spine when the goal has more than one node", () => {
+    render(<Thread nodes={[node("a"), node("b")]} />);
+    for (const row of screen.getAllByTestId("thread-row")) {
+      expect(row.className).toContain("border-l");
+    }
+  });
+
+  it("marks the failedKey row with the blocked tone, and only that row", () => {
+    // Both nodes are "done" (clock: past) — failedKey is the only reason
+    // either row could show blocked, so this proves the `||` in Thread does
+    // independent work rather than merely agreeing with statusClock.
+    render(<Thread nodes={[node("a"), node("b")]} failedKey="b" />);
+    const dots = screen.getAllByTestId("thread-dot");
+    expect(dots[0].className).toContain(CLOCK_TOKEN.past);
+    expect(dots[0].className).not.toContain(CLOCK_TOKEN.blocked);
+    expect(dots[1].className).toContain(CLOCK_TOKEN.blocked);
+    expect(dots[1].className).not.toContain(CLOCK_TOKEN.past);
   });
 
   it("calls onSelect with the node key when a row is clicked", () => {
