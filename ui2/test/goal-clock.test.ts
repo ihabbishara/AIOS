@@ -29,8 +29,9 @@ describe("statusClock", () => {
   });
 
   it("routes an UNKNOWN status to blocked, never to healthy", () => {
-    // Carried over from laneOf (goal-buckets.ts:44-47): a new backend status
-    // must surface as needing attention, not hide as if fine.
+    // Carried over from laneOf, back when goal-buckets.ts still carried lane
+    // logic: a new backend status must surface as needing attention, not
+    // hide as if fine.
     expect(statusClock("some-new-backend-status")).toBe("blocked");
     expect(statusClock("")).toBe("blocked");
   });

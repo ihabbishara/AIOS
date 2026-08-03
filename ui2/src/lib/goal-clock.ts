@@ -19,7 +19,7 @@ export const CLOCK_TEXT: Record<Clock, string> = {
 };
 
 /** awaiting-mail waits on the WORLD, not the user, so it is in flight — the
- *  same call laneOf made (goal-buckets.ts:40). */
+ *  same call laneOf made, back when goal-buckets.ts still carried lane logic. */
 const NOW = new Set(["planning", "running", "replanning", "awaiting-mail", "working", "executing"]);
 const PAST = new Set(["done", "abandoned", "skipped"]);
 const NEXT = new Set(["pending", "ready"]);
@@ -34,8 +34,8 @@ export function statusClock(status: string): Clock {
   if (NEXT.has(status)) return "next";
   if (BLOCKED.has(status)) return "blocked";
   // An unrecognised status must surface as needing attention rather than hide
-  // as if healthy. laneOf documented this at goal-buckets.ts:44-47 and the
-  // property survives the rewrite.
+  // as if healthy. laneOf documented this before goal-buckets.ts was pared
+  // down to provenance, and the property survives the rewrite.
   return "blocked";
 }
 

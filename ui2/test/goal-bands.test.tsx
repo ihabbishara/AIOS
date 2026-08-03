@@ -43,14 +43,17 @@ describe("Goals bands", () => {
     expect(screen.getByText("Live")).toBeTruthy();
   });
 
-  it("keeps an OLD failed goal in LIVE rather than burying it", async () => {
+  it("keeps an OLD failed goal in NEEDS YOU rather than burying it", async () => {
     at("2026-08-03T14:00:00.000Z");
     stubApi({ "/api/goals": [
       goal({ id: "f1", slug: "f1", title: "Old failure", status: "failed", createdAt: "2026-01-02T09:00:00.000Z" }),
     ] });
     render(<GoalList events={[]} />);
     expect(await screen.findByText("Old failure")).toBeTruthy();
-    expect(screen.getByText("Live")).toBeTruthy();
+    expect(screen.getByText("Needs you")).toBeTruthy();
+    // LIVE and NEEDS are two bands, not one — an old failure must not also
+    // render a "Live" header over it.
+    expect(screen.queryByText("Live")).toBeNull();
   });
 
   it("splits finished goals across TODAY / THIS WEEK / EARLIER", async () => {

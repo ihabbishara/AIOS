@@ -19,10 +19,14 @@ describe("bandOf", () => {
     }
   });
 
-  it("puts a goal needing the user in live too", () => {
+  it("puts a goal needing the user in needs", () => {
     // A failed goal is not settled; burying it under EARLIER hides the one row
     // that most wants attention.
-    expect(bandOf(goal({ status: "failed", createdAt: "2026-01-01T00:00:00.000Z" }), NOW)).toBe("live");
+    expect(bandOf(goal({ status: "failed", createdAt: "2026-01-01T00:00:00.000Z" }), NOW)).toBe("needs");
+  });
+
+  it("keeps a running goal in live, pinned apart from needs", () => {
+    expect(bandOf(goal({ status: "running", createdAt: "2026-01-01T00:00:00.000Z" }), NOW)).toBe("live");
   });
 
   it("bands a finished goal from today as today", () => {
@@ -80,7 +84,7 @@ describe("groupByBand", () => {
   });
 
   it("labels every band it can emit", () => {
-    expect(BANDS.map((b) => b.key)).toEqual(["live", "today", "week", "earlier"]);
+    expect(BANDS.map((b) => b.key)).toEqual(["live", "needs", "today", "week", "earlier"]);
     for (const b of BANDS) expect(b.label).toBeTruthy();
   });
 });

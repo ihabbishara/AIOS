@@ -263,3 +263,4 @@ Not provable by test: whether Goals reads as memory rather than as a dashboard. 
 
 - The remaining 11 views. Mail is the natural next candidate — it is the other high-volume archive, and the recency-band and thread work here should transfer directly.
 - Home's high tide renders its field band at 744px while the dots and task lines occupy roughly 100px of it, centred, so "busy" reads emptier than "resting". Observed during the tide verification walk on 2026-08-02. Out of scope here; worth a decision before the next Home change.
+- **Deferred as of 2026-08-03:** §1's promise that EARLIER collapses to day chips with counts, expanding inline on click, is not implemented — EARLIER renders as a flat list like every other band. This is a deliberate deferral, not a bug: at 57 goals the flat list is still usable, and day chips are a complication with no payoff yet. Revisit once the corpus is around 200 goals, where a flat EARLIER band would get unwieldy.

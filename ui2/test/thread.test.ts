@@ -63,8 +63,16 @@ describe("elapsed", () => {
     expect(elapsed(T0, "2026-08-03T10:00:20.000Z")).toBe("<1m");
   });
 
+  it("floors 45 seconds to <1m rather than rounding up to 1m", () => {
+    expect(elapsed(T0, "2026-08-03T10:00:45.000Z")).toBe("<1m");
+  });
+
   it("formats hours and minutes", () => {
     expect(elapsed(T0, "2026-08-03T12:18:00.000Z")).toBe("2h 18m");
+  });
+
+  it("floors 1h59m59s to 1h 59m rather than rounding up to 2h 0m", () => {
+    expect(elapsed(T0, "2026-08-03T11:59:59.000Z")).toBe("1h 59m");
   });
 
   it("measures an unfinished node against now", () => {
@@ -95,5 +103,9 @@ describe("showsDeps", () => {
 
   it("is true whenever there is more than one dep", () => {
     expect(showsDeps(node("join", ["a", "b"]), node("b"))).toBe(true);
+  });
+
+  it("is true for the first row, which has no row above to imply its dep", () => {
+    expect(showsDeps(node("b", ["a"]), undefined)).toBe(true);
   });
 });

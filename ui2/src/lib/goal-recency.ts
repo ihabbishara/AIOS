@@ -4,10 +4,11 @@
 import type { GoalView } from "../api.js";
 import { statusClock } from "./goal-clock.js";
 
-export type Band = "live" | "today" | "week" | "earlier";
+export type Band = "live" | "needs" | "today" | "week" | "earlier";
 
 export const BANDS: Array<{ key: Band; label: string }> = [
   { key: "live", label: "Live" },
+  { key: "needs", label: "Needs you" },
   { key: "today", label: "Today" },
   { key: "week", label: "This week" },
   { key: "earlier", label: "Earlier" },
@@ -16,11 +17,15 @@ export const BANDS: Array<{ key: Band; label: string }> = [
 const DAY_MS = 86_400_000;
 
 export function bandOf(goal: GoalView, now: Date): Band {
-  // Anything unsettled rides at the top no matter how old. A failed goal from
-  // March still wants the user; burying it under EARLIER hides the row that
-  // most needs them.
+  // LIVE and NEEDS both ignore age no matter how old the goal is — a failed
+  // goal from March still wants the user; burying it under EARLIER hides the
+  // row that most needs them. They are kept as two bands, not one, so a
+  // header is always true by construction: LIVE never claims something is
+  // running when the only thing up top is an old failure, and NEEDS never
+  // claims something needs the user when it's actually still in flight.
   const clock = statusClock(goal.status);
-  if (clock === "now" || clock === "blocked") return "live";
+  if (clock === "now") return "live";
+  if (clock === "blocked") return "needs";
 
   const created = Date.parse(goal.createdAt);
   if (Number.isNaN(created)) return "earlier";

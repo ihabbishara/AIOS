@@ -37,7 +37,11 @@ export function elapsed(
   const start = Date.parse(startedAt);
   const end = finishedAt ? Date.parse(finishedAt) : now;
   if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "—";
-  const minutes = Math.round((end - start) / 60_000);
+  // Floor, not round: "Xm" should mean "at least X minutes have passed."
+  // Rounding lets a still-running node overstate itself — 1h59m59s would
+  // read as "2h 0m", a duration that has not been reached yet. That is a
+  // small lie the rest of this design goes out of its way to avoid.
+  const minutes = Math.floor((end - start) / 60_000);
   if (minutes < 1) return "<1m";
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
