@@ -50,13 +50,19 @@ The 14 "deviants" were: 5 API failures, ~6 preamble leaks (`"Here is the standup
 
 ### Blockers are not the alarm — the missing standup is
 
-The obvious move is a blocker alert lane. The data kills it:
+The obvious move is a blocker alert lane. The data kills it — though not for the reason a first pass suggested.
 
-- Agents write "nothing is blocking me" in at least a dozen phrasings — `None.`, `None — inbox clear, no pending team requests.`, `No queued team requests and no active agents in flight — coordination capacity is idle`, `Zero inbound mail or queued requests`, `No active tasks or requests queued`.
-- Substantively real blockers across all 45: **about 2** (`WebFetch now blocked (not in allowlist)…`, and one connection error).
-- No string rule separates "None — …" prose from a real blocker without misclassifying. A naive `in ('none','none.')` test scored 35 of 45 as REAL. It was wrong 33 times.
+Across the 40 parsed standups there are **31 distinct blocker texts**. Roughly **7 describe a real impediment**: a blocked WebFetch allowlist, a wall-time budget too tight for deck-scale goals, `Bash`/`Read` hard-disabled by the capability gate killing 3 tasks, `vault_write` silently returning stale output after its first call, a slide fix needing a human unblock, and a spend-or-descope decision. The rest are prose for "nothing".
 
-**A blocker alarm would fire on ~2 events in 31 days and be unreliable when it did.** Blockers renders as the third field, plainly, and nothing more.
+What makes an alarm impossible is not scarcity, it is that **the wording does not track the meaning**:
+
+- `None. Atlas still has Bash, Read, Glob and Agent disabled at the capability gate, so its filesystem work keeps routing to us.` — begins with the literal word **None**, and reports a real capability-gate problem.
+- `None — inbox is clear, no queued requests pending, all systems idle and ready to dispatch.` — same opening token, means nothing is wrong.
+- `none technical. Note: zero inbound work queued for this department, so capacity is unallocated — send work if you want it used.` — an organisational note, not an impediment.
+
+A leading-token rule misses the first. A "longer than a bare negation" rule fires on the second — measured, it classified 27 of 40 as substantive, including five pure "None — inbox clear" variants. A naive `in ('none','none.')` test scored 35 of 45 as real and was wrong 33 times.
+
+**Every classifier tried on this corpus was wrong in both directions.** Blockers renders as the third field, plainly, and nothing more — the reader classifies it, because no rule here can.
 
 What *does* vary, and is currently invisible:
 
@@ -74,7 +80,7 @@ Two of the three failure mornings hit **multiple agents simultaneously**, which 
 - **Organising spine: the day.** Not recency bands (Goals' answer) and not status. Standups arrive 1–3 per day, every day; the day is the unit the data is actually shaped in.
 - **Three states per day: checked in / failed / silent.** All three are computed from rows, never asserted.
 - **The standup body is parsed tolerantly into Done / Today / Blockers, with a raw-text fallback.** A body that does not parse renders verbatim as preformatted text rather than being dropped or coerced.
-- **Blockers is a field, not an alarm.** The alarm is a failed or silent morning.
+- **Blockers is a field, not an alarm** — not because real blockers are rare (~7 of 31 distinct texts are real) but because no rule classifies them: a genuine capability-gate blocker opens with the word "None". The alarm is a failed or silent morning, which is derived from row shape rather than from prose.
 - **Work traffic is a second band**, whose unit is the **request → report exchange keyed by goal**, not the message and not the thread.
 - **The human's correspondence survives as a third, deliberately minimal band**, preserving the route to `mail/:threadId`, the Compose button, and the answer-resumes-a-parked-goal path. Per the agreed scope these keep working but are not restyled.
 - **Mail follows the light/dark toggle**, as Goals does. It does not inherit Home's pinned `.night`.
