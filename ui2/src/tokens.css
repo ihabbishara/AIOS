@@ -57,15 +57,17 @@
   --t-agent: #6d5bc7;
   --t-card-shadow: 0 1px 3px rgba(20, 20, 30, 0.05);
   /* Identical to dark on purpose: Home's field does not follow the theme
-     (spec §9, user chose option A). The chrome around it still does, via the
-     tokens above. */
+     (spec 2026-08-02 §9, option A). Only these three — the clock tokens below
+     DO get light values, because Goals follows the toggle (spec 2026-08-03 §3). */
   --t-field-base: #07090f;
   --t-field-bloom: #16233f;
   --t-field-mid: #0a0e18;
-  --t-now: #7fd7a4;
-  --t-past: #38624e;
-  --t-next: #8fb4ff;
-  --t-rest: #28314a;
+  /* Tuned so now > next > past > rest holds against --t-bg in BOTH themes.
+     The dark hexes here would invert it: --now reads 1.57:1 on #f4f4f2. */
+  --t-now: #07663c;
+  --t-past: #7e9488;
+  --t-next: #3a5fd6;
+  --t-rest: #c7ccd6;
 }
 @theme inline {
   --color-*: initial;
