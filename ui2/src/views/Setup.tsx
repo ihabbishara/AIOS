@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, setToken, type AdvanceResult, type FirstJobStatus, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
-import { MiniDag } from "./MiniDag.js";
+import { Thread } from "./Thread.js";
 
 const STEPS = ["welcome", "auth", "workspace", "interview", "review", "provision", "first-job", "done"];
 const LABELS: Record<string, string> = {
@@ -540,7 +540,7 @@ function Review({ onNext }: { onNext: (s: string) => void }) {
 /**
  * The first thing the org ever does. The request is prefilled from the proposal the user already
  * approved, dispatched through the coordinator exactly as a chat message would be, and then
- * watched — one MiniDag per goal it spawns, so this step and the cockpit draw the same pipeline.
+ * watched — one Thread per goal it spawns, so this step and the cockpit draw the same pipeline.
  */
 function FirstJob({ onDone }: { onDone: (r: AdvanceResult, booted: boolean) => void }) {
   const [request, setRequest] = useState("");
@@ -691,7 +691,7 @@ function FirstJob({ onDone }: { onDone: (r: AdvanceResult, booted: boolean) => v
             <div key={g.id} className="flex flex-col gap-1">
               <div className="text-[12px]"><span className="text-strong">{g.title}</span>
                 <span className="text-dim"> — {g.status}</span></div>
-              {g.nodes.length > 0 && <MiniDag nodes={g.nodes} />}
+              {g.nodes.length > 0 && <Thread nodes={g.nodes} />}
             </div>
           ))}
         </div>

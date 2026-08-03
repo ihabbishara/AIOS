@@ -88,7 +88,7 @@ describe("first-job step", () => {
     // The suggestion is never even fetched once a real request exists to show.
     expect(calls).not.toContain("GET /api/onboarding/proposal");
     expect(screen.getByText("Launch plan")).toBeTruthy();
-    expect(screen.getByText("research")).toBeTruthy(); // MiniDag drew the spawned goal
+    expect(screen.getByText("research")).toBeTruthy(); // Thread drew the spawned goal's node key
     expect(btn("Continue").disabled).toBe(false);
   });
 

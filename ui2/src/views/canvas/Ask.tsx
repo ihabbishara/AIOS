@@ -4,7 +4,7 @@ import { api, type AttentionItem, type StoredEvent } from "../../api.js";
 import { useLiveQuery } from "../../hooks.js";
 import { T } from "../../lib/topics.js";
 import { Button, SectionLabel, Tag } from "../../components/ui.js";
-import { MiniDag } from "../MiniDag.js";
+import { Thread } from "../Thread.js";
 
 export function AskCanvas({ item, events, onDone }: {
   item: AttentionItem; events: StoredEvent[]; onDone: () => void;
@@ -43,7 +43,7 @@ export function AskCanvas({ item, events, onDone }: {
       {goal && (
         <div>
           <SectionLabel>Blocked goal · {goal.title}</SectionLabel>
-          <MiniDag nodes={goal.nodes} />
+          <Thread nodes={goal.nodes} />
         </div>
       )}
       <div className="flex gap-2">

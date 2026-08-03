@@ -8,7 +8,7 @@ import { LANES, laneOf, provenance } from "../lib/goal-buckets.js";
 import { Button, Dot, Empty, PageHeader, SectionLabel, Segments, Tag, toneOfStatus } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
-import { MiniDag } from "./MiniDag.js";
+import { Thread } from "./Thread.js";
 
 export function Goals({ events, route, onOpenChat }: {
   events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void;
@@ -205,7 +205,7 @@ function GoalDetailView({ slug, events, onOpenChat }: {
 
       <div className="flex gap-6 flex-col lg:flex-row">
         <div className="min-w-0">
-          <MiniDag nodes={goal.nodes} failedKey={failedKey} scale={1} onSelect={setNodeKey} />
+          <Thread nodes={goal.nodes} failedKey={failedKey} onSelect={setNodeKey} />
         </div>
         {node && (
           <div className="panel lg:w-96 shrink-0 p-4 h-fit">

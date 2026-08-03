@@ -1,4 +1,4 @@
-// ui2/src/views/canvas/Goal.tsx — failed/paused goal: error, failed node in the mini DAG, cost, actions.
+// ui2/src/views/canvas/Goal.tsx — failed/paused goal: error, failed node in the thread, cost, actions.
 import { useState } from "react";
 import { api, type AttentionItem, type StoredEvent } from "../../api.js";
 import { useLiveQuery } from "../../hooks.js";
@@ -7,7 +7,7 @@ import { navigate } from "../../lib/router.js";
 import { Button, SectionLabel, Tag, Empty, toneOfStatus } from "../../components/ui.js";
 import { TwoStepButton } from "../../components/TwoStepButton.js";
 import { usd } from "../../lib/format.js";
-import { MiniDag } from "../MiniDag.js";
+import { Thread } from "../Thread.js";
 
 export function GoalCanvas({ item, events, onAct, onOpenChat, onDone }: {
   item: AttentionItem; events: StoredEvent[];
@@ -40,7 +40,7 @@ export function GoalCanvas({ item, events, onAct, onOpenChat, onDone }: {
       </div>
       <div className="text-[15px] text-strong">{goal.title}</div>
       {goal.error && <div className="panel !border-err/40 p-3 text-err text-[12px] whitespace-pre-wrap">{goal.error}</div>}
-      <MiniDag nodes={goal.nodes} failedKey={failedNode?.key} />
+      <Thread nodes={goal.nodes} failedKey={failedNode?.key} />
       {canReopen && (
         <textarea
           value={guidance} onChange={(e) => setGuidance(e.target.value)} rows={3}
