@@ -4,8 +4,10 @@ import { api, type GoalNodeView, type GoalView, type StoredEvent } from "../api.
 import { useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { LANES, laneOf, provenance } from "../lib/goal-buckets.js";
-import { Button, Dot, Empty, PageHeader, SectionLabel, Segments, Tag, toneOfStatus } from "../components/ui.js";
+import { provenance } from "../lib/goal-buckets.js";
+import { groupByBand } from "../lib/goal-recency.js";
+import { statusClock, CLOCK_TOKEN, CLOCK_TEXT, isMuted } from "../lib/goal-clock.js";
+import { Button, Empty, PageHeader, SectionLabel, Tag, toneOfStatus } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
 import { Thread } from "./Thread.js";
@@ -23,23 +25,23 @@ export function Goals({ events, route, onOpenChat }: {
   );
 }
 
-const DONE_CAP = 10;
-
 export function GoalList({ events }: { events: StoredEvent[] }) {
   const { data: goals } = useLiveQuery(() => api.goals(), events, T.goals);
   const [dept, setDept] = useState<string>("");
-  const [showAllDone, setShowAllDone] = useState(false);
+  const [q, setQ] = useState("");
   if (!goals) return <Empty>Loading…</Empty>;
+
   const depts = [...new Set(goals.map((g) => g.department))].sort();
-  const filtered = dept ? goals.filter((g) => g.department === dept) : goals;
+  const needle = q.trim().toLowerCase();
+  const filtered = goals.filter((g) =>
+    (!dept || g.department === dept) && (!needle || g.title.toLowerCase().includes(needle)));
+
   const weekAgo = Date.now() - 7 * 86_400_000;
   const weekCost = filtered
     .filter((g) => Date.parse(g.createdAt) >= weekAgo)
     .reduce((s, g) => s + g.nodes.reduce((n, x) => n + x.costCents, 0), 0);
 
-  const lanes = LANES.map(({ key, label }) => ({
-    key, label, items: filtered.filter((g) => laneOf(g.status) === key),
-  }));
+  const bands = groupByBand(filtered, new Date());
 
   return (
     <div>
@@ -49,68 +51,59 @@ export function GoalList({ events }: { events: StoredEvent[] }) {
           <option value="">all departments</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter…"
+          className="bg-surface border border-line rounded-md px-2 py-1 text-[12px] text-fg outline-none focus:border-dim w-40" />
       </PageHeader>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-start">
-        {lanes.map(({ key, label, items }) => {
-          const capped = key === "done" && !showAllDone ? items.slice(0, DONE_CAP) : items;
-          return (
-            <div key={key} className={`panel p-3.5 ${key === "needs" && items.length > 0 ? "border-err-line" : ""}`}>
-              <div className={`label mb-2.5 flex items-center justify-between ${key === "needs" ? "text-accent" : ""}`}>
-                {label}
-                <span className={`font-mono rounded-full px-2 py-px text-[10px] ${
-                  key === "needs" && items.length > 0 ? "bg-accent-bg text-accent" : "bg-raised text-dim"}`}>
-                  {items.length}
-                </span>
-              </div>
-              {capped.map((g) => <GoalCard key={g.id} g={g} />)}
-              {items.length === 0 && (
-                <div className="border border-dashed border-line rounded-lg px-3.5 py-5 text-center">
-                  <div className="text-[11.5px] text-dim">
-                    {key === "needs" ? "Nothing needs you" : key === "running" ? "All quiet — agents idle" : "No finished goals yet"}
-                  </div>
-                  {key === "running" && <div className="text-[10.5px] text-dim opacity-60 mt-1">new goals appear here live</div>}
-                </div>
-              )}
-              {key === "done" && items.length > DONE_CAP && !showAllDone && (
-                <button onClick={() => setShowAllDone(true)}
-                  className="w-full text-center text-[11px] text-info hover:opacity-80 py-1.5">
-                  Show all {items.length} →
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+
+      {bands.length === 0 && <Empty>No goals yet</Empty>}
+
+      {bands.map(({ key, label, items }) => (
+        <div key={key} className="mb-7">
+          <div className="label mb-2 flex items-center gap-2">
+            {label}
+            <span className="h-px flex-1 bg-line" />
+            <span className="font-mono text-[10px] text-dim">{items.length}</span>
+          </div>
+          {items.map((g) => <GoalRow key={g.id} g={g} />)}
+        </div>
+      ))}
     </div>
   );
 }
 
 const VIA: Record<string, string> = { chat: "via chat", mail: "via mail", speculate: "speculated" };
 
-function GoalCard({ g }: { g: GoalView }) {
+function GoalRow({ g }: { g: GoalView }) {
+  const clock = statusClock(g.status);
   const done = g.nodes.filter((n) => n.status === "done").length;
   const cost = g.nodes.reduce((s, n) => s + n.costCents, 0);
-  const failed = g.status === "failed";
-  const live = ["planning", "running", "replanning"].includes(g.status);
-  const current = live ? g.nodes.find((n) => ["running", "working", "executing"].includes(n.status)) : undefined;
+  const current = g.nodes.find((n) => statusClock(n.status) === "now");
+  const artifacts = g.nodes.map((n) => n.artifact).filter((a): a is string => Boolean(a));
+
   return (
     <button onClick={() => navigate(`goals/${g.slug}`)}
-      className={`card card-hover w-full text-left p-3 mb-2.5 ${failed ? "!bg-err-bg !border-err-line" : ""} ${g.status === "abandoned" ? "opacity-60" : ""}`}>
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <Dot tone={toneOfStatus(g.status)} breathing={live} />
-        <span className={`font-mono text-[10px] uppercase ${failed ? "text-err" : "text-dim"}`}>
-          {g.status} · {done}/{g.nodes.length}
-        </span>
-        <Tag tone="dim">{VIA[provenance(g.originChannel)]}</Tag>
+      className={`w-full text-left flex gap-3 py-2.5 px-1 rounded-md hover:bg-raised ${
+        isMuted(g.status) ? "opacity-55" : ""}`}>
+      <span className={`size-1.5 rounded-full shrink-0 mt-[7px] ${CLOCK_TOKEN[clock]} ${
+        clock === "now" ? "breath" : ""}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[13px] text-bright truncate">{g.title}</span>
+          <span className="text-[11px] text-dim shrink-0 ml-auto">{g.department} · {g.lead}</span>
+        </div>
+        <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
+          <span className={`font-mono text-[10px] uppercase ${CLOCK_TEXT[clock]}`}>{g.status}</span>
+          <span className="text-[10.5px] text-dim">
+            {g.nodes.length === 1 ? "1 node" : `node ${done} of ${g.nodes.length}`}
+          </span>
+          {current && <span className="text-[10.5px] text-agent truncate">→ {current.key} · {current.agent}</span>}
+          <span className="text-[10.5px] text-dim">{VIA[provenance(g.originChannel)]}</span>
+          {artifacts.length > 0 && (
+            <span className="text-[10.5px] text-info truncate">{artifacts.join(" · ")}</span>
+          )}
+          {cost > 0 && <span className="font-mono text-[10.5px] text-dim ml-auto shrink-0">{usd(cost)}</span>}
+        </div>
       </div>
-      <div className={`text-[13px] font-semibold leading-snug ${g.status === "abandoned" ? "text-fg" : "text-bright"}`}>{g.title}</div>
-      {g.nodes.length > 1 && <div className="mt-2"><Segments statuses={g.nodes.map((n) => n.status)} /></div>}
-      {current && <div className="text-[10.5px] text-agent truncate mt-1">→ {current.key} · {current.agent}</div>}
-      <div className="flex justify-between items-baseline mt-1.5">
-        <span className="text-[10.5px] text-dim truncate">{g.department} · {g.lead} · {ts(g.createdAt)}</span>
-        {cost > 0 && <span className="font-mono text-[10.5px] text-dim shrink-0 ml-2">{usd(cost)}</span>}
-      </div>
-      {live && <div className="shimmer mt-2" />}
     </button>
   );
 }
