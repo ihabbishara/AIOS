@@ -1,4 +1,4 @@
-// ui2/src/views/Goals.tsx — Command Deck kanban lanes; detail = DAG + inspector (spec §6).
+// ui2/src/views/Goals.tsx — the org's memory: recency bands + node thread (spec 2026-08-03).
 import { useEffect, useState } from "react";
 import { api, type GoalNodeView, type GoalView, type StoredEvent } from "../api.js";
 import { useLiveQuery } from "../hooks.js";
@@ -154,7 +154,7 @@ function GoalDetailView({ slug, events, onOpenChat }: {
       <button onClick={() => navigate("goals")} className="label hover:text-fg mb-3">← goals</button>
       <div className="flex items-center gap-3 flex-wrap mb-1">
         <h1 className="text-[18px] font-bold text-bright">{goal.title}</h1>
-        <Tag tone={toneOfStatus(goal.status)}>{goal.status}</Tag>
+        <span className={`font-mono text-[11px] uppercase ${CLOCK_TEXT[statusClock(goal.status)]}`}>{goal.status}</span>
         <span className="text-[11px] text-dim">
           {goal.department} · {goal.lead} · replans {goal.replansUsed} · {usd(cost)} · {ts(goal.createdAt)}
         </span>
@@ -204,8 +204,12 @@ function GoalDetailView({ slug, events, onOpenChat }: {
           <div className="panel lg:w-96 shrink-0 p-4 h-fit">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-strong">{node.key}</span>
-              <Tag tone={toneOfStatus(node.status)}>{node.status}</Tag>
-              <span className="text-[11px] text-dim ml-auto">{node.agent} · rounds {node.rounds} · {usd(node.costCents)}</span>
+              <span className={`font-mono text-[10px] uppercase ${CLOCK_TEXT[statusClock(node.status)]}`}>
+                {node.status}
+              </span>
+              <span className="text-[11px] text-dim ml-auto">
+                {node.agent} · rounds {node.rounds} · {usd(node.costCents)}
+              </span>
             </div>
             <div className="text-[12px] text-dim whitespace-pre-wrap mb-3">{node.brief}</div>
             {node.error && <pre className="text-[11px] text-err whitespace-pre-wrap mb-3">{node.error}</pre>}
