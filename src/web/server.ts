@@ -17,7 +17,7 @@ import type { LoadedRegistry } from "../agents/registry/loader.js";
 import type { Mailbox } from "../mail/mailbox.js";
 import { buildPermissionsView, isWellFormedToolName } from "./permissions-view.js";
 import { buildPacksView, validateRunRequest, packDisableKey, validatePackFile, resolvePackFilePath, isSafePlaybookName } from "./packs-view.js";
-import { buildOrgView, buildAgentProfile } from "./org-view.js";
+import { buildOrgView, buildAgentProfile, costsByAgentCanonical } from "./org-view.js";
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 import { buildAttentionView } from "./attention-view.js";
 import { libraryTree, libraryRead } from "./library-view.js";
@@ -307,8 +307,9 @@ export function startWebServer(
 
         if (path === "/api/costs" && req.method === "GET") {
           // cost_daily rollup — no more bounded history scans (ops-floor spec §2.3).
-          const byAgent: Record<string, number> = {};
-          for (const r of store.costsByAgent()) byAgent[r.agent] = r.usd_cents / 100;
+          // Aliases folded — cost_daily stores whatever name the router emitted, so a
+          // renamed agent has rows under every name it has ever had.
+          const byAgent = costsByAgentCanonical(registry, store);
           const byDay: Record<string, number> = {};
           for (const r of store.costsByDay(14)) byDay[r.date] = r.usd_cents / 100;
           return json(res, 200, { byAgent, byDay });

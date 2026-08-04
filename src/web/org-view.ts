@@ -47,6 +47,32 @@ export function buildOrgView(
     costToday.set(name, (costToday.get(name) ?? 0) + r.usd_cents / 100);
   }
 
+  // Lifetime rollups. Every source is keyed by the raw name its writer stored,
+  // so each fold is canonical-then-accumulate — an agent that has been renamed
+  // twice contributes three rows that must add up, not overwrite.
+  const costEver = new Map<string, number>();
+  const lastActive = new Map<string, string>();
+  // Day-granular on purpose: cost_daily has no time, so the max is only ever
+  // honest to the day. See OrgAgentCard.lastActiveAt.
+  const seenOn = (name: string, stamp: string | null | undefined) => {
+    if (!stamp) return;
+    const day = stamp.slice(0, 10);
+    if (day > (lastActive.get(name) ?? "")) lastActive.set(name, day);
+  };
+  for (const r of store.costsByAgent()) {
+    const name = canonical(registry, r.agent);
+    costEver.set(name, (costEver.get(name) ?? 0) + r.usd_cents / 100);
+    seenOn(name, r.last_date);
+  }
+  const work = new Map<string, { nodes: number; goals: number; mail: number }>();
+  for (const r of store.agentActivity()) {
+    const name = canonical(registry, r.agent);
+    const w = work.get(name) ?? { nodes: 0, goals: 0, mail: 0 };
+    w.nodes += r.nodes; w.goals += r.goals; w.mail += r.mail;
+    work.set(name, w);
+    seenOn(name, r.last_at);
+  }
+
   // waiting = live chat run whose origin has a proposed (awaiting-approval) action.
   // Job contexts never match — by design; the Approvals tab covers those.
   const pendingOrigins = new Set(
@@ -61,6 +87,7 @@ export function buildOrgView(
         const context = liveRuns.get(a.manifest.name) ?? null;
         const status: AgentLiveStatus =
           context && pendingOrigins.has(context) ? "waiting" : context ? "working" : "idle";
+        const w = work.get(a.manifest.name);
         return {
           name: a.manifest.name,
           title: a.manifest.title,
@@ -70,6 +97,11 @@ export function buildOrgView(
           status,
           currentTask: context,
           costTodayUsd: costToday.get(a.manifest.name) ?? 0,
+          lastActiveAt: lastActive.get(a.manifest.name) ?? null,
+          costUsd: costEver.get(a.manifest.name) ?? 0,
+          nodes: w?.nodes ?? 0,
+          goalsLed: w?.goals ?? 0,
+          mail: w?.mail ?? 0,
         };
       });
     out.push({
@@ -85,6 +117,23 @@ export function buildOrgView(
   return out;
 }
 
+
+/**
+ * Lifetime spend per agent, aliases folded — the same canonicalization buildOrgView
+ * applies, for GET /api/costs.
+ *
+ * Without the fold, a renamed agent's spend splits across every name it has held and
+ * the largest share lands on a name that is not in the roster at all. Accumulates
+ * rather than assigns, because several raw names collapse onto one canonical agent.
+ */
+export function costsByAgentCanonical(registry: LoadedRegistry, store: Store): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of store.costsByAgent()) {
+    const name = canonical(registry, r.agent);
+    out[name] = (out[name] ?? 0) + r.usd_cents / 100;
+  }
+  return out;
+}
 
 /**
  * Every tool the org knows about, mapped to the capability that provides it
