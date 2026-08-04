@@ -12,8 +12,9 @@ describe("cost_daily rollups", () => {
     store.costAdd("clio", "2026-07-12", 10);
     store.costAdd("vulcan", "2026-07-11", 5);
     expect(store.costsByAgent()).toEqual([
-      { agent: "vulcan", usd_cents: 65, runs: 3 },
-      { agent: "clio", usd_cents: 10, runs: 1 },
+      // last_date is the agent's newest spending day, not the newest day overall
+      { agent: "vulcan", usd_cents: 65, runs: 3, last_date: "2026-07-12" },
+      { agent: "clio", usd_cents: 10, runs: 1, last_date: "2026-07-12" },
     ]);
     expect(store.costsByDay(14)).toEqual([
       { date: "2026-07-11", usd_cents: 5 },
@@ -30,7 +31,11 @@ describe("cost_daily rollups", () => {
     const store = new Store(":memory:");
     store.costAdd("vulcan", "2026-07-01", 100);
     store.costAdd("vulcan", "2026-07-12", 30);
-    expect(store.costsByAgent("2026-07-12")).toEqual([{ agent: "vulcan", usd_cents: 30, runs: 1 }]);
+    // last_date reports the newest day INSIDE the window — the 07-01 row is excluded
+    // from the sum, so it must not leak into the date either.
+    expect(store.costsByAgent("2026-07-12")).toEqual([
+      { agent: "vulcan", usd_cents: 30, runs: 1, last_date: "2026-07-12" },
+    ]);
   });
 
   it("attachBudgetLedger feeds cost_daily alongside budget_ledger", () => {
@@ -41,6 +46,8 @@ describe("cost_daily rollups", () => {
     bus.emit({ type: "agent.end", agent: "vulcan", context: "test", costUsd: 0.25, ok: true });
     bus.emit({ type: "agent.end", agent: "clio", context: "test", ok: true }); // no cost — ignored
     expect(store.budgetSpentCents("2026-07-12")).toBe(75);
-    expect(store.costsByAgent()).toEqual([{ agent: "vulcan", usd_cents: 75, runs: 2 }]);
+    expect(store.costsByAgent()).toEqual([
+      { agent: "vulcan", usd_cents: 75, runs: 2, last_date: "2026-07-12" },
+    ]);
   });
 });

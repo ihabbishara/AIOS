@@ -848,11 +848,34 @@ export class Store {
     ).run(agent, date, cents);
   }
 
-  costsByAgent(sinceDate?: string): Array<{ agent: string; usd_cents: number; runs: number }> {
+  costsByAgent(sinceDate?: string): Array<{ agent: string; usd_cents: number; runs: number; last_date: string }> {
     return this.db.prepare(
-      `SELECT agent, SUM(usd_cents) AS usd_cents, SUM(runs) AS runs FROM cost_daily
+      `SELECT agent, SUM(usd_cents) AS usd_cents, SUM(runs) AS runs, MAX(date) AS last_date FROM cost_daily
        WHERE date >= ? GROUP BY agent ORDER BY usd_cents DESC, agent`,
     ).all(sinceDate ?? "0000-00-00") as never;
+  }
+
+  /**
+   * Lifetime work per agent: nodes executed, goals led, mail sent, and the most
+   * recent timestamp across all three. Keyed by the RAW name each writer stored,
+   * so callers MUST fold aliases through `registry.agentOf` — the same agent
+   * appears under every name it has ever had (see org-view.ts).
+   *
+   * A goal counts against its `lead`, which is why an agent can lead 26 goals
+   * while executing almost no nodes.
+   */
+  agentActivity(): Array<{ agent: string; nodes: number; goals: number; mail: number; last_at: string | null }> {
+    return this.db.prepare(
+      `SELECT agent, SUM(nodes) AS nodes, SUM(goals) AS goals, SUM(mail) AS mail, MAX(last_at) AS last_at FROM (
+         SELECT agent AS agent, COUNT(*) AS nodes, 0 AS goals, 0 AS mail,
+                MAX(COALESCE(finished_at, started_at)) AS last_at
+           FROM task_nodes GROUP BY agent
+         UNION ALL
+         SELECT lead, 0, COUNT(*), 0, MAX(updated_at) FROM goals GROUP BY lead
+         UNION ALL
+         SELECT from_agent, 0, 0, COUNT(*), MAX(created_at) FROM mail GROUP BY from_agent
+       ) GROUP BY agent`,
+    ).all() as never;
   }
 
   costsByDay(days: number): Array<{ date: string; usd_cents: number }> {

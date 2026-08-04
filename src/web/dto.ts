@@ -94,6 +94,19 @@ export interface OrgAgentCard {
   status: "idle" | "working" | "waiting";
   currentTask: string | null;
   costTodayUsd: number;
+  /**
+   * Most recent day this agent did anything — max across cost, nodes, mail and
+   * goals led. `null` means it has never run under ANY of its names.
+   *
+   * A DATE (YYYY-MM-DD), not a timestamp: cost_daily is day-granular, so a
+   * full ISO stamp would be false precision on one of the four inputs.
+   */
+  lastActiveAt: string | null;
+  /** Lifetime, aliases folded in. `costTodayUsd` is ~always 0 and cannot carry the card. */
+  costUsd: number;
+  nodes: number;
+  goalsLed: number;
+  mail: number;
 }
 
 export interface OrgDepartmentView {

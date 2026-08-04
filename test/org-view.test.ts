@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { EventBus } from "../src/events.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { buildOrgView, buildAgentProfile } from "../src/web/org-view.js";
+import { buildOrgView, buildAgentProfile, costsByAgentCanonical } from "../src/web/org-view.js";
 
 /** Minimal two-department registry: engineering (vulcan, alias developer) + finance (midas, private). */
 export function fixtureRegistry() {
@@ -106,6 +106,87 @@ describe("buildOrgView", () => {
     store.costAdd("vulcan", "1998-12-30", 25);
     const eng = buildOrgView(registry, store, bus, "1999-01-01").find((d) => d.department === "engineering")!;
     expect(eng.agents[0].costTodayUsd).toBe(0);
+  });
+
+  it("lifetime cost sums across every name the agent has had, and lastActive takes the newest", () => {
+    // The live store has agents renamed twice; grouping on the raw column splits
+    // one agent's spend across its old and new name and hides the bigger share
+    // under a name that is no longer in the roster.
+    const { store, bus, registry } = harness();
+    store.costAdd("vulcan", "2026-07-20", 100);
+    store.costAdd("developer", "2026-07-26", 50);
+    const eng = buildOrgView(registry, store, bus, "2026-08-04").find((d) => d.department === "engineering")!;
+    expect(eng.agents[0].costUsd).toBeCloseTo(1.5);
+    expect(eng.agents[0].lastActiveAt).toBe("2026-07-26");
+    expect(eng.agents[0].costTodayUsd).toBe(0); // spent, but not today
+  });
+
+  it("counts goals led, nodes and mail across aliases", () => {
+    const { store, bus, registry } = harness();
+    const goal = (id: string, lead: string) => ({
+      id, slug: id, title: `goal ${id}`, request: "r", department: "engineering", lead,
+      origin_channel: "web", origin_chat_id: "ui", status: "running" as const,
+      project_dir: null, goal_dir: null, plan_summary: "", replans_used: 0,
+      chain_depth: 0, error: null,
+    });
+    store.insertGoal(goal("g1", "vulcan"));
+    store.insertGoal(goal("g2", "developer")); // same agent, older name
+    store.insertNodes("g1", [
+      { node_key: "a", type: "run", agent: "vulcan", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
+      { node_key: "b", type: "run", agent: "developer", critic: null, brief: "b", depends_on: [], max_rounds: 1 },
+    ]);
+    store.insertMail({
+      id: "m1", from_agent: "developer", to_agent: "user", kind: "report", body: "done",
+      goal_id: null, origin_channel: "engine", origin_chat_id: "x",
+      chain_depth: 0, status: "unread", error: null,
+    });
+    const eng = buildOrgView(registry, store, bus).find((d) => d.department === "engineering")!;
+    expect(eng.agents[0]).toMatchObject({ goalsLed: 2, nodes: 2, mail: 1 });
+  });
+
+  it("work today outranks an older cost date — cost alone understates who is alive", () => {
+    // Reading recency from cost_daily only says an agent went quiet days ago while
+    // it is in fact still sending mail today.
+    const { store, bus, registry } = harness();
+    const today = new Date().toISOString().slice(0, 10);
+    store.costAdd("vulcan", "2026-01-01", 100);
+    store.insertMail({
+      id: "m1", from_agent: "vulcan", to_agent: "user", kind: "report", body: "still here",
+      goal_id: null, origin_channel: "engine", origin_chat_id: "x",
+      chain_depth: 0, status: "unread", error: null,
+    });
+    const eng = buildOrgView(registry, store, bus).find((d) => d.department === "engineering")!;
+    expect(eng.agents[0].lastActiveAt).toBe(today);
+  });
+
+  it("an agent with no history under any name reports null, not a zero date", () => {
+    const { store, bus, registry } = harness();
+    const fin = buildOrgView(registry, store, bus).find((d) => d.department === "finance")!;
+    expect(fin.agents[0]).toMatchObject({
+      name: "midas", lastActiveAt: null, costUsd: 0, nodes: 0, goalsLed: 0, mail: 0,
+    });
+  });
+});
+
+describe("costsByAgentCanonical", () => {
+  it("folds an agent's old names into one row instead of reporting them as separate agents", () => {
+    // The live store had $471 under "researcher" and $9 under "odin" — the same
+    // agent, renamed. Ungrouped, System's cost view attributes the larger share to
+    // a name that no longer exists in the roster.
+    const { store, registry } = harness();
+    store.costAdd("vulcan", "2026-07-20", 900);
+    store.costAdd("developer", "2026-06-14", 47_140);
+    const byAgent = costsByAgentCanonical(registry, store);
+    expect(byAgent).toEqual({ vulcan: 480.4 });
+    expect(byAgent.developer).toBeUndefined();
+  });
+
+  it("keeps a name it cannot resolve rather than dropping the spend", () => {
+    // An agent deleted outright has no alias to fold into. Losing its rows would
+    // silently understate the total.
+    const { store, registry } = harness();
+    store.costAdd("ghost-agent", "2026-07-20", 500);
+    expect(costsByAgentCanonical(registry, store)["ghost-agent"]).toBeCloseTo(5);
   });
 });
 

@@ -1,12 +1,13 @@
 // ui2/src/views/Staff.tsx — org columns + governance + department admin (spec §6 Staff).
 // The rich per-agent profile lives in StaffProfile.tsx (persona explorer).
 import { useState } from "react";
-import { api, type PackView, type StoredEvent } from "../api.js";
+import { api, type OrgAgentCard, type PackView, type StoredEvent } from "../api.js";
 import { useFetch, useLiveQuery } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { navigate, type Route } from "../lib/router.js";
-import { Avatar, Button, Dot, Empty, PageHeader, SectionLabel, Tag } from "../components/ui.js";
+import { Avatar, Button, Empty, PageHeader, SectionLabel, Tag } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
+import { agentClock, lastActiveText, STAFF_TEXT, STAFF_TOKEN } from "../lib/staff-clock.js";
 import { ts, usdFloat } from "../lib/format.js";
 import { StaffProfile } from "./StaffProfile.js";
 
@@ -37,7 +38,45 @@ export function Staff({ events, route, onOpenChat }: {
   );
 }
 
+/** One agent, led by aliveness (spec 2026-08-04 §2). The dot's colour is the clock;
+ *  it breathes only for a run happening RIGHT NOW, never for "was active lately". */
+function AgentCard({ a, today, unread }: { a: OrgAgentCard; today: string; unread: number }) {
+  const clock = agentClock(a.lastActiveAt, today);
+  // goals led first: an agent can lead 26 goals while executing almost no nodes,
+  // and that division of labour is the point of the line.
+  const work = [
+    a.goalsLed > 0 ? `${a.goalsLed} goals led` : null,
+    a.nodes > 0 ? `${a.nodes} nodes` : null,
+    a.mail > 0 ? `${a.mail} mail` : null,
+    a.costUsd > 0 ? usdFloat(a.costUsd) : null,
+  ].filter(Boolean).join(" · ");
+  return (
+    <button onClick={() => navigate(`staff/agents/${a.name}`)}
+      className={`card card-hover w-full text-left px-2.5 py-2 mb-1.5 flex flex-col gap-0.5 min-h-11 ${
+        clock === "never" ? "opacity-55" : ""}`}>
+      <span className="flex items-center gap-2">
+        <span data-testid="staff-clock" data-clock={clock}
+          className={`size-1.5 rounded-full shrink-0 ${STAFF_TOKEN[clock]} ${a.status === "working" ? "breath" : ""}`} />
+        <Avatar name={a.name} tone={a.status === "working" ? "agent" : a.status === "waiting" ? "accent" : "dim"} />
+        <span className="text-strong">{a.name}</span>
+        <span className="text-[10px] text-dim truncate">{a.title}</span>
+        <span className="ml-auto flex gap-1 items-center text-[10px] shrink-0">
+          {a.visibility === "private" && <span title="private — only you can reach this agent">🔒</span>}
+          {a.guarded && <span title="guarded — extra approval gates">🛡</span>}
+          {unread > 0 && <Tag tone="accent">{unread}</Tag>}
+          <span className={`font-mono ${STAFF_TEXT[clock]}`}>{lastActiveText(a.lastActiveAt, today)}</span>
+        </span>
+      </span>
+      {a.currentTask && <span className="text-[11px] text-agent truncate">{a.currentTask}</span>}
+      {work
+        ? <span className="text-[10px] text-dim font-mono">{work}</span>
+        : clock === "never" && <span className="text-[10px] text-dim">hired, never run</span>}
+    </button>
+  );
+}
+
 function OrgColumns({ events }: { events: StoredEvent[] }) {
+  const today = new Date().toISOString().slice(0, 10);
   const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
   const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
   const { data: packs, reload: reloadPacks } = useFetch(() => api.packs(), []);
@@ -58,24 +97,7 @@ function OrgColumns({ events }: { events: StoredEvent[] }) {
         <div key={d.department} className="panel p-3.5">
           <SectionLabel>{d.department}</SectionLabel>
           <div className="text-[11px] text-dim mb-3 leading-relaxed">{d.mission}</div>
-          {d.agents.map((a) => (
-            <button key={a.name} onClick={() => navigate(`staff/agents/${a.name}`)}
-              className="card card-hover w-full text-left px-2.5 py-2 mb-1.5 flex flex-col gap-0.5 min-h-11">
-              <span className="flex items-center gap-2">
-                <Avatar name={a.name} tone={a.status === "working" ? "agent" : a.status === "waiting" ? "accent" : "dim"} />
-                <span className="text-strong">{a.name}</span>
-                <span className="text-[10px] text-dim truncate">{a.title}</span>
-                <span className="ml-auto flex gap-1 items-center text-[10px]">
-                  {a.status === "working" && <Dot tone="agent" breathing />}
-                  {a.visibility === "private" && <span title="private — only you can reach this agent">🔒</span>}
-                  {a.guarded && <span title="guarded — extra approval gates">🛡</span>}
-                  {(unread?.byAgent?.[a.name] ?? 0) > 0 && <Tag tone="accent">{unread?.byAgent?.[a.name]}</Tag>}
-                </span>
-              </span>
-              {a.currentTask && <span className="text-[11px] text-agent truncate">{a.currentTask}</span>}
-              {a.costTodayUsd > 0 && <span className="text-[10px] text-dim font-mono">{usdFloat(a.costTodayUsd)} today</span>}
-            </button>
-          ))}
+          {d.agents.map((a) => <AgentCard key={a.name} a={a} today={today} unread={unread?.byAgent?.[a.name] ?? 0} />)}
           <DeptManage pack={packs?.find((p) => p.pillar === d.department)} reload={reloadPacks} />
         </div>
       ))}
