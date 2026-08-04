@@ -4,8 +4,9 @@ import { api, type AttentionItem, type StoredEvent } from "../../api.js";
 import { useLiveQuery } from "../../hooks.js";
 import { T } from "../../lib/topics.js";
 import { navigate } from "../../lib/router.js";
-import { Button, SectionLabel, Tag, Empty, toneOfStatus } from "../../components/ui.js";
+import { Button, SectionLabel, Empty } from "../../components/ui.js";
 import { TwoStepButton } from "../../components/TwoStepButton.js";
+import { statusClock, CLOCK_TEXT } from "../../lib/goal-clock.js";
 import { usd } from "../../lib/format.js";
 import { Thread } from "../Thread.js";
 
@@ -35,7 +36,7 @@ export function GoalCanvas({ item, events, onAct, onOpenChat, onDone }: {
     <div className="max-w-2xl flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <SectionLabel>Goal</SectionLabel>
-        <Tag tone={toneOfStatus(goal.status)}>{goal.status}</Tag>
+        <span className={`font-mono text-[11px] uppercase ${CLOCK_TEXT[statusClock(goal.status)]}`}>{goal.status}</span>
         <span className="text-[11px] text-dim ml-auto">{usd(cost)} so far</span>
       </div>
       <div className="text-[15px] text-strong">{goal.title}</div>
