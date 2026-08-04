@@ -46,6 +46,53 @@ describe("buildMailView", () => {
   });
 });
 
+describe("buildMailView windowing", () => {
+  const seed = (store: Store, n: number) => {
+    for (let i = 0; i < n; i++) {
+      store.insertMail({
+        id: `w${i}`, from_agent: "athena", to_agent: "vulcan", kind: "standup", body: `b${i}`,
+        goal_id: null, origin_channel: "web", origin_chat_id: "1", chain_depth: 1,
+        status: "read", error: null,
+      });
+    }
+  };
+
+  // The bug this closes: a row LIMIT is taken over the WHOLE corpus, newest first. Once the
+  // corpus outgrows the cap the oldest rows fall off — which for a 30-day strip means whole
+  // days vanish with nothing saying so. A time window must not be truncated by a row count.
+  it("returns every row in the window even past the 200-row limit ceiling", () => {
+    const store = new Store(":memory:");
+    seed(store, 250);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    expect(buildMailView(store, registry, undefined, 200, yesterday)).toHaveLength(250);
+  });
+
+  it("still honours the row limit when no window is given", () => {
+    const store = new Store(":memory:");
+    seed(store, 250);
+    expect(buildMailView(store, registry, undefined, 200)).toHaveLength(200);
+  });
+
+  it("excludes rows older than the window start", () => {
+    const store = new Store(":memory:");
+    seed(store, 3);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    expect(buildMailView(store, registry, undefined, 200, tomorrow)).toHaveLength(0);
+  });
+
+  it("combines the window with the agent filter", () => {
+    const store = new Store(":memory:");
+    seed(store, 5);
+    store.insertMail({
+      id: "other", from_agent: "clio", to_agent: "minos", kind: "note", body: "x", goal_id: null,
+      origin_channel: "web", origin_chat_id: "1", chain_depth: 1, status: "read", error: null,
+    });
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    expect(buildMailView(store, registry, "developer", 200, yesterday)).toHaveLength(5); // alias → vulcan
+    expect(buildMailView(store, registry, undefined, 200, yesterday)).toHaveLength(6);
+  });
+});
+
 describe("buildMailUnread", () => {
   it("totals + per-agent unread, status='unread' only", () => {
     const store = new Store(":memory:");

@@ -896,7 +896,23 @@ export class Store {
     return this.db.prepare("SELECT * FROM mail WHERE id = ?").get(id) as MailRow | undefined;
   }
 
-  listMail(agent?: string, limit = 50): MailRow[] {
+  /** `since` (ISO stamp) bounds the result by TIME instead of by row count.
+   *
+   *  A row LIMIT is taken over the whole corpus, newest first, so once the corpus outgrows
+   *  the cap the OLDEST rows fall off. That is wrong for any windowed view: Mail's 30-day
+   *  strip would quietly lose whole days and still report a count, which is the one failure
+   *  mode it must not have. When a window is given the range is the bound, so no LIMIT is
+   *  applied — callers taking untrusted input clamp the window at the HTTP boundary. */
+  listMail(agent?: string, limit = 50, since?: string): MailRow[] {
+    if (since) {
+      if (agent) {
+        return this.db.prepare(
+          "SELECT * FROM mail WHERE (from_agent = ? OR to_agent = ?) AND created_at >= ? ORDER BY created_at DESC",
+        ).all(agent, agent, since) as unknown as MailRow[];
+      }
+      return this.db.prepare("SELECT * FROM mail WHERE created_at >= ? ORDER BY created_at DESC")
+        .all(since) as unknown as MailRow[];
+    }
     if (agent) {
       return this.db.prepare(
         "SELECT * FROM mail WHERE from_agent = ? OR to_agent = ? ORDER BY created_at DESC LIMIT ?",

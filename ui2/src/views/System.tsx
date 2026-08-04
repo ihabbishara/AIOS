@@ -168,11 +168,11 @@ function Costs({ events }: { events: StoredEvent[] }) {
   const { data: costs } = useLiveQuery(() => api.costs(), events, T.costs);
   const { data: goals } = useLiveQuery(() => api.goals(), events, T.goals);
   if (!costs) return <Empty>Loading…</Empty>;
-  const days = Object.entries(costs.byDay).sort(([a], [b]) => (a < b ? -1 : 1));
+  const days = Object.entries(costs.byDay ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
   const today = days[days.length - 1]?.[1] ?? 0;
   const week = days.slice(-7).reduce((s, [, v]) => s + v, 0);
   const window14 = days.reduce((s, [, v]) => s + v, 0); // /api/costs serves a 14-day window
-  const agents = Object.entries(costs.byAgent).sort(([, a], [, b]) => b - a);
+  const agents = Object.entries(costs.byAgent ?? {}).sort(([, a], [, b]) => b - a);
   const maxAgent = Math.max(0.01, ...agents.map(([, v]) => v));
   const maxDay = Math.max(0.01, ...days.map(([, v]) => v));
   const topGoals = (goals ?? [])

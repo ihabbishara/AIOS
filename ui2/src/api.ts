@@ -188,8 +188,11 @@ export const api = {
       `/api/goals/${encodeURIComponent(goalId)}/review/${encodeURIComponent(node)}`,
       { method: "POST", body: JSON.stringify({ verdict, ...(guidance?.trim() ? { guidance } : {}) }) },
     ),
-  mail: (agent?: string, limit = 50) =>
-    request<MailView[]>(`/api/mail?${agent ? `agent=${encodeURIComponent(agent)}&` : ""}limit=${limit}`),
+  /** `since` (ISO) makes the server bound by time instead of row count — a row limit over the
+   *  whole corpus silently drops the oldest days out of a window. */
+  mail: (agent?: string, limit = 50, since?: string) =>
+    request<MailView[]>(`/api/mail?${agent ? `agent=${encodeURIComponent(agent)}&` : ""}${
+      since ? `since=${encodeURIComponent(since)}&` : ""}limit=${limit}`),
   mailUnread: () => request<{ total: number; byAgent: Record<string, number>; pendingUser: number; userInbox: number }>("/api/mail/unread"),
   mailMine: () => request<{ threads: UserThreadView[] }>("/api/mail/mine"),
   mailThreadView: (id: string) => request<MailView[]>(`/api/mail/thread/${encodeURIComponent(id)}`),

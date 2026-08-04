@@ -105,6 +105,18 @@ describe("Mail pulse", () => {
     expect(await screen.findByText("just some prose with no fields at all")).toBeTruthy();
   });
 
+  it("asks the server for the window, not for a row count", async () => {
+    stubApi({ "/api/mail": [row({})], "/api/mail/mine": NO_THREADS });
+    render(<Mail events={[]} route={route} />);
+    await screen.findByText("clio");
+    const urls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls.map((c) => String(c[0]));
+    const mailCall = urls.find((u) => u.startsWith("/api/mail?"));
+    // Without `since` the server falls back to a row limit taken over the whole corpus,
+    // which drops the OLDEST days once the corpus outgrows it — silently.
+    expect(mailCall).toContain(`since=${encodeURIComponent("2026-07-05T00:00:00.000Z")}`);
+  });
+
   it("shows the empty state on a fresh install", async () => {
     stubApi({ "/api/mail": [], "/api/mail/mine": NO_THREADS });
     render(<Mail events={[]} route={route} />);
