@@ -69,7 +69,7 @@ function OrgColumns({ events }: { events: StoredEvent[] }) {
                   {a.status === "working" && <Dot tone="agent" breathing />}
                   {a.visibility === "private" && <span title="private — only you can reach this agent">🔒</span>}
                   {a.guarded && <span title="guarded — extra approval gates">🛡</span>}
-                  {(unread?.byAgent[a.name] ?? 0) > 0 && <Tag tone="accent">{unread!.byAgent[a.name]}</Tag>}
+                  {(unread?.byAgent?.[a.name] ?? 0) > 0 && <Tag tone="accent">{unread?.byAgent?.[a.name]}</Tag>}
                 </span>
               </span>
               {a.currentTask && <span className="text-[11px] text-agent truncate">{a.currentTask}</span>}

@@ -260,8 +260,8 @@ export function Chat({ state, events, target, setTarget, seed }: {
           >
             {statusOf.get(t) === "working" && <Dot tone="agent" breathing />}
             {t}
-            {(unread?.byAgent[t] ?? 0) > 0 && (
-              <span className="font-mono text-[9px] text-bg bg-info rounded-full px-1">{unread!.byAgent[t]}</span>
+            {(unread?.byAgent?.[t] ?? 0) > 0 && (
+              <span className="font-mono text-[9px] text-bg bg-info rounded-full px-1">{unread?.byAgent?.[t]}</span>
             )}
           </button>
         ))}
