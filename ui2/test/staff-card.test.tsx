@@ -17,7 +17,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const card = (over: Partial<OrgAgentCard> = {}): OrgAgentCard => ({
   name: "vulcan", title: "Senior Engineer", charter: "c", visibility: "shared",
   guarded: false, status: "idle", currentTask: null, costTodayUsd: 0,
-  lastActiveAt: "2026-08-02", costUsd: 45.94, nodes: 20, goalsLed: 0, mail: 6, ...over,
+  lastActiveAt: "2026-08-02", costUsd: 45.94, nodes: 20, goalsLed: 0, mail: 6, runs: 135, ...over,
 });
 
 const dept = (agents: OrgAgentCard[]): OrgDepartmentView => ({
@@ -59,7 +59,7 @@ describe("Staff org card", () => {
   it("separates an agent that went quiet from one that never ran", async () => {
     await mount([
       card({ name: "odin", lastActiveAt: "2026-07-26", costUsd: 480.52, nodes: 20, mail: 1 }),
-      card({ name: "juno", lastActiveAt: null, costUsd: 0, nodes: 0, mail: 0 }),
+      card({ name: "juno", lastActiveAt: null, costUsd: 0, nodes: 0, mail: 0, runs: 0 }),
     ]);
     const [odin, juno] = screen.getAllByTestId("staff-clock");
     expect(odin.dataset.clock).toBe("stale");
@@ -85,6 +85,18 @@ describe("Staff org card", () => {
     ]);
     expect(screen.getByText("$23.51")).toBeTruthy();
     expect(screen.queryByText("hired, never run")).toBeNull();
+  });
+
+  it("reports runs for an agent that works only in chat, instead of an empty line", async () => {
+    // Finance ran 16 times via chat and produced no goal, node, mail or cost.
+    // With nothing to print, the card would have gone blank under the name and
+    // read as idle — the opposite of the truth.
+    await mount([
+      card({ name: "juno", lastActiveAt: "2026-06-28", costUsd: 0, nodes: 0, mail: 0, goalsLed: 0, runs: 10 }),
+    ]);
+    expect(screen.getByText("10 runs · no output")).toBeTruthy();
+    expect(screen.queryByText("hired, never run")).toBeNull();
+    expect(screen.getByTestId("staff-clock").dataset.clock).toBe("stale");
   });
 
   it("breathes only for a run happening now, not for merely-recent activity", async () => {

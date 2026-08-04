@@ -95,8 +95,14 @@ export interface OrgAgentCard {
   currentTask: string | null;
   costTodayUsd: number;
   /**
-   * Most recent day this agent did anything — max across cost, nodes, mail and
-   * goals led. `null` means it has never run under ANY of its names.
+   * Most recent day this agent did anything — max across cost, nodes, mail,
+   * goals led AND completed runs. `null` means it has never run under ANY of
+   * its names.
+   *
+   * Runs are load-bearing here, not a refinement: a chat-only agent produces no
+   * goal, node or mail, and 65% of agent.end events carry no cost. Reading the
+   * four artifact sources alone reports the busiest agent in the org as weeks
+   * stale and an entire department as never having run.
    *
    * A DATE (YYYY-MM-DD), not a timestamp: cost_daily is day-granular, so a
    * full ISO stamp would be false precision on one of the four inputs.
@@ -107,6 +113,8 @@ export interface OrgAgentCard {
   nodes: number;
   goalsLed: number;
   mail: number;
+  /** Completed runs (agent.end). The only activity a chat-only agent produces. */
+  runs: number;
 }
 
 export interface OrgDepartmentView {

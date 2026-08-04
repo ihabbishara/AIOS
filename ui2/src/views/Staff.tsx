@@ -70,7 +70,11 @@ function AgentCard({ a, today, unread }: { a: OrgAgentCard; today: string; unrea
       {a.currentTask && <span className="text-[11px] text-agent truncate">{a.currentTask}</span>}
       {work
         ? <span className="text-[10px] text-dim font-mono">{work}</span>
-        : clock === "never" && <span className="text-[10px] text-dim">hired, never run</span>}
+        : a.runs > 0
+          // Ran, but left no goal, node, mail or cost behind — the whole finance
+          // department looks like this. Saying nothing here would read as idle.
+          ? <span className="text-[10px] text-dim font-mono">{a.runs} runs · no output</span>
+          : <span className="text-[10px] text-dim">hired, never run</span>}
     </button>
   );
 }

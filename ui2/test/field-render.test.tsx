@@ -11,7 +11,7 @@ afterEach(cleanup);
 const card = (name: string, status: OrgAgentCard["status"]): OrgAgentCard => ({
   name, title: "T", charter: "c", visibility: "shared", guarded: false,
   status, currentTask: null, costTodayUsd: 0,
-  lastActiveAt: null, costUsd: 0, nodes: 0, goalsLed: 0, mail: 0,
+  lastActiveAt: null, costUsd: 0, nodes: 0, goalsLed: 0, mail: 0, runs: 0,
 });
 
 const dept = (department: string, agents: OrgAgentCard[]): OrgDepartmentView => ({

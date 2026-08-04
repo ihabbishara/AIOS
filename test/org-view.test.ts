@@ -163,8 +163,33 @@ describe("buildOrgView", () => {
     const { store, bus, registry } = harness();
     const fin = buildOrgView(registry, store, bus).find((d) => d.department === "finance")!;
     expect(fin.agents[0]).toMatchObject({
-      name: "midas", lastActiveAt: null, costUsd: 0, nodes: 0, goalsLed: 0, mail: 0,
+      name: "midas", lastActiveAt: null, costUsd: 0, nodes: 0, goalsLed: 0, mail: 0, runs: 0,
     });
+  });
+
+  it("a run counts as activity even when it leaves no goal, node, mail or cost", () => {
+    // The live store's finance agents ran 16 times via chat and produced none of
+    // the four artifacts — 65% of agent.end events carry no costUsd at all. Read
+    // from artifacts alone they report as never having run, which is false.
+    const { store, bus, registry } = harness();
+    const today = new Date().toISOString().slice(0, 10);
+    bus.emit({ type: "agent.end", agent: "cfo", context: "chat:web:ui", ok: true }); // alias, no costUsd
+    bus.emit({ type: "agent.end", agent: "midas", context: "chat:web:ui", ok: true });
+    const fin = buildOrgView(registry, store, bus).find((d) => d.department === "finance")!;
+    expect(fin.agents[0]).toMatchObject({ name: "midas", runs: 2, costUsd: 0, nodes: 0 });
+    expect(fin.agents[0].lastActiveAt).toBe(today);
+  });
+
+  it("a costless run still beats an older artifact date", () => {
+    // The failure this shipped with: neo had mail from weeks ago and a run today,
+    // and the card showed the org's busiest agent as stale.
+    const { store, bus, registry } = harness();
+    const today = new Date().toISOString().slice(0, 10);
+    store.costAdd("vulcan", "2026-01-01", 100);
+    bus.emit({ type: "agent.end", agent: "developer", context: "chat:web:ui", ok: true });
+    const eng = buildOrgView(registry, store, bus).find((d) => d.department === "engineering")!;
+    expect(eng.agents[0].lastActiveAt).toBe(today);
+    expect(eng.agents[0].runs).toBe(1);
   });
 });
 

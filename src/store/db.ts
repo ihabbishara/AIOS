@@ -856,6 +856,26 @@ export class Store {
   }
 
   /**
+   * Completed runs per agent, from the event stream. Keyed by the RAW name the
+   * router emitted, so callers MUST fold aliases through `registry.agentOf`.
+   *
+   * This is the only trace a chat-only agent leaves. 570 of 875 agent.end events
+   * carry no `costUsd`, and a chat run writes no goal, node or mail — so an
+   * activity signal built from artifacts alone reports agents as idle for weeks
+   * while they are answering every day, and reports the whole finance department
+   * as never having run at all.
+   */
+  runsByAgent(): Array<{ agent: string; runs: number; last_at: string }> {
+    return this.db.prepare(
+      `SELECT json_extract(payload, '$.agent') AS agent, COUNT(*) AS runs, MAX(ts) AS last_at
+         FROM events
+        WHERE json_extract(payload, '$.type') = 'agent.end'
+          AND json_extract(payload, '$.agent') IS NOT NULL
+        GROUP BY agent`,
+    ).all() as never;
+  }
+
+  /**
    * Lifetime work per agent: nodes executed, goals led, mail sent, and the most
    * recent timestamp across all three. Keyed by the RAW name each writer stored,
    * so callers MUST fold aliases through `registry.agentOf` — the same agent

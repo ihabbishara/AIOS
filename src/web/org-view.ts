@@ -72,6 +72,16 @@ export function buildOrgView(
     work.set(name, w);
     seenOn(name, r.last_at);
   }
+  // Runs are a SEPARATE source, not a nicety: a chat run leaves no goal, node or
+  // mail, and 65% of agent.end events carry no cost either. Without this, neo —
+  // the busiest agent in the org — reads as two weeks stale, and finance reads
+  // as never having run.
+  const runs = new Map<string, number>();
+  for (const r of store.runsByAgent()) {
+    const name = canonical(registry, r.agent);
+    runs.set(name, (runs.get(name) ?? 0) + r.runs);
+    seenOn(name, r.last_at);
+  }
 
   // waiting = live chat run whose origin has a proposed (awaiting-approval) action.
   // Job contexts never match — by design; the Approvals tab covers those.
@@ -102,6 +112,7 @@ export function buildOrgView(
           nodes: w?.nodes ?? 0,
           goalsLed: w?.goals ?? 0,
           mail: w?.mail ?? 0,
+          runs: runs.get(a.manifest.name) ?? 0,
         };
       });
     out.push({
