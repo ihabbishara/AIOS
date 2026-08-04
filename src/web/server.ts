@@ -133,6 +133,17 @@ async function readBodyBuffer(req: IncomingMessage, cap: number): Promise<Buffer
 const clampLimit = (raw: string | null, dflt: number): number =>
   Math.min(Math.max(1, Number(raw) || dflt), 200);
 
+/** A caller-supplied window start for the ranged mail query. Unparseable input is ignored
+ *  (falling back to the row limit), and the window is floored at a year so `since` cannot be
+ *  widened into a full-table scan. */
+const MAX_SINCE_DAYS = 366;
+const clampSince = (raw: string | null): string | undefined => {
+  if (!raw) return undefined;
+  const t = Date.parse(raw);
+  if (Number.isNaN(t)) return undefined;
+  return new Date(Math.max(t, Date.now() - MAX_SINCE_DAYS * 86_400_000)).toISOString();
+};
+
 /**
  * The listen-error handler for whoever owns this port at startup. There is no pidfile, lockfile
  * or "already running" check anywhere in this codebase, so an unhandled EADDRINUSE was the only
@@ -818,7 +829,8 @@ export function startWebServer(
         if (path === "/api/mail" && req.method === "GET") {
           return json(res, 200, buildMailView(store, registry,
             url.searchParams.get("agent") ?? undefined,
-            clampLimit(url.searchParams.get("limit"), 50)));
+            clampLimit(url.searchParams.get("limit"), 50),
+            clampSince(url.searchParams.get("since"))));
         }
 
         const threadMatch = /^\/api\/mail\/thread\/([\w-]+)$/.exec(path);

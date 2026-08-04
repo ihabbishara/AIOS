@@ -4,7 +4,7 @@
 // idealised fixtures would have hidden exactly the bug this parser exists to avoid.
 import { describe, it, expect } from "vitest";
 import type { MailView } from "../src/api.js";
-import { parseStandup, groupByDay, exchangesOf, stateOf, dayKey } from "../src/lib/standup.js";
+import { parseStandup, groupByDay, exchangesOf, stateOf, dayKey, windowStartIso } from "../src/lib/standup.js";
 
 const CANONICAL = `Done: No research items completed; one outbound mail sent, no replies yet.
 Today: Idle capacity — ready to pick up export-project or Middle East briefing research on request.
@@ -130,6 +130,15 @@ describe("groupByDay", () => {
 
   it("buckets by the UTC date the store groups on", () => {
     expect(dayKey("2026-08-03T05:15:15.901Z")).toBe("2026-08-03");
+  });
+
+  it("windowStartIso is midnight UTC of the oldest cell groupByDay renders", () => {
+    const cells = groupByDay([], now, 30);
+    expect(windowStartIso(now, 30)).toBe("2026-07-05T00:00:00.000Z");
+    // The fetch bound and the drawn bound must be the same day, or the strip claims days
+    // it was never sent rows for.
+    expect(windowStartIso(now, 30).slice(0, 10)).toBe(cells[0].date);
+    expect(windowStartIso(now, 5).slice(0, 10)).toBe(groupByDay([], now, 5)[0].date);
   });
 
   it("stateOf distinguishes all three states", () => {

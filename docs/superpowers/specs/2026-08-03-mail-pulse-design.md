@@ -189,8 +189,11 @@ Mail follows the light/dark toggle, exactly as Goals does — it does **not** pi
 
 ## 7. Data flow
 
-- `api.mail(undefined, limit)` → `/api/mail` → `buildMailView` → the full stream. **Already implemented and already wired; currently uncalled by this view.** The default limit is 50 and the corpus is 72 — the limit must be raised to cover the window, or the strip will silently under-count old days.
-- **`clampLimit` (`src/web/server.ts:133`) hard-caps any `limit` at 200.** At 72 rows this is headroom, but it is a ceiling, not a default: past 200 mail rows the 30-day strip starts under-counting silently, which is the one failure mode this view must not have. Recorded in Open items.
+- `api.mail(undefined, undefined, since)` → `/api/mail?since=…` → `buildMailView` → `store.listMail(agent, limit, since)`.
+- **The request is bounded by TIME, not by row count.** A row limit is taken over the whole corpus newest-first, so once the corpus outgrows the cap the *oldest* rows fall off — for a 30-day strip that means whole days vanish while the header still reports a count. `since` makes the range itself the bound, and no `LIMIT` is applied when it is present.
+- **The fetch bound and the drawn bound come from one function.** `windowStartIso(now, days)` returns midnight UTC of the oldest cell `groupByDay` will render, and both the query and the strip use it, so they cannot drift apart.
+- **`clampSince` (`src/web/server.ts`) floors the window at 366 days** so a caller cannot widen `since` into a full-table scan; unparseable input is ignored and falls back to the row limit.
+- Consequence: **the work band is windowed too.** It shows exchanges inside the same 30 days rather than whatever happened to fit in a row cap — which is the more honest reading, since the header already frames the page as 30 days and Goals owns the full work archive.
 - `api.mailMine()` → unchanged, feeds §5 only.
 - Live updates continue through `useLiveQuery(..., T.agentMail)`, unchanged.
 
@@ -229,7 +232,6 @@ Mail follows the light/dark toggle, exactly as Goals does — it does **not** pi
 
 - **The `note` kind (1 row)** has no designed home; it falls into the work band's fallback. Revisit if notes become common.
 - **The 30-day window is fixed.** At a year of data the strip needs a scale decision; not now.
-- **`/api/mail`'s default limit of 50** is below the current corpus of 72. Raised here for the view, but any other caller inherits the old default.
-- **The 200-row ceiling in `clampLimit` will eventually break the strip.** At the current rate (~2.3 mail rows/day) the corpus reaches 200 in roughly two months, after which the oldest days in a 30-day window silently lose rows. The fix is a date-ranged mail query rather than a row limit; deliberately deferred, but it has a deadline.
+- ~~**The 200-row ceiling in `clampLimit` will eventually break the strip.**~~ **Closed 2026-08-04.** `/api/mail` now takes a `since` window and drops the row limit when one is given, so the strip is bounded by the range it draws rather than by a corpus-wide row count. `/api/mail`'s default limit of 50 still applies to callers that pass no window.
 - **Standup preamble leakage** (`"Here is the standup:"`, `"…no tools needed"`) is an *agent prompt* problem the client is compensating for. Worth fixing at the source; out of scope here.
 - **Three failure mornings hit multiple agents at once**, which points at infrastructure rather than agents. Mail will now make this visible; diagnosing it is separate work.

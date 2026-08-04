@@ -17,7 +17,7 @@ import { Button, Dot, Empty, PageHeader, SectionLabel, Tag, toneOfStatus } from 
 import { CLOCK_TEXT, CLOCK_TOKEN } from "../lib/goal-clock.js";
 import { ts } from "../lib/format.js";
 import {
-  groupByDay, exchangesOf, dayKey,
+  groupByDay, exchangesOf, dayKey, windowStartIso,
   type DayCell, type DayEntry, type Exchange,
 } from "../lib/standup.js";
 
@@ -40,12 +40,14 @@ export function Mail({ events, route }: { events: StoredEvent[]; route: Route })
   );
 }
 
-/** The corpus is 72 rows and /api/mail defaults to 50, so the window would silently
- *  under-count old days. clampLimit (src/web/server.ts:133) caps this at 200. */
-const MAIL_LIMIT = 200;
-
+/** The whole surface is one 30-day window: the fetch asks for exactly the range the strip
+ *  draws, so no row cap can quietly drop the oldest days. A plain `limit` could not do this —
+ *  it counts from the newest row backwards and knows nothing about where the window starts. */
 function usePulse(events: StoredEvent[]) {
-  return useLiveQuery(() => api.mail(undefined, MAIL_LIMIT), events, T.agentMail);
+  return useLiveQuery(
+    () => api.mail(undefined, undefined, windowStartIso(new Date(), WINDOW_DAYS)),
+    events, T.agentMail,
+  );
 }
 
 function Pulse({ events }: { events: StoredEvent[] }) {

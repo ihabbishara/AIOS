@@ -72,6 +72,14 @@ export function stateOf(entries: DayEntry[]): DayState {
   return entries.some((e) => e.parsed.kind === "failed") ? "failed" : "checked";
 }
 
+/** Midnight UTC of the oldest day the window covers — the exact lower bound `groupByDay`
+ *  will render. The fetch asks for this same instant, so the range requested and the range
+ *  drawn cannot drift apart and leave the strip reporting days it has no rows for. */
+export function windowStartIso(now: Date, days = 30): string {
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return new Date(midnight - (days - 1) * 86_400_000).toISOString();
+}
+
 /** A contiguous window ending today — silent days are PRESENT as empty cells.
  *  Omitting them would hide the thing the strip exists to show. */
 export function groupByDay(mail: MailView[], now: Date, days = 30): DayCell[] {

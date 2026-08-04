@@ -62,9 +62,11 @@ export function buildGoalDetail(store: Store, vault: VaultWriter, idOrSlug: stri
   return { ...goalView(g, store), artifacts, spawnedBy, awaitingUserAsk };
 }
 
-export function buildMailView(store: Store, registry: LoadedRegistry, agent?: string, limit = 50): MailView[] {
+export function buildMailView(
+  store: Store, registry: LoadedRegistry, agent?: string, limit = 50, since?: string,
+): MailView[] {
   const canonical = agent ? registry.agentOf.get(agent) ?? agent : undefined;
-  return store.listMail(canonical, limit).map((m) => ({
+  return store.listMail(canonical, limit, since).map((m) => ({
     id: m.id, from: m.from_agent, to: m.to_agent, kind: m.kind, status: m.status, body: m.body,
     goalId: m.goal_id, chainDepth: m.chain_depth, createdAt: m.created_at, readAt: m.read_at, error: m.error,
   }));
