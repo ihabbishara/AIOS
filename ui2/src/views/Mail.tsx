@@ -40,12 +40,18 @@ export function Mail({ events, route }: { events: StoredEvent[]; route: Route })
   );
 }
 
+/** A server that predates the `since` window ignores it and falls back to the row limit,
+ *  whose default is 50 — well short of a 30-day window. Sending the ceiling explicitly keeps
+ *  this view no worse than it was against an old daemon, which matters because ui2/dist is
+ *  served statically: the bundle can ship before the process restarts. */
+const FALLBACK_ROW_LIMIT = 200;   // clampLimit's own ceiling
+
 /** The whole surface is one 30-day window: the fetch asks for exactly the range the strip
  *  draws, so no row cap can quietly drop the oldest days. A plain `limit` could not do this —
  *  it counts from the newest row backwards and knows nothing about where the window starts. */
 function usePulse(events: StoredEvent[]) {
   return useLiveQuery(
-    () => api.mail(undefined, undefined, windowStartIso(new Date(), WINDOW_DAYS)),
+    () => api.mail(undefined, FALLBACK_ROW_LIMIT, windowStartIso(new Date(), WINDOW_DAYS)),
     events, T.agentMail,
   );
 }
