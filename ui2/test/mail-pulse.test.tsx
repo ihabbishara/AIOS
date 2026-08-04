@@ -115,6 +115,9 @@ describe("Mail pulse", () => {
     // Without `since` the server falls back to a row limit taken over the whole corpus,
     // which drops the OLDEST days once the corpus outgrows it — silently.
     expect(mailCall).toContain(`since=${encodeURIComponent("2026-07-05T00:00:00.000Z")}`);
+    // And the limit must still be the ceiling, not the default 50: a daemon that predates
+    // `since` ignores it, and ui2/dist ships statically so the bundle can outrun the process.
+    expect(mailCall).toContain("limit=200");
   });
 
   it("shows the empty state on a fresh install", async () => {
