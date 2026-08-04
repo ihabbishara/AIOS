@@ -28,7 +28,13 @@ export function Thread({ nodes, failedKey, onSelect }: {
             key={n.key}
             data-testid="thread-row"
             data-key={n.key}
+            // Only a row that actually does something gets button semantics — a
+            // read-only thread would otherwise put every node in the tab order
+            // and announce it as pressable.
+            role={onSelect ? "button" : undefined}
+            tabIndex={onSelect ? 0 : undefined}
             onClick={onSelect ? () => onSelect(n.key) : undefined}
+            onKeyDown={onSelect ? (e) => e.key === "Enter" && onSelect(n.key) : undefined}
             className={`flex gap-3 py-2 ${spine ? "border-l border-line pl-3" : ""} ${
               onSelect ? "cursor-pointer hover:bg-raised" : ""
             } ${isMuted(n.status) ? "opacity-55" : ""}`}

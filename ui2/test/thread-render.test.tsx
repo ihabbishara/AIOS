@@ -80,6 +80,24 @@ describe("Thread", () => {
     expect(picked).toEqual(["b"]);
   });
 
+  it("selects with the keyboard, and puts the row in the tab order to allow it", () => {
+    const picked: string[] = [];
+    render(<Thread nodes={[node("a"), node("b")]} onSelect={(k) => picked.push(k)} />);
+    const rows = screen.getAllByTestId("thread-row");
+    expect(rows[1].getAttribute("role")).toBe("button");
+    expect(rows[1].tabIndex).toBe(0);
+    fireEvent.keyDown(rows[1], { key: "Enter" });
+    expect(picked).toEqual(["b"]);
+  });
+
+  it("leaves a read-only thread out of the tab order entirely", () => {
+    render(<Thread nodes={[node("a"), node("b")]} />);
+    for (const row of screen.getAllByTestId("thread-row")) {
+      expect(row.getAttribute("role")).toBeNull();
+      expect(row.getAttribute("tabindex")).toBeNull();
+    }
+  });
+
   it("renders nothing at all for an empty node list", () => {
     const { container } = render(<Thread nodes={[]} />);
     expect(container.textContent).toBe("");
