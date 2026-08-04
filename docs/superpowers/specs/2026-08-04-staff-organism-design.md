@@ -34,8 +34,9 @@ Four facts the old view could not show:
 1. **odin is 69% of all spend** ($480.52 of $693.80), leads nothing, and went
    quiet 9 days ago. Its card read `$0 today` — identical to juno, which has
    never run at all.
-2. **juno and midas have never run under any name.** The whole finance
-   department is inert.
+2. **Finance works only in chat.** juno and midas have run 16 times between them
+   and produced no goal, no node, no mail and no cost — see §3.1, which is the
+   correction that followed the first cut of this spec.
 3. **minos has 46 runs and zero nodes, mail and goals.** Money in, nothing out.
 4. **Leading and doing are disjoint.** athena leads 26 goals on $8.74; neo leads
    9 with a single node; odin and vulcan execute 20 nodes each and lead nothing.
@@ -111,10 +112,36 @@ this reuses `breath`, which is in the doctrine allowlist and already rendered.
 
 ## 3. Last active
 
-`lastActiveAt` is the max across **four** sources: cost, nodes, mail, and goals
-led. Cost alone is not enough — it says clio went quiet on Jul 31 when clio sent
-mail *today*, and that single-source reading is what produced the false claim
-"nothing has run in two days."
+`lastActiveAt` is the max across **five** sources: cost, nodes, mail, goals led,
+and completed runs. Cost alone is not enough — it says clio went quiet on Jul 31
+when clio sent mail *today*, and that single-source reading is what produced the
+false claim "nothing has run in two days."
+
+### 3.1 Runs are load-bearing, not a refinement
+
+The first cut of this section used the four **artifact** sources only, and was
+wrong on three of fifteen cards:
+
+| agent | artifacts say | truth | completed runs |
+|---|---|---|---|
+| neo | 15 days stale | **ran today** | 591 |
+| midas | never run | Jul 13 | 22 |
+| juno | never run | Jun 28 | 10 |
+
+`neo` is the moderator and the most-invoked agent in the org; it rendered as
+going quiet. The cause is that **a chat run leaves no artifact at all** — no
+goal, no node, no mail — and **570 of 875 `agent.end` events (65%) carry no
+`costUsd`**, so `attachBudgetLedger` never writes a `cost_daily` row for them.
+Artifacts describe goal execution; they do not describe an org that mostly
+answers questions.
+
+`store.runsByAgent()` reads `agent.end` from the event stream and is folded on
+the same canonical path as the rest. An agent that has run but produced nothing
+renders `10 runs · no output` rather than a blank line.
+
+With runs counted, **no agent on the current roster is in the `never` state.** It
+is kept because a newly hired agent genuinely has no history, and because
+rendering "never" only when it is true is the point of the distinction.
 
 It is a **date** (`YYYY-MM-DD`), not a timestamp. `cost_daily` has no time
 column, so a full ISO stamp would be false precision on one of the four inputs.
@@ -137,9 +164,16 @@ card could not draw.
 
 ## 5. Open
 
-- **Never-ran is currently permanent.** juno and midas will read `hired, never
-  run` forever. If the roster grows a habit of hiring ahead of need, this wants a
-  "hired <date>" so a never-run agent can be seen as new rather than dead.
+- **`runs` shows only as a fallback**, when an agent has no artifacts at all. On
+  every other card the number is omitted, so neo's 591 runs against $0.38 of
+  recorded cost is not visible. A runs column on every card is arguable; it was
+  left out to keep the second line short.
+- **`runsByAgent()` scans the whole `events` table** (11,812 rows) on every
+  `/api/org`. Fine now, and `pruneEvents` exists, but it is the first query here
+  that grows without bound.
+- **Finance produces nothing durable.** Its agents answer in chat and write no
+  goal, node or mail. That is a roster question, not a UI one — the section now
+  reports it accurately either way.
 - **`RECENT_DAYS` is tuned to a roster that works most days.** If the org goes
   quiet for a fortnight, everything reads stale at once and the axis flattens.
   Revisit if a whole department is legitimately seasonal.
