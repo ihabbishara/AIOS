@@ -14,7 +14,7 @@ import { testRegistry } from "./fixtures/registry.js";
 // Stub resumableTurn — must be declared before any imports that trigger module
 // evaluation.  Vitest hoists vi.mock() calls automatically.
 vi.mock("../src/agents/resumable.js", () => ({
-  resumableTurn: vi.fn().mockResolvedValue("ok"),
+  resumableTurn: vi.fn().mockResolvedValue({ text: "ok" }),
   surfaceHash: () => "stub-hash",
 }));
 
@@ -49,7 +49,7 @@ describe("DirectChats.handle — attachment markers in prompt", () => {
     capturedPrompt = "";
     vi.mocked(resumableModule.resumableTurn).mockImplementation(async (params) => {
       capturedPrompt = params.prompt;
-      return "stub reply";
+      return { text: "stub reply" };
     });
   });
 

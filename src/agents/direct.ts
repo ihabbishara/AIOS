@@ -64,7 +64,7 @@ export class DirectChats {
     userText: string,
     sender?: { name?: string; username?: string },
     attachments?: Array<{ path: string; fileName: string }>,
-  ): Promise<{ text: string; attachments: Attachment[] }> {
+  ): Promise<{ text: string; attachments: Attachment[]; costUsd?: number }> {
     const resolved = this.deps.resolveAgent(role, { channel, chatId }, { cwd: this.deps.projectsRoot });
     if (!resolved) throw new Error(`Unknown specialist: ${role}`);
     const { canonical } = resolved;
@@ -130,7 +130,7 @@ export class DirectChats {
         ...observed,
         mcpServers: { ...(observed.mcpServers ?? {}), ...mailServers, aios_attachments: attachmentServer },
       };
-      const text = await resumableTurn({
+      const turn = await resumableTurn({
         store: this.deps.store,
         sessionKey: key,
         prompt,
@@ -143,8 +143,10 @@ export class DirectChats {
         options: finalOptions,
       });
 
-      this.deps.capture?.(userText, text); // post-turn capture (memory-v2 §5), fire-and-forget
-      return { text, attachments: collected };
+      this.deps.capture?.(userText, turn.text); // post-turn capture (memory-v2 §5), fire-and-forget
+      // costUsd rides out so the router can bill this turn on agent.end — the
+      // ledger is meant to include chat (engine/budget.ts).
+      return { text: turn.text, attachments: collected, costUsd: turn.costUsd };
     } finally {
       release();
     }

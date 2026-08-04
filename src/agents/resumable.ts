@@ -17,6 +17,21 @@ export interface ResumableTurnParams {
   surfaceHash?: string;
 }
 
+/**
+ * One turn's reply plus what it cost.
+ *
+ * The cost is carried out rather than dropped because the ledger is the truth of
+ * spend (engine/budget.ts) and chat is meant to be in it. The SDK reports
+ * `total_cost_usd` on the result message; before this it was read only by the
+ * goal-execution runner, so every chat turn was recorded as free.
+ */
+export interface TurnResult {
+  text: string;
+  /** Absent only when the turn threw before any result message arrived. */
+  costUsd?: number;
+  numTurns?: number;
+}
+
 export const LOCKDOWN_RE = /No conversation found|dangerouslyDisableSandbox/i;
 
 /** Hash of the resolved surface — tools + static persona scope (specs 2026-07-19 + 2026-07-20):
@@ -49,7 +64,7 @@ export function resumeFor(store: Store, sessionKey: string, hash?: string): stri
  * persists the session id only on success, and heals automatically when the
  * stored id no longer exists on disk (retries once with a fresh session).
  */
-export async function resumableTurn(params: ResumableTurnParams): Promise<string> {
+export async function resumableTurn(params: ResumableTurnParams): Promise<TurnResult> {
   const stored = params.store.kvGet(params.sessionKey);
   const resume = resumeFor(params.store, params.sessionKey, params.surfaceHash);
   if (stored && !resume && params.surfaceHash !== undefined) {
@@ -78,7 +93,7 @@ export function clearSession(store: Store, sessionKey: string): void {
   store.kvSet(epochKey(sessionKey), String(Number(store.kvGet(epochKey(sessionKey)) || 0) + 1));
 }
 
-async function runOnce(params: ResumableTurnParams, resume: string | undefined): Promise<string> {
+async function runOnce(params: ResumableTurnParams, resume: string | undefined): Promise<TurnResult> {
   const epochAtStart = params.store.kvGet(epochKey(params.sessionKey));
   const q = query({
     prompt: params.prompt,
@@ -86,8 +101,14 @@ async function runOnce(params: ResumableTurnParams, resume: string | undefined):
   });
 
   let reply = "";
+  let costUsd: number | undefined;
+  let numTurns: number | undefined;
   for await (const msg of q) {
     if (msg.type === "result") {
+      // Read the cost off BOTH subtypes: a turn that ends in an SDK error still
+      // burned tokens, and billing it as free is the same bug in miniature.
+      costUsd = msg.total_cost_usd;
+      numTurns = msg.num_turns;
       if (msg.subtype === "success") {
         // Only persist ids from successful turns — errored turns may never be
         // written to disk and would poison future resumes. And only when no
@@ -110,5 +131,5 @@ async function runOnce(params: ResumableTurnParams, resume: string | undefined):
       }
     }
   }
-  return reply || "(no reply)";
+  return { text: reply || "(no reply)", costUsd, numTurns };
 }

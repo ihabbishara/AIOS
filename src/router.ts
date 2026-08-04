@@ -119,14 +119,27 @@ export class MessageRouter {
     }
 
     // Generic agent wrapper — emits start/end events, propagates typed return.
-    const agentTurn = async <T>(agent: string, run: () => Promise<T>): Promise<T> => {
+    //
+    // agent.end MUST carry costUsd when the turn reported one: attachBudgetLedger
+    // and the cost_daily rollup both key off it, so an end event without a cost
+    // is a run recorded as free. Chat is deliberately in the ledger (the ledger
+    // is the truth of spend — engine/budget.ts); only ENFORCEMENT distinguishes
+    // background work from chat, and that is unchanged here.
+    const agentTurn = async <T extends { costUsd?: number }>(
+      agent: string,
+      run: () => Promise<T>,
+    ): Promise<T> => {
       const context = `chat:${msg.channel}:${msg.chatId}`;
       bus?.emit({ type: "agent.start", agent, context });
       try {
         const out = await run();
-        bus?.emit({ type: "agent.end", agent, context, ok: true });
+        bus?.emit({
+          type: "agent.end", agent, context, ok: true,
+          ...(out.costUsd === undefined ? {} : { costUsd: out.costUsd }),
+        });
         return out;
       } catch (err) {
+        // A throw means no result message arrived, so there is no cost to report.
         bus?.emit({ type: "agent.end", agent, context, ok: false });
         throw err;
       }

@@ -1,7 +1,7 @@
 import { moderatorBlocks, nowLine } from "./prompt.js";
 import { memoContext } from "../memory/memos.js";
 import { buildModeratorServer, type ModeratorToolsDeps } from "./tools.js";
-import { resumableTurn, clearSession, surfaceHash } from "../agents/resumable.js";
+import { resumableTurn, clearSession, surfaceHash, type TurnResult } from "../agents/resumable.js";
 import { processAttachments, type MediaDeps } from "../attachments.js";
 import { buildAttachmentServer, ATTACH_TOOL, AIOS_TMP_PREFIX } from "../agents/attachment-server.js";
 import type { Attachment } from "../agents/attachment.js";
@@ -64,7 +64,7 @@ export class Moderator {
     chatId: string,
     userText: string,
     attachments?: Array<{ path: string; fileName: string }>,
-  ): Promise<{ text: string; attachments: Attachment[] }> {
+  ): Promise<{ text: string; attachments: Attachment[]; costUsd?: number }> {
     const chatKey = `${channel}:${chatId}`;
     const prev = this.locks.get(chatKey) ?? Promise.resolve();
     let release!: () => void;
@@ -73,8 +73,10 @@ export class Moderator {
     try {
       const collected: Attachment[] = [];
       const reply = await this.turn(chatKey, channel, chatId, userText, attachments, collected);
-      this.deps.capture?.(userText, reply); // post-turn capture (memory-v2 §5), fire-and-forget
-      return { text: reply, attachments: collected };
+      this.deps.capture?.(userText, reply.text); // post-turn capture (memory-v2 §5), fire-and-forget
+      // costUsd rides out so the router can bill this turn on agent.end — neo is
+      // the busiest agent in the org and was recorded as costing nothing.
+      return { text: reply.text, attachments: collected, costUsd: reply.costUsd };
     } finally {
       release();
     }
@@ -93,7 +95,7 @@ export class Moderator {
     userText: string,
     attachments: Array<{ path: string; fileName: string }> | undefined,
     collected: Attachment[],
-  ): Promise<string> {
+  ): Promise<TurnResult> {
     const { store, goals, vault, projectsRoot, registry } = this.deps;
     this.origin = { channel, chatId };
 
