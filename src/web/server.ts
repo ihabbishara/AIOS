@@ -113,6 +113,9 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** Event tail /api/health scans for policy posture — the same window org-view and costs use. */
+const HEALTH_EVENT_WINDOW = 5000;
+
 const VOICE_BODY_CAP = 25 * 1024 * 1024;
 // A saved SKILL.md becomes agent system-prompt content — cap the paste/PUT path too, matching the
 // fetch path's rationale (which was capped; this one was not — a multi-MB paste injected unbounded).
@@ -290,7 +293,18 @@ export function startWebServer(
           let dbBytes = 0;
           try { dbBytes = statSync(config.dbPath).size; } catch { /* :memory: or missing */ }
           // Info-flow policy posture + violation count (audit-week signal for the enforce flip).
-          const policyViolations = bus.history(0, 5000).filter((e) => e.event.type === "policy.violation").length;
+          //
+          // DISTINCT refusals, not raw events. Every reconcile replays the mail threads whose
+          // labels the wall denies at the recall-index sink and re-reports each one, so the raw
+          // count multiplies with uptime rather than with anything going wrong: live, 199 events
+          // in this window were 6 actual refusals. A number that reads as an alarm has to count
+          // the thing a human would act on.
+          const window = bus.history(0, HEALTH_EVENT_WINDOW);
+          const violations = window.filter((e) => e.event.type === "policy.violation");
+          const distinct = new Set(violations.map((e) => {
+            const v = e.event as { label: string; sink: string; site: string; hash: string };
+            return `${v.label}|${v.sink}|${v.site}|${v.hash}`;
+          }));
           return json(res, 200, {
             uptimeMs: Date.now() - startedAt,
             voice: deps.voice.available(),
@@ -298,7 +312,10 @@ export function startWebServer(
             sseClients,
             dbBytes,
             policyMode: process.env.AIOS_POLICY_MODE === "enforce" ? "enforce" : "audit",
-            policyViolations,
+            policyViolations: distinct.size,
+            // The window is the newest N events, which is not a duration a human can guess —
+            // so hand back where it actually starts and let the UI say it (DESIGN.md §7).
+            policyViolationsSince: window.length ? window[0].ts : null,
           });
         }
 

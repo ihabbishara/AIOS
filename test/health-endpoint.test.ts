@@ -74,6 +74,28 @@ describe("GET /api/health", () => {
     }
   });
 
+  it("counts DISTINCT refusals — a replayed violation is not a new one", async () => {
+    // Every reconcile re-reports the same denied mail threads, so the raw event count grows
+    // with uptime alone. Live: 199 events in the window were 6 actual refusals.
+    const v = (label: string, hash: string) =>
+      ({ id: 1, ts: "2026-08-01T00:00:00.000Z", event: { type: "policy.violation", label, sink: "recall-index", site: "indexer:mail", hash } });
+    const t = await startTestServer({
+      bus: { history: () => [
+        { id: 0, ts: "2026-07-24T10:00:00.000Z", event: { type: "chat.in", channel: "c", chatId: "1", text: "hi" } },
+        v("personal.tasks", "h1"), v("personal.tasks", "h1"), v("personal.tasks", "h1"),
+        v("client.halalo", "h2"), v("client.halalo", "h2"),
+      ] } as never,
+    });
+    try {
+      const body = await (await fetch(`${t.base}/api/health`, { headers: t.auth })).json();
+      expect(body.policyViolations).toBe(2); // 5 events, 2 refusals
+      // The window is "the newest N events", which no human can guess — so it names itself.
+      expect(body.policyViolationsSince).toBe("2026-07-24T10:00:00.000Z");
+    } finally {
+      await t.close();
+    }
+  });
+
   it("omitted senses provider → empty array", async () => {
     const t = await startTestServer({});
     try {
