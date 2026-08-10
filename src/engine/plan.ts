@@ -6,6 +6,7 @@ import { toNewTaskNodes, type GraphNodeSpec } from "./compile.js";
 import { resolve } from "node:path";
 import type { Store } from "../store/db.js";
 import type { SpecialistRunFn } from "../agents/runner.js";
+import type { AiosEvent } from "../events.js";
 
 export const MAX_NODES = 12;
 const KEY_RE = /^[a-z][a-z0-9-]*$/;
@@ -209,16 +210,39 @@ export interface PlannerDeps {
    *  by allocateWorkspace). Every other secret path is still refused. */
   selfRoot?: string;
   postPreview: (origin: { channel: string; chatId: string }, text: string) => Promise<void>;
+  onEvent?: (e: AiosEvent) => void;
   log?: (l: string) => void;
 }
 
 export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
   // resolveAgent (inside deps.run) resolves the lead's dept context/tools/model by kind.
-  const runLead = async (lead: string, brief: string, origin: { channel: string; chatId: string }, schema: Record<string, unknown>) =>
-    deps.run(lead, brief, {
-      cwd: deps.projectsRoot, origin,
-      outputSchema: schema,
-    });
+  //
+  // Planning is a full LLM turn — and the loop below spends a SECOND one whenever the first
+  // plan fails validation. costUsd on agent.end is the only thing attachBudgetLedger and the
+  // cost_daily rollup read, so before this every plan and replan was recorded as free.
+  // start/end must stay paired: an unpaired start leaves the lead stuck "working" forever in
+  // the org view, whose liveRuns map clears only on agent.end.
+  const runLead = async (
+    lead: string,
+    brief: string,
+    origin: { channel: string; chatId: string },
+    schema: Record<string, unknown>,
+    context: string,
+  ) => {
+    deps.onEvent?.({ type: "agent.start", agent: lead, context });
+    try {
+      const res = await deps.run(lead, brief, {
+        cwd: deps.projectsRoot, origin,
+        outputSchema: schema,
+      });
+      deps.onEvent?.({ type: "agent.end", agent: lead, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
+      return res;
+    } catch (err) {
+      // A throw means no result message arrived, so there is no cost to report.
+      deps.onEvent?.({ type: "agent.end", agent: lead, context, ok: false });
+      throw err;
+    }
+  };
 
   const validateOrExplain = (nodes: RawPlan["nodes"], department: string, origin: { channel: string; chatId: string }) => {
     const specs: GraphNodeSpec[] = nodes.map((n) => ({
@@ -254,7 +278,7 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
     let raw: RawPlan | undefined;
     let error = "";
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined, dept.plannerDoctrine), origin, GRAPH_SCHEMA);
+      const res = await runLead(dept.lead, planningBrief(params.department, params.title, params.request, roster, attempt === 2 ? error : undefined, dept.plannerDoctrine), origin, GRAPH_SCHEMA, `plan:${params.department}`);
       const candidate = res.structured as RawPlan | undefined;
       if (!candidate?.nodes) { error = "no structured plan returned"; continue; }
       const { v } = validateOrExplain(candidate.nodes, params.department, origin);
@@ -325,7 +349,7 @@ export function makePlanner(deps: PlannerDeps): import("./goals.js").Planner {
 Same rules as planning: roster agents only, verdict/test-report critics, ≤12 total nodes, no cycles.`,
       ].join("\n\n");
 
-      const res = await runLead(goal.lead, brief, origin, PATCH_SCHEMA);
+      const res = await runLead(goal.lead, brief, origin, PATCH_SCHEMA, `replan:${goal.slug}/${failed.node_key}`);
       const patch = res.structured as { ops: Array<Record<string, unknown>> } | undefined;
       if (!patch?.ops?.length) throw new Error("lead returned no patch ops");
 

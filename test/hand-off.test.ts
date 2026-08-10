@@ -7,6 +7,7 @@ import { VaultWriter } from "../src/vault/writer.js";
 import { ActionGate } from "../src/kernel/gate.js";
 import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
+import { attachBudgetLedger } from "../src/engine/budget.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { testRegistry } from "./fixtures/registry.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
@@ -206,5 +207,78 @@ describe("hand_off privacy wall (makeHandOff)", () => {
     const res = await handOff("cfo", "spend", GROUP);
     expect(res.text).toMatch(/private/i);
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A hand-off is a full LLM turn by a SECOND agent. The chief of staff's own
+// agent.end (router.ts) carries only its own cost, so an unbilled hand-off is
+// spend attributed to nobody.
+// ---------------------------------------------------------------------------
+
+describe("hand_off billing (makeHandOff)", () => {
+  const PRIMARY = { channel: "tg", chatId: "private-1" };
+  const GROUP = { channel: "tg", chatId: "group-9" };
+
+  function setup(opts: { costUsd?: number; throws?: boolean } = {}) {
+    const store = new Store(":memory:");
+    const bus = new EventBus(store);
+    const events: import("../src/events.js").AiosEvent[] = [];
+    bus.on((e) => events.push(e.event));
+    const handOff = makeHandOff({
+      registry: testRegistry(),
+      runSpecialist: async (agent: string) => {
+        if (opts.throws) throw new Error("provider down");
+        return { text: `ran ${agent}`, costUsd: opts.costUsd ?? 0.42, numTurns: 3 };
+      },
+      bus,
+      primaryChat: PRIMARY,
+      projectsRoot: "/tmp",
+    });
+    const runEvents = () => events.filter((e) => e.type === "agent.start" || e.type === "agent.end");
+    return { handOff, store, bus, events, runEvents };
+  }
+
+  it("bills the handed-off turn with a paired agent.start/agent.end", async () => {
+    const { handOff, runEvents } = setup();
+    await handOff("maya", "fix", GROUP);
+    expect(runEvents()).toEqual([
+      { type: "agent.start", agent: "vulcan", context: "chat:tg:group-9" },
+      { type: "agent.end", agent: "vulcan", context: "chat:tg:group-9", ok: true, costUsd: 0.42, turns: 3 },
+    ]);
+  });
+
+  it("bills the CANONICAL agent, not the alias the chief of staff typed", async () => {
+    const { handOff, runEvents } = setup();
+    await handOff("cfo", "spend", PRIMARY); // cfo is an alias of midas
+    // Per-agent aggregates fold aliases, but the ledger writes whatever name it is handed —
+    // emitting "cfo" here would misfile the spend onto a name not in the roster.
+    expect(runEvents().map((e) => e.agent)).toEqual(["midas", "midas"]);
+  });
+
+  it("the billed turn reaches the daily ledger and the per-agent rollup", async () => {
+    const { handOff, store, bus } = setup({ costUsd: 0.42 });
+    attachBudgetLedger(bus, store, () => "2026-08-10");
+    await handOff("maya", "fix", GROUP);
+    expect(store.budgetSpentCents("2026-08-10")).toBe(42);
+    expect(store.costsByAgent("2026-08-10")).toEqual([
+      { agent: "vulcan", usd_cents: 42, runs: 1, last_date: "2026-08-10" },
+    ]);
+  });
+
+  it("a refused private hand-off bills nothing — the specialist never ran", async () => {
+    const { handOff, runEvents } = setup();
+    await handOff("faris", "spend", GROUP);
+    expect(runEvents()).toEqual([]);
+  });
+
+  it("a failed hand-off still ends the run — no orphan start, nothing billed", async () => {
+    const { handOff, runEvents } = setup({ throws: true });
+    await expect(handOff("maya", "fix", GROUP)).rejects.toThrow(/provider down/);
+    // An unpaired start leaves the agent stuck "working" forever in the org view.
+    expect(runEvents()).toEqual([
+      { type: "agent.start", agent: "vulcan", context: "chat:tg:group-9" },
+      { type: "agent.end", agent: "vulcan", context: "chat:tg:group-9", ok: false },
+    ]);
   });
 });
