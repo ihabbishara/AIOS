@@ -1204,6 +1204,23 @@ export class Store {
       .reverse() as unknown as Array<{ id: number; ts: string; payload: string }>;
   }
 
+  /**
+   * Events of the given types, oldest first.
+   *
+   * The backfill needs this because a plain newest-N window is a window over ALL traffic: the
+   * log is dominated by chat and agent events, so the newest 5000 of 13k rows held only 10 of
+   * the 37 calendar events. Filtering by type makes the same bound cover the whole history of
+   * a rare type — 68 calendar rows in total — instead of a recent slice of a common one.
+   */
+  listEventsByTypes(types: string[], limit = 5000): Array<{ id: number; ts: string; payload: string }> {
+    if (!types.length) return [];
+    const holes = types.map(() => "?").join(",");
+    return this.db
+      .prepare(`SELECT * FROM events WHERE json_extract(payload, '$.type') IN (${holes}) ORDER BY id DESC LIMIT ?`)
+      .all(...types, limit)
+      .reverse() as unknown as Array<{ id: number; ts: string; payload: string }>;
+  }
+
 
   kvGet(key: string): string | undefined {
     const row = this.db.prepare("SELECT value FROM kv WHERE key = ?").get(key) as
