@@ -1,5 +1,6 @@
 import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { WIKI_DIRS, seedFiles } from "./wiki-schema.js";
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 
@@ -33,10 +34,20 @@ export class VaultWriter {
     this.root = join(vaultPath, subdir);
   }
 
-  init(): void {
+  /**
+   * Scaffold the vault. Runs on EVERY boot, so it must be idempotent and must never
+   * clobber anything: after the first boot the schema, index and log belong to the
+   * wiki maintainer and the user. Seeding is write-if-absent, deliberately — an
+   * unconditional write here would silently destroy an accumulated wiki on restart.
+   */
+  init(date: string = localDate()): void {
     // `jobs/` retired with JobManager (goals/ is its successor) — no longer created.
-    for (const dir of ["knowledge", "daily", "notes"]) {
+    for (const dir of ["knowledge", "daily", "notes", ...WIKI_DIRS]) {
       mkdirSync(join(this.root, dir), { recursive: true });
+    }
+    for (const [rel, body] of seedFiles(date)) {
+      const path = join(this.root, rel);
+      if (!existsSync(path)) writeFileSync(path, body);
     }
   }
 
