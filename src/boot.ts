@@ -63,6 +63,7 @@ import { runDreamCycle, dreamRankLLM } from "./heartbeat/dream.js";
 import { runSpeculate, speculatePlanLLM } from "./heartbeat/speculate.js";
 import { runSpeculateEmail, scanInboxFor, readMessageFor, triageLLM, composeLLM } from "./heartbeat/speculate-email.js";
 import { runStandups } from "./heartbeat/standup.js";
+import { runWikiMaintenance } from "./heartbeat/wiki.js";
 import { makeCategorizer, categoryClassifier } from "./money/categorize.js";
 import { buildMoneyServer } from "./money/server.js";
 import { buildResearchServer } from "./research/server.js";
@@ -677,6 +678,7 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
     anchors: [
       { name: "dream", hhmm: config.anchorDream },
       { name: "speculate", hhmm: config.anchorSpeculate },
+      { name: "wiki", hhmm: config.anchorWiki },
       { name: "standup", hhmm: config.anchorStandup },
       { name: "morning", hhmm: config.anchorMorning },
       { name: "evening", hhmm: config.anchorEvening },
@@ -722,6 +724,17 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
             }).catch((err) => log(`speculate-email failed: ${(err as Error).message}`));
           }
         }
+        return;
+      }
+      if (name === "wiki") {
+        if (config.wikiDisabled) return;
+        // fire-and-forget: the maintainer's LLM call must not block the clock tick / reminders.
+        // Budget and agent selection are decided inside; a failed pass defers its files.
+        void runWikiMaintenance({
+          store, vault, registry, run: runSpecialist, spendGuard,
+          ...(config.wikiAgent ? { agent: config.wikiAgent } : {}),
+          onEvent: (e) => bus.emit(e), log,
+        }).catch((err) => log(`wiki maintenance failed: ${(err as Error).message}`));
         return;
       }
       if (name === "standup") {
