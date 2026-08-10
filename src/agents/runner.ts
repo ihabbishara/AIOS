@@ -9,6 +9,7 @@ import type { LoadedRegistry } from "./registry/loader.js";
 import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox, MailSendCtx } from "../mail/mailbox.js";
+import { isProviderError } from "./provider-error.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -193,6 +194,17 @@ export function makeRunSpecialist(deps: {
       for await (const msg of q) {
         if (msg.type === "result") {
           if (msg.subtype === "success") {
+            // A provider outage can arrive as a SUCCESSFUL result whose body is the error
+            // sentence. Passing it through marks the node done and writes the outage into
+            // the artifact as if it were the answer (observed 2026-08-05, 10 artifacts).
+            // Throw BEFORE markDelivered so the turn's mail re-surfaces instead of being
+            // consumed by a run that produced nothing.
+            if (isProviderError(msg.result)) {
+              throw new SpecialistError(
+                `Specialist ${roleName} got a provider error instead of output: ${msg.result.trim().slice(0, 200)}`,
+                denials,
+              );
+            }
             deps.mailbox?.markDelivered(deliveredIds); // commit unread mail ONLY on success
             return {
               text: msg.result,

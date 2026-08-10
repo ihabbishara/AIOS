@@ -42,7 +42,7 @@ import { makeGrantProposer } from "./kernel/propose-grant.js";
 import { Policy } from "./kernel/policy.js";
 import { deptLabel } from "./kernel/labels.js";
 import { newRecord } from "./kernel/trust.js";
-import { Clock } from "./heartbeat/clock.js";
+import { activeAnchors, Clock } from "./heartbeat/clock.js";
 import { Triage, modelClassifier } from "./heartbeat/triage.js";
 import { makeRoutineFire, makeReminderFire } from "./heartbeat/routines.js";
 import { runBrief } from "./heartbeat/briefs.js";
@@ -675,14 +675,19 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
 
   const clock = new Clock({
     store,
-    anchors: [
+    // Disabled features are filtered OUT rather than returning early in onAnchor: a due
+    // anchor is stamped before its handler runs, so a no-op handler still burns the day.
+    anchors: activeAnchors([
       { name: "dream", hhmm: config.anchorDream },
       { name: "speculate", hhmm: config.anchorSpeculate },
       { name: "wiki", hhmm: config.anchorWiki },
       { name: "standup", hhmm: config.anchorStandup },
       { name: "morning", hhmm: config.anchorMorning },
       { name: "evening", hhmm: config.anchorEvening },
-    ],
+    ], {
+      wiki: config.wikiDisabled,
+      standup: config.standupDisabled || config.mailDisabled,
+    }),
     catchupAfter: config.catchupAfter,
     onAnchor: async (name) => {
       if (name === "dream") {

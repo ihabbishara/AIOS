@@ -1,7 +1,7 @@
 // test/clock.test.ts
 import { describe, it, expect } from "vitest";
 import { Store } from "../src/store/db.js";
-import { localParts, anchorDue, yesterdayOf, Clock } from "../src/heartbeat/clock.js";
+import { localParts, anchorDue, yesterdayOf, activeAnchors, Clock } from "../src/heartbeat/clock.js";
 import type { ReminderRow } from "../src/store/db.js";
 
 describe("localParts", () => {
@@ -271,5 +271,30 @@ describe("Clock.tick — anchor kv override", () => {
     store.kvSet("anchor:morning:hhmm", "07:00"); // pulled earlier
     await clock.tick();
     expect(anchorsFired).toEqual(["morning"]);
+  });
+});
+
+describe("activeAnchors", () => {
+  it("drops a disabled feature's anchor entirely", () => {
+    // Not cosmetic: tick() stamps a due anchor BEFORE calling its handler, so a handler
+    // that returns early on a disabled flag still burns the day's occurrence — and
+    // enabling the feature later the same day then does nothing until tomorrow.
+    const all = [
+      { name: "dream" as const, hhmm: "02:00" },
+      { name: "wiki" as const, hhmm: "04:00" },
+      { name: "standup" as const, hhmm: "07:15" },
+    ];
+    expect(activeAnchors(all, { wiki: true }).map((a) => a.name)).toEqual(["dream", "standup"]);
+    expect(activeAnchors(all, { wiki: true, standup: true }).map((a) => a.name)).toEqual(["dream"]);
+  });
+
+  it("keeps every anchor when nothing is disabled, and preserves order", () => {
+    // Order matters: the tick comment pins morning before evening for double catch-up.
+    const all = [
+      { name: "morning" as const, hhmm: "07:30" },
+      { name: "evening" as const, hhmm: "19:00" },
+    ];
+    expect(activeAnchors(all, {}).map((a) => a.name)).toEqual(["morning", "evening"]);
+    expect(activeAnchors(all, { wiki: false, standup: false })).toHaveLength(2);
   });
 });
