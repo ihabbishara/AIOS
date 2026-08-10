@@ -110,6 +110,8 @@ Update \`updated\` whenever the page is touched. \`sources\` lists every contrib
 
 ### Linking
 - Inside the wiki use \`[[Page Name]]\`. Wikilinks survive renames and build the graph.
+- **NEVER wrap a wikilink across a line break.** \`[[Some Long Page\\nName]]\` does not
+  resolve — it renders as literal text and the link is silently lost. Let the line run long.
 - To the record, use a relative markdown link: \`[run report](../goals/2026-01-31-x/report.md)\`.
 
 ### Contradictions

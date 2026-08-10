@@ -131,6 +131,40 @@ describe("runWikiMaintenance", () => {
     expect(res.status).toBe("nothing-new");
   });
 
+  it("bills the run — an unattended nightly agent must not be recorded as free", async () => {
+    // The exact gap that made chat spend invisible: agent.end without costUsd, so both
+    // the ledger and the cost_daily rollup silently skip it.
+    const h = harness();
+    const events: Array<{ type: string; costUsd?: number; ok?: boolean }> = [];
+    record(h.vault, "knowledge/new.md", "2026-08-09T10:00:00.000Z");
+    h.run.mockResolvedValueOnce({ text: "ok", costUsd: 0.42, numTurns: 3 });
+
+    await runWikiMaintenance({
+      ...h, onEvent: (e) => events.push(e as never),
+      nowFn: () => new Date("2026-08-10T04:00:00.000Z"),
+    });
+
+    const end = events.find((e) => e.type === "agent.end");
+    expect(end?.costUsd).toBe(0.42);
+    // start/end must pair, or the org view shows the agent working forever.
+    expect(events.filter((e) => e.type === "agent.start")).toHaveLength(1);
+  });
+
+  it("closes the run with ok:false when it fails, so nothing is left hanging", async () => {
+    const h = harness();
+    const events: Array<{ type: string; ok?: boolean }> = [];
+    record(h.vault, "knowledge/new.md", "2026-08-09T10:00:00.000Z");
+    h.run.mockRejectedValueOnce(new Error("boom"));
+
+    await runWikiMaintenance({
+      ...h, onEvent: (e) => events.push(e as never),
+      nowFn: () => new Date("2026-08-10T04:00:00.000Z"),
+    });
+
+    expect(events.map((e) => e.type)).toEqual(["agent.start", "agent.end"]);
+    expect(events[1].ok).toBe(false);
+  });
+
   it("tells the maintainer not to file a page per record file", async () => {
     // The whole failure this feature exists to avoid: reproducing the pile as pages.
     const h = harness();
