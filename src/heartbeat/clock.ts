@@ -25,6 +25,22 @@ export interface ClockDeps {
   catchupAfter?: string;
 }
 
+/**
+ * The anchors a tick should consider, dropping the ones whose feature is switched off.
+ *
+ * A disabled feature must not REGISTER an anchor, because `tick()` stamps a due anchor
+ * BEFORE calling its handler — deliberately, so a crashed brief is never retried. A handler
+ * that returns early on a disabled flag therefore still burns the day's occurrence, and
+ * switching the feature back on the same day silently does nothing until tomorrow.
+ * Observed with the wiki maintainer on 2026-08-10; `standup` had the same shape.
+ */
+export function activeAnchors(
+  all: AnchorConfig[],
+  disabled: Partial<Record<AnchorConfig["name"], boolean>>,
+): AnchorConfig[] {
+  return all.filter((a) => !disabled[a.name]);
+}
+
 export function localParts(d: Date): { date: string; hhmm: string } {
   const pad = (n: number) => String(n).padStart(2, "0");
   return {
