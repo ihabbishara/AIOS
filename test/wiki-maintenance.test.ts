@@ -174,6 +174,22 @@ describe("runWikiMaintenance", () => {
     expect(prompt).toContain("DO NOT create a page per file");
     expect(prompt).toContain("The record is IMMUTABLE");
   });
+
+  it("the write rule permits the two wiki roots it later orders an update to", async () => {
+    // index.md and log.md sit BESIDE wiki/, not inside it. "You may only create or edit files
+    // under wiki/" therefore forbade exactly what the next paragraph demands. The live run of
+    // 2026-08-10 resolved the contradiction sensibly, but a stricter reading would refuse the
+    // index update and the table of contents would rot while every page still looked fine.
+    const h = harness();
+    record(h.vault, "knowledge/new.md", "2026-08-09T10:00:00.000Z");
+    await runWikiMaintenance({ ...h, nowFn: () => new Date("2026-08-10T04:00:00.000Z") });
+    const prompt = h.run.mock.calls[0][1] as string;
+    const rule = prompt.slice(prompt.indexOf("ABSOLUTE RULES"), prompt.indexOf("These record files"));
+    for (const root of ["index.md", "log.md"]) {
+      expect(rule, `the write rule must name ${root}`).toContain(root);
+      expect(prompt).toContain(`\`${root}\``); // still ordered later on
+    }
+  });
 });
 
 describe("pickMaintainer", () => {

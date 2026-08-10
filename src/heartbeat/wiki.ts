@@ -86,7 +86,8 @@ you do here. Then read \`index.md\` to see what already exists.
 
 ABSOLUTE RULES:
 - The record is IMMUTABLE. Read it. Never edit, move or delete anything in it.
-- You may only create or edit files under \`wiki/\`.
+- You may only create or edit files under \`wiki/\`, plus \`index.md\` and \`log.md\` — the
+  wiki's two roots, which sit beside \`wiki/\` rather than inside it.
 - Never invent a fact. Ground every claim in the document you read.
 
 These record files are new or changed since the last pass:
