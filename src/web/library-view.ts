@@ -103,7 +103,12 @@ export function libraryTree(root: string, maxDepth = DEFAULT_DEPTH): LibraryNode
         }
         st = statSync(childAbs);
       } catch { continue; }
-      const node: LibraryNode = { name, path: childRel, dir: st.isDirectory(), size: st.isDirectory() ? 0 : st.size };
+      // mtime rides along on the stat we already did — without it the archive can only be
+      // sorted by name, and "what changed since I last looked" is unanswerable.
+      const node: LibraryNode = {
+        name, path: childRel, dir: st.isDirectory(),
+        size: st.isDirectory() ? 0 : st.size, mtime: st.mtime.toISOString(),
+      };
       if (node.dir && depth < cap) node.children = walk(childAbs, childRel, depth + 1);
       nodes.push(node);
     }

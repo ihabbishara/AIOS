@@ -308,5 +308,55 @@ export interface SkillView {
 // ---- library (read-only workspace browser, spec 2026-08-01 value-path §4) ----
 /** One entry in the read-only workspace browser. `path` is vault-relative. */
 export interface LibraryNode {
-  name: string; path: string; dir: boolean; size: number; children?: LibraryNode[];
+  name: string; path: string; dir: boolean; size: number;
+  /** Last-modified ISO stamp. The tree already stat()s every entry, so this is free —
+   *  and without it the archive can only be sorted by name, never by what changed. */
+  mtime: string;
+  children?: LibraryNode[];
+}
+
+// ---- wiki (the LLM Wiki reading room) ----
+/** One wiki page. `path` is the vault-relative path /api/library/file serves, so the reader
+ *  needs no second address scheme; `name` is the basename, which is what `[[links]]` resolve on. */
+export interface WikiPageView {
+  name: string;
+  path: string;
+  section: string;
+  /** First `# ` heading, falling back to the basename. */
+  title: string;
+  /** Frontmatter `type` (entity/concept/topic/source/analysis) — null when absent. */
+  type: string | null;
+  updated: string;
+  /** Resolved outbound page names, deduped. */
+  outbound: string[];
+  /** Page names that link HERE. No inbound = orphan; no outbound = dead end. Both are bugs
+   *  per the wiki schema, so the reader shows them rather than hiding them. */
+  backlinks: string[];
+}
+
+export interface WikiSectionView {
+  name: string;
+  pages: WikiPageView[];
+}
+
+/** An unresolved `[[link]]`. Intra-page `[[#anchor]]` refs are not links and never appear. */
+export interface WikiBrokenLink { from: string; link: string }
+
+export interface WikiView {
+  sections: WikiSectionView[];
+  /** Vault-relative paths for the two hand-maintained roots, or null when absent. */
+  index: string | null;
+  log: string | null;
+  /** `links` counts EDGES attempted — distinct targets per page, so a page naming the same
+   *  target five times contributes one. A raw grep for `[[` gives a larger number (2428 vs
+   *  3274 on the live wiki); this is the graph measure, not the mention count. */
+  totals: { pages: number; links: number; orphans: number; deadEnds: number };
+  broken: WikiBrokenLink[];
+}
+
+/** One search hit. `path` is the vault-relative path, so a hit opens like any other file. */
+export interface LibrarySearchHit {
+  path: string; title: string; snippet: string; score: number; ts: string;
+  /** True when the hit is under `wiki/` — the reading room, as opposed to the record. */
+  wiki: boolean;
 }

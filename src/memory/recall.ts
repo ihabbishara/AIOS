@@ -74,6 +74,17 @@ export interface RecallOpts {
   halfLifeDays?: number;
   /** Multiplier for docs not retrieved in 180d (spec §6). Default 0.7 (AIOS_MEMORY_STALE_PENALTY). */
   stalePenalty?: number;
+  /**
+   * Whether this recall counts as USE. Default true.
+   *
+   * Set false for retrieval that isn't an agent reading to do work — the cockpit's library
+   * search is the case this exists for. Two things depend on staying uncontaminated:
+   * `memory_use` is the evidence base for what the org actually reads (the measurement that
+   * showed 308 of 324 hits landing on 22 knowledge/ files, which is why the wiki exists at
+   * all), and `last_retrieved_at` drives the 180-day stale penalty in `usageFactor`. A human
+   * browsing the library would silently mark documents as "in use" and rot both.
+   */
+  logUse?: boolean;
 }
 
 /** A doc is visible to a caller iff every label is `shared` or in the caller's clearance. */
@@ -165,10 +176,14 @@ function finalize(store: Store, cand: CandidateSet, qTokens: string[], query: st
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, limit);
   const bodies = new Map(store.memoryDocsByIds(ranked.map(([id]) => id)).map((d) => [d.id, d.body]));
 
-  // Usage feedback (spec §6): every recall logs its query + hits and refreshes retrieval stamps.
+  // Usage feedback (spec §6): a recall logs its query + hits and refreshes retrieval stamps —
+  // unless the caller declared it isn't use (opts.logUse), which keeps cockpit browsing out of
+  // the readership evidence and out of the stale-penalty clock.
   const returnedIds = ranked.map(([id]) => id);
-  store.logMemoryUse(query, returnedIds, new Date(nowMs).toISOString());
-  store.touchMemoryDocs(returnedIds, new Date(nowMs).toISOString());
+  if (opts.logUse !== false) {
+    store.logMemoryUse(query, returnedIds, new Date(nowMs).toISOString());
+    store.touchMemoryDocs(returnedIds, new Date(nowMs).toISOString());
+  }
 
   return ranked.map(([id, score]) => {
     const m = meta.get(id)!;

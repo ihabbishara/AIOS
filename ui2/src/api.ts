@@ -7,6 +7,7 @@ export type {
   AttentionItem, HealthInfo,
   ScheduleView, RoutineView, AnchorView, ScheduleReminderView, Recurrence,
   SkillView, WebAttachment, LibraryNode,
+  WikiView, WikiPageView, WikiSectionView, LibrarySearchHit,
 } from "../../src/web/dto.js";
 import type {
   StateInfo, StoredEvent, ActionInfo, TrustInfo,
@@ -14,6 +15,7 @@ import type {
   GoalView, GoalDetail, FirstJobStatus, MailView, UserThreadView, BudgetInfo,
   AttentionItem, HealthInfo,
   ScheduleView, Recurrence, SkillView, WebAttachment, LibraryNode,
+  WikiView, LibrarySearchHit,
 } from "../../src/web/dto.js";
 
 export function getToken(): string {
@@ -255,6 +257,9 @@ export const api = {
   setAgentSkills: (agent: string, skills: string[]) =>
     request<{ ok: true }>(`/api/agents/${encodeURIComponent(agent)}/skills`, { method: "PATCH", body: JSON.stringify({ skills }) }),
   libraryTree: () => request<{ nodes: LibraryNode[] }>("/api/library/tree"),
+  libraryWiki: () => request<WikiView>("/api/library/wiki"),
+  librarySearch: (q: string) =>
+    request<{ q: string; hits: LibrarySearchHit[] }>(`/api/library/search?q=${encodeURIComponent(q)}`),
   libraryText: async (path: string): Promise<string> => (await libraryFile(path)).text(),
   /** An <img>/<embed> src cannot send a bearer header, so binaries are fetched here as a blob
    *  URL the browser can point an element at. The caller owns revoking it. */

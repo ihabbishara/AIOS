@@ -21,6 +21,7 @@ import { buildOrgView, buildAgentProfile, costsByAgentCanonical } from "./org-vi
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 import { buildAttentionView } from "./attention-view.js";
 import { libraryTree, libraryRead } from "./library-view.js";
+import { buildWikiView, searchLibrary, SEARCH_LIMIT } from "./wiki-view.js";
 import { buildScheduleView, validateRoutineBody, isValidHHMM, anchorOverrideKey, ANCHOR_NAMES } from "./schedule-view.js";
 import {
   skillsPluginRoot, buildSkillsView, validateSkillMd, readSkill, writeSkill,
@@ -877,6 +878,20 @@ export function startWebServer(
             // distinguishing them in the response would confirm what exists outside the vault.
             return json(res, 404, { error: (err as Error).message });
           }
+        }
+
+        // The reading room. Every path it returns is served by /api/library/file above, so the
+        // wiki needs no reader of its own and inherits that endpoint's containment rules.
+        if (path === "/api/library/wiki" && req.method === "GET") {
+          return json(res, 200, buildWikiView(vault.root));
+        }
+
+        if (path === "/api/library/search" && req.method === "GET") {
+          const q = url.searchParams.get("q") ?? "";
+          const raw = Number(url.searchParams.get("limit"));
+          // Clamp rather than trust: the limit reaches recall(), which slices with it.
+          const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, SEARCH_LIMIT) : SEARCH_LIMIT;
+          return json(res, 200, { q, hits: searchLibrary(store, q, limit) });
         }
 
         if (path === "/api/permissions" && req.method === "GET") {
