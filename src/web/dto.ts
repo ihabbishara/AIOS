@@ -258,7 +258,11 @@ export interface HealthInfo {
   /** Information-flow policy posture (audit logs, enforce blocks). */
   policyMode: string;
   /** Count of policy.violation events observed (the audit-week signal). */
+  /** DISTINCT info-flow refusals in the scanned window, not raw events — a reconcile replays
+   *  the same denied mail threads every boot, so the raw count grows with uptime alone. */
   policyViolations: number;
+  /** ISO ts the scanned window starts at, so the count can name its window. Null when empty. */
+  policyViolationsSince: string | null;
 }
 
 // ---- schedule (spec 2026-07-15) ----

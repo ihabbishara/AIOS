@@ -57,8 +57,13 @@ function Health({ events }: { events: StoredEvent[] }) {
         <Stat label="Policy" value={h.policyMode} tone={h.policyMode === "audit" && h.policyViolations > 0 ? "accent" : undefined} />
       </div>
       {h.policyViolations > 0 && (
+        // Distinct refusals, and the window is named: the raw event count multiplies with every
+        // reconcile replay (199 events were 6 refusals live), and "resets on rebuild" was wrong —
+        // it is a rolling tail of the newest events, not something a restart clears.
         <div className="text-[11.5px] text-dim">
-          {h.policyViolations} info-flow violation{h.policyViolations === 1 ? "" : "s"} recorded — each one is a wall doing its job; the count resets on rebuild.
+          {h.policyViolations} distinct info-flow refusal{h.policyViolations === 1 ? "" : "s"}
+          {h.policyViolationsSince ? ` since ${h.policyViolationsSince.slice(0, 10)}` : ""}
+          {" "}— each one is a wall doing its job, and a repeat of the same refusal is counted once.
         </div>
       )}
       <div>

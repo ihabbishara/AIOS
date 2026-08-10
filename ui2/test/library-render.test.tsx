@@ -114,6 +114,46 @@ describe("Library — safety (agent output is never markup)", () => {
     expect(container.querySelector("embed")).toBeNull();
   });
 
+  it("a truncated .pdf says so instead of rendering a broken viewer", async () => {
+    vi.stubGlobal("URL", Object.assign(Object.create(URL), {
+      createObjectURL: () => "blob:stub", revokeObjectURL: () => {},
+    }));
+    // The real 57-byte stub a failed render left in the vault. Its %PDF header is enough for
+    // the server to type it application/pdf, so it used to reach an <embed>.
+    stubLibrary("%PDF-1.7 binary payload — cannot be represented as text");
+    const tree = [{ name: "deck.pdf", path: "deck.pdf", dir: false, size: 57, mtime: "2026-08-01T00:00:00.000Z" }];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: tree }), { status: 200 });
+      if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(WIKI), { status: 200 });
+      return new Response("%PDF-1.7 binary payload — cannot be represented as text", { status: 200 });
+    }));
+    const { container } = render(<Library />);
+    await openArchive();
+    fireEvent.click(await screen.findByText("deck.pdf"));
+    expect(await screen.findByText(/no PDF end marker/)).toBeTruthy();
+    expect(container.querySelector("embed")).toBeNull();
+    // Still reachable — the bytes are the user's, however broken.
+    expect(screen.getByText("Download it anyway")).toBeTruthy();
+  });
+
+  it("a well-formed .pdf still renders in the viewer", async () => {
+    vi.stubGlobal("URL", Object.assign(Object.create(URL), {
+      createObjectURL: () => "blob:stub", revokeObjectURL: () => {},
+    }));
+    const tree = [{ name: "real.pdf", path: "real.pdf", dir: false, size: 400, mtime: "2026-08-01T00:00:00.000Z" }];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: tree }), { status: 200 });
+      if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(WIKI), { status: 200 });
+      return new Response("%PDF-1.7\n...body...\ntrailer\n%%EOF\n", { status: 200 });
+    }));
+    const { container } = render(<Library />);
+    await openArchive();
+    fireEvent.click(await screen.findByText("real.pdf"));
+    await waitFor(() => expect(container.querySelector("embed")).toBeTruthy());
+  });
+
   it("a non-markdown text file keeps its exact bytes in a <pre>", async () => {
     stubLibrary('{"a": 1}');
     render(<Library />);

@@ -265,6 +265,8 @@ export const api = {
    *  URL the browser can point an element at. The caller owns revoking it. */
   libraryBlobUrl: async (path: string): Promise<string> =>
     URL.createObjectURL(await (await libraryFile(path)).blob()),
+  /** The bytes themselves, for callers that must inspect before choosing a viewer. */
+  libraryBlob: async (path: string): Promise<Blob> => (await libraryFile(path)).blob(),
   proposePermission: (role: string, tool: string, action: "grant" | "revoke") =>
     request<{ id: string; status: string }>("/api/permissions/propose", {
       method: "POST",
