@@ -8,7 +8,8 @@ import type { MailRow } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { GoalEngine } from "../src/engine/goals.js";
-import { SpendGuard } from "../src/engine/budget.js";
+import { SpendGuard, attachBudgetLedger } from "../src/engine/budget.js";
+import { EventBus } from "../src/events.js";
 import { makePlanner, renderPlanPreview } from "../src/engine/plan.js";
 import type { SpecialistRunFn } from "../src/agents/runner.js";
 
@@ -67,12 +68,16 @@ function harness(planOutputs: unknown[], opts: { selfRoot?: string } = {}) {
     }
     return { text: "node out", costUsd: 0.01, numTurns: 1 };
   };
+  // Only the PLANNER gets an onEvent here, so `plannerEvents` is exactly the planner's
+  // billing trail — the engine's own node events never land in it.
+  const plannerEvents: import("../src/events.js").AiosEvent[] = [];
   const planner = makePlanner({
     registry, store, run,
     primaryChat: { channel: "telegram", chatId: "1" },
     projectsRoot: "/tmp/projects",
     selfRoot: opts.selfRoot,
     postPreview: async (_o, text) => { previews.push(text); },
+    onEvent: (e) => { plannerEvents.push(e); },
   });
   // Per-node agent resolution now happens INSIDE deps.run (resolveAgent) — the harness
   // observes it by recording every role the engine hands to run.
@@ -88,7 +93,7 @@ function harness(planOutputs: unknown[], opts: { selfRoot?: string } = {}) {
     onComplete: async () => {},
     planner,
   });
-  return { store, engine, previews, planCallsRef: () => planCalls, resolvedAgents };
+  return { store, engine, previews, planCallsRef: () => planCalls, resolvedAgents, plannerEvents };
 }
 
 describe("lead planner", () => {
@@ -106,6 +111,57 @@ describe("lead planner", () => {
     const { engine, planCallsRef } = harness([bad, GOOD_PLAN]);
     await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
     expect(planCallsRef()).toBe(2);
+  });
+
+  it("bills the planning turn: a paired agent.start/agent.end carrying costUsd", async () => {
+    const { engine, plannerEvents } = harness([GOOD_PLAN]);
+    await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
+    expect(plannerEvents).toEqual([
+      { type: "agent.start", agent: "athena", context: "plan:engineering" },
+      { type: "agent.end", agent: "athena", context: "plan:engineering", ok: true, costUsd: 0.02, turns: 1 },
+    ]);
+  });
+
+  it("a retried plan bills BOTH attempts — the second turn is not free", async () => {
+    const bad = { ...GOOD_PLAN, nodes: [{ key: "a", type: "run", agent: "nobody", brief: "x", deps: [] }] };
+    const { engine, plannerEvents } = harness([bad, GOOD_PLAN]);
+    await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
+    const billed = plannerEvents.filter((e) => e.type === "agent.end");
+    expect(billed).toHaveLength(2);
+    expect(billed.every((e) => e.type === "agent.end" && e.costUsd === 0.02)).toBe(true);
+  });
+
+  it("the billed plan reaches the daily ledger and the per-agent rollup", async () => {
+    const { engine, store, plannerEvents } = harness([GOOD_PLAN]);
+    const bus = new EventBus(store);
+    attachBudgetLedger(bus, store, () => "2026-08-10");
+    await engine.planGoal({ department: "engineering", title: "Do X", request: "do x", channel: "telegram", chatId: "1" });
+    for (const e of plannerEvents) bus.emit(e);
+    expect(store.budgetSpentCents("2026-08-10")).toBe(2);
+    expect(store.costsByAgent("2026-08-10")).toEqual([
+      { agent: "athena", usd_cents: 2, runs: 1, last_date: "2026-08-10" },
+    ]);
+  });
+
+  it("a planner failure still ends the run — no orphan start, nothing billed", async () => {
+    const plannerEvents: import("../src/events.js").AiosEvent[] = [];
+    const planner = makePlanner({
+      registry: fixtureRegistry(),
+      store: new Store(":memory:"),
+      run: async () => { throw new Error("provider down"); },
+      primaryChat: { channel: "telegram", chatId: "1" },
+      projectsRoot: "/tmp/projects",
+      postPreview: async () => {},
+      onEvent: (e) => { plannerEvents.push(e); },
+    });
+    await expect(planner.plan(null as never, {
+      department: "engineering", title: "Do X", request: "x", channel: "telegram", chatId: "1",
+    })).rejects.toThrow(/provider down/);
+    // An unpaired start leaves the lead stuck "working" forever in the org view.
+    expect(plannerEvents).toEqual([
+      { type: "agent.start", agent: "athena", context: "plan:engineering" },
+      { type: "agent.end", agent: "athena", context: "plan:engineering", ok: false },
+    ]);
   });
 
   it("invalid twice → throws planning failed, nothing persisted", async () => {

@@ -407,6 +407,7 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
         await channels.get(origin.channel)?.send(origin.chatId, text);
         bus.emit({ type: "chat.out", channel: origin.channel, chatId: origin.chatId, text: text.slice(0, 300), pushed: true });
       },
+      onEvent: (e) => bus.emit(e),
       log,
     }),
     primaryChat: config.primaryChat,

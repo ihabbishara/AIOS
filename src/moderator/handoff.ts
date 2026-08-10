@@ -45,11 +45,28 @@ export function makeHandOff(deps: HandOffDeps) {
       type: "route.decision", to: canonical, via: "handoff",
       reason: "chief of staff hand_off", channel: origin.channel, chatId: origin.chatId,
     });
-    // resolveAgent (inside runSpecialist) resolves the agent's capabilities/dept/model.
-    const res = await deps.runSpecialist(agent, task, {
-      cwd: deps.projectsRoot, origin,
-      mailCtx: { origin, goalDepth: 0 },
-    });
+    // A hand-off is a full LLM turn by a SECOND agent — the chief of staff's own agent.end
+    // (router.ts) carries only its own cost, so without this the handed-off turn is billed to
+    // nobody. costUsd on agent.end is the only thing attachBudgetLedger and the cost_daily
+    // rollup read. The context matches the router's chat context deliberately: this IS a turn
+    // in that chat, so org-view's pendingOrigins lookup marks the agent "waiting" when it is
+    // blocked on an action approval, exactly as it does for a directly-addressed agent.
+    const context = `chat:${origin.channel}:${origin.chatId}`;
+    deps.bus.emit({ type: "agent.start", agent: canonical, context });
+    let res;
+    try {
+      // resolveAgent (inside runSpecialist) resolves the agent's capabilities/dept/model.
+      res = await deps.runSpecialist(agent, task, {
+        cwd: deps.projectsRoot, origin,
+        mailCtx: { origin, goalDepth: 0 },
+      });
+    } catch (err) {
+      // A throw means no result message arrived, so there is no cost to report. Pairing still
+      // matters: an unpaired start leaves the agent stuck "working" forever in the org view.
+      deps.bus.emit({ type: "agent.end", agent: canonical, context, ok: false });
+      throw err;
+    }
+    deps.bus.emit({ type: "agent.end", agent: canonical, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
     return { text: res.text };
   };
 }
