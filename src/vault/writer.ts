@@ -1,4 +1,4 @@
-import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, writeFileSync, readFileSync, existsSync, readdirSync, copyFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { WIKI_DIRS, seedFiles } from "./wiki-schema.js";
 
@@ -120,6 +120,25 @@ export class VaultWriter {
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, content);
     return path;
+  }
+
+  /**
+   * Record notes touched since `sinceIso`, oldest first — the wiki maintainer's work queue.
+   *
+   * Returns paths and mtimes only, never content: the caller decides how many to hand to an
+   * agent, and the agent reads them itself. Missing directories are skipped rather than
+   * throwing, because a fresh install has most of them empty.
+   */
+  notesModifiedSince(sinceIso: string, relDirs: readonly string[]): Array<{ path: string; mtime: string }> {
+    const since = Date.parse(sinceIso);
+    const out: Array<{ path: string; mtime: string }> = [];
+    for (const dir of relDirs) {
+      for (const rel of this.listNotes(dir)) {
+        const st = statSync(join(this.root, rel));
+        if (st.mtimeMs > since) out.push({ path: rel, mtime: new Date(st.mtimeMs).toISOString() });
+      }
+    }
+    return out.sort((a, b) => (a.mtime < b.mtime ? -1 : a.mtime > b.mtime ? 1 : 0));
   }
 
   readNote(relPath: string): string | undefined {

@@ -63,6 +63,11 @@ export interface Config {
   dreamModel?: string;
   /** Local time "HH:MM" for the nightly speculate (overnight research) pass. */
   anchorSpeculate: string;
+  /** Wiki maintenance anchor — after dream/speculate, before the morning brief. */
+  anchorWiki: string;
+  wikiDisabled: boolean;
+  /** Pin the wiki maintainer; empty picks by capability (heartbeat/wiki.ts). */
+  wikiAgent?: string;
   /** Hard cap on research-report jobs the speculate pass enqueues per night. */
   speculateMaxJobs: number;
   /** Model for the speculate planner one-shot (defaults to specialistModel). */
@@ -264,6 +269,9 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     standupDisabled: process.env.AIOS_STANDUP_DISABLED === "1",
     policyMode: process.env.AIOS_POLICY_MODE === "enforce" ? "enforce" : "audit",
     anchorSpeculate: process.env.AIOS_ANCHOR_SPECULATE ?? "03:00",
+    anchorWiki: process.env.AIOS_ANCHOR_WIKI ?? "04:00",
+    wikiDisabled: process.env.AIOS_WIKI_DISABLED === "1",
+    ...(process.env.AIOS_WIKI_AGENT ? { wikiAgent: process.env.AIOS_WIKI_AGENT } : {}),
     speculateMaxJobs: Number(process.env.AIOS_SPECULATE_MAX_JOBS ?? 2),
     speculateModel: process.env.AIOS_SPECULATE_MODEL ?? process.env.AIOS_SPECIALIST_MODEL,
     speculateEmailDisabled: process.env.AIOS_SPECULATE_EMAIL_DISABLED === "1",

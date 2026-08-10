@@ -3,7 +3,7 @@ import type { Store, ReminderRow, RoutineRow } from "../store/db.js";
 import { routineDue } from "./routines.js";
 
 export interface AnchorConfig {
-  name: "morning" | "evening" | "dream" | "speculate" | "standup";
+  name: "morning" | "evening" | "dream" | "speculate" | "standup" | "wiki";
   /** Local time "HH:MM". */
   hhmm: string;
 }
@@ -12,7 +12,7 @@ export interface ClockDeps {
   store: Store;
   /** Checked in order — keep morning before evening for the double-catch-up case. */
   anchors: AnchorConfig[];
-  onAnchor: (name: "morning" | "evening" | "dream" | "speculate" | "standup") => Promise<void>;
+  onAnchor: (name: "morning" | "evening" | "dream" | "speculate" | "standup" | "wiki") => Promise<void>;
   onReminderDue: (reminder: ReminderRow) => void;
   /** Optional — routines fire only when wired (tests that don't care omit it). */
   onRoutineDue?: (routine: RoutineRow) => void;
