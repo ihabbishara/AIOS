@@ -8,7 +8,7 @@
 // below are the proof and must never be relaxed.
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
-import { Library } from "../src/views/Library.js";
+import { Library, resolveRel } from "../src/views/Library.js";
 import { App } from "../src/App.js";
 import { BottomTabs } from "../src/components/BottomTabs.js";
 import { SECTIONS } from "../src/lib/router.js";
@@ -183,6 +183,45 @@ describe("Library — the reading room", () => {
     render(<Library />);
     fireEvent.click(await screen.findByText("Couscous")); // backlinks: []
     expect(await screen.findByText(/this page is an orphan/)).toBeTruthy();
+  });
+
+  it("resolveRel turns a page-relative link into a vault path", () => {
+    // The form all 22 live source pages use.
+    expect(resolveRel("wiki/sources/Marseille.md", "../../knowledge/marseille.md"))
+      .toBe("knowledge/marseille.md");
+    expect(resolveRel("wiki/topics/A.md", "./B.md")).toBe("wiki/topics/B.md");
+    // Climbing past the vault root resolves to nothing rather than a request certain to 404.
+    expect(resolveRel("wiki/sources/X.md", "../../../../etc/passwd")).toBe(null);
+  });
+
+  it("a [record](../..) link jumps to the archive with that file open", async () => {
+    stubLibrary("# Couscous\n\n[record](../../goals/report.md) — researched 2026-07-16.");
+    render(<Library />);
+    fireEvent.click(await screen.findByText("Couscous"));
+    const link = await screen.findByRole("button", { name: "record" });
+    await act(async () => { fireEvent.click(link); });
+    // Landing in the archive is the point: record files live there, not in the wiki nav.
+    await waitFor(() => expect(screen.getByText("the record — read-only")).toBeTruthy());
+  });
+
+  it("the wiki totals never sit over the archive claiming to describe it", async () => {
+    stubLibrary("# x");
+    render(<Library />);
+    expect(await screen.findByText(/2 pages · 1 links/)).toBeTruthy();
+    await openArchive();
+    expect(screen.getByText("the record — read-only")).toBeTruthy();
+    expect(screen.queryByText(/2 pages · 1 links/)).toBeNull();
+  });
+
+  it("offers a way back to the index on phones, where the index is hidden", async () => {
+    stubLibrary("# Couscous\n\nbody");
+    render(<Library />);
+    // Nothing picked: no back control, because the index is what is showing.
+    expect(screen.queryByText(/← All pages/)).toBeNull();
+    fireEvent.click(await screen.findByText("Couscous"));
+    const back = await screen.findByText("← All pages");
+    await act(async () => { fireEvent.click(back); });
+    await waitFor(() => expect(screen.getByText("Pick a page.")).toBeTruthy());
   });
 
   it("lists backlinks and follows one", async () => {

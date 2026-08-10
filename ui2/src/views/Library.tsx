@@ -23,6 +23,29 @@ const stripFrontmatter = (md: string) => md.replace(/^---\n[\s\S]*?\n---\n?/, ""
 
 const dayOf = (iso: string) => iso.slice(0, 10);
 
+/**
+ * Resolve a page-relative markdown link against the page's own directory, into the
+ * vault-relative path /api/library/file speaks. `wiki/sources/X.md` + `../../knowledge/y.md`
+ * → `knowledge/y.md`. The wiki schema prescribes exactly this form for pointing at the record,
+ * and all 22 source pages use it.
+ *
+ * Returns null when the link climbs past the vault root. The server refuses those anyway —
+ * this only avoids a request that is certain to 404, and keeps the reader from blanking.
+ */
+export function resolveRel(fromPath: string, href: string): string | null {
+  const segs = fromPath.split("/").slice(0, -1); // the page's directory
+  for (const part of href.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (!segs.length) return null;
+      segs.pop();
+      continue;
+    }
+    segs.push(part);
+  }
+  return segs.length ? segs.join("/") : null;
+}
+
 function Tree({ nodes, onPick, active }: {
   nodes: LibraryNode[]; onPick: (p: string) => void; active: string;
 }) {
@@ -52,7 +75,9 @@ function Tree({ nodes, onPick, active }: {
 /** The rendered file. Markdown goes through the shared safe renderer (React nodes, never
  *  innerHTML) rather than a `<pre>`: the wiki is written to be READ, and a wall of raw
  *  markdown is not a reading room. Non-markdown text keeps its exact bytes in a `<pre>`. */
-function Reader({ path, onWikiLink }: { path: string; onWikiLink?: (page: string) => void }) {
+function Reader({ path, onWikiLink, onRelLink }: {
+  path: string; onWikiLink?: (page: string) => void; onRelLink?: (href: string) => void;
+}) {
   const [text, setText] = useState<string | null>(null);
   const [blob, setBlob] = useState("");
   const [error, setError] = useState("");
@@ -84,7 +109,13 @@ function Reader({ path, onWikiLink }: { path: string; onWikiLink?: (page: string
   if (error) return <div className="text-[12px] text-err">{error}</div>;
   if (text !== null) {
     return isMarkdown(path)
-      ? <div className="text-[13px] leading-relaxed max-w-[68ch]"><Markdown text={stripFrontmatter(text)} onWikiLink={onWikiLink} /></div>
+      ? (
+        <div className="text-[13px] leading-relaxed max-w-[68ch]">
+          {/* softWrap: vault markdown is hard-wrapped at ~100 chars, so raw lines are not
+              paragraphs. Without it, wrapped bullets break apart and wrapped **bold** splits. */}
+          <Markdown text={stripFrontmatter(text)} softWrap onWikiLink={onWikiLink} onRelLink={onRelLink} />
+        </div>
+      )
       : <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-mono">{text}</pre>;
   }
   if (blob && isImage(path)) return <img src={blob} alt={path} className="max-w-full" />;
@@ -173,10 +204,24 @@ export function Library() {
     return () => clearTimeout(t);
   }, [q]);
 
+  /** Follow a `[record](../../knowledge/x.md)` link out of the wiki and into the record. This
+   *  is the schema's own convention for source pages, so the reading room has to honour it —
+   *  it lands in the archive, which is where record files live. */
+  const openRel = useCallback((href: string) => {
+    const target = resolveRel(path, href);
+    if (!target) return;
+    setTab("archive");
+    setPath(target);
+  }, [path]);
+
   const totals = wiki?.totals;
-  const meta = totals
-    ? `${totals.pages} pages · ${totals.links} links${totals.orphans ? ` · ${totals.orphans} orphaned` : ""}${wiki!.broken.length ? ` · ${wiki!.broken.length} broken` : ""}`
-    : "workspace files, read-only";
+  // The totals describe the WIKI, so they must not sit over the archive claiming to describe it
+  // (DESIGN.md §7 — every metric names its window).
+  const meta = tab === "archive"
+    ? "the record — read-only"
+    : totals
+      ? `${totals.pages} pages · ${totals.links} links${totals.orphans ? ` · ${totals.orphans} orphaned` : ""}${wiki!.broken.length ? ` · ${wiki!.broken.length} broken` : ""}`
+      : "loading…";
 
   return (
     <div className="flex-1 min-h-0 overflow-hidden">
@@ -220,7 +265,9 @@ export function Library() {
           </div>
         ) : (
           <div className="flex-1 min-h-0 flex gap-4 overflow-hidden">
-            <div className="w-60 shrink-0 overflow-y-auto text-[12px]">
+            {/* Master–detail collapses to one pane on phones: a fixed 240px index beside a
+                ~180px reader is unreadable at that width, so only the relevant pane shows. */}
+            <div className={`w-full md:w-60 shrink-0 overflow-y-auto text-[12px] ${path ? "hidden md:block" : ""}`}>
               {tab === "wiki" ? (
                 wiki ? <WikiNav wiki={wiki} active={path} onPick={(p) => setPath(p.path)} />
                      : <Empty>Loading…</Empty>
@@ -230,7 +277,14 @@ export function Library() {
               )}
             </div>
 
-            <div className="flex-1 min-w-0 overflow-y-auto panel p-4">
+            <div className={`flex-1 min-w-0 overflow-y-auto panel p-4 ${path ? "" : "hidden md:block"}`}>
+              {path && (
+                // The only way back to the index once the index is hidden.
+                <button onClick={() => setPath("")}
+                  className="md:hidden text-[11.5px] text-dim hover:text-fg mb-2">
+                  ← All {tab === "wiki" ? "pages" : "files"}
+                </button>
+              )}
               {!path && <Empty>{tab === "wiki" ? "Pick a page." : "Pick a file."}</Empty>}
               {path && (
                 <>
@@ -246,7 +300,11 @@ export function Library() {
                       </div>
                     </div>
                   )}
-                  <Reader path={path} onWikiLink={tab === "wiki" ? openPage : undefined} />
+                  <Reader
+                    path={path}
+                    onWikiLink={tab === "wiki" ? openPage : undefined}
+                    onRelLink={tab === "wiki" ? openRel : undefined}
+                  />
                   {current && current.backlinks.length > 0 && (
                     <div className="mt-6 pt-3 border-t border-line">
                       <SectionLabel>Linked from</SectionLabel>
