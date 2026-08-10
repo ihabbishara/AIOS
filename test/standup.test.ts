@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "../src/store/db.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
-import { SpendGuard } from "../src/engine/budget.js";
+import { SpendGuard, attachBudgetLedger } from "../src/engine/budget.js";
+import { EventBus, type AiosEvent } from "../src/events.js";
 import { activeDepartments, standupDigest, runStandups } from "../src/heartbeat/standup.js";
 import type { SpecialistRunFn, RunOptions } from "../src/agents/runner.js";
 
@@ -136,6 +137,52 @@ describe("runStandups", () => {
     await runStandups({ store, registry, run, spendGuard: new SpendGuard({ store }) });
     expect(captured).toBeDefined();
     expect(captured!.mailCtx).toBeUndefined();
+  });
+
+  it("bills the lead's turn: a paired agent.start/agent.end carrying costUsd", async () => {
+    const store = new Store(":memory:");
+    goalRow(store);
+    const run: SpecialistRunFn = async () => ({ text: "done / today / none", costUsd: 0.37, numTurns: 2 });
+    const events: AiosEvent[] = [];
+    await runStandups({
+      store, registry, run, spendGuard: new SpendGuard({ store }), onEvent: (e) => events.push(e),
+    });
+    expect(events.filter((e) => e.type === "agent.start")).toEqual([
+      { type: "agent.start", agent: "athena", context: "standup:engineering" },
+    ]);
+    expect(events.filter((e) => e.type === "agent.end")).toEqual([
+      { type: "agent.end", agent: "athena", context: "standup:engineering", ok: true, costUsd: 0.37, turns: 2 },
+    ]);
+  });
+
+  it("the billed turn reaches the daily ledger and the per-agent rollup", async () => {
+    const store = new Store(":memory:");
+    goalRow(store);
+    const bus = new EventBus(store);
+    attachBudgetLedger(bus, store, () => "2026-08-10");
+    const run: SpecialistRunFn = async () => ({ text: "x", costUsd: 0.37, numTurns: 1 });
+    await runStandups({
+      store, registry, run, spendGuard: new SpendGuard({ store }), onEvent: (e) => bus.emit(e),
+    });
+    expect(store.budgetSpentCents("2026-08-10")).toBe(37);
+    expect(store.costsByAgent()).toEqual([
+      { agent: "athena", usd_cents: 37, runs: 1, last_date: "2026-08-10" },
+    ]);
+  });
+
+  it("a failed lead still ends its run — no orphan start, and nothing billed", async () => {
+    const store = new Store(":memory:");
+    goalRow(store);
+    const run: SpecialistRunFn = async () => { throw new Error("nope"); };
+    const events: AiosEvent[] = [];
+    await runStandups({
+      store, registry, run, spendGuard: new SpendGuard({ store }), onEvent: (e) => events.push(e),
+    });
+    // An unpaired start leaves the lead stuck "working" forever in the org view.
+    expect(events).toEqual([
+      { type: "agent.start", agent: "athena", context: "standup:engineering" },
+      { type: "agent.end", agent: "athena", context: "standup:engineering", ok: false },
+    ]);
   });
 
   it("SpendGuard at cap skips; lead failure is contained", async () => {

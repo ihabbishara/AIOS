@@ -82,10 +82,25 @@ export async function runStandups(deps: StandupDeps): Promise<number> {
     }
     const lead = deps.registry.departments.get(dept)?.lead;
     if (!lead) continue;
+    const context = `standup:${dept}`;
+    // start/end must be paired: an unpaired start leaves the lead stuck "working" forever in
+    // the org view, whose liveRuns map clears only on agent.end.
+    deps.onEvent?.({ type: "agent.start", agent: lead, context });
+    let res;
     try {
-      const res = await deps.run(lead, PROMPT + standupDigest(deps.store, deps.registry, dept, since), {
+      res = await deps.run(lead, PROMPT + standupDigest(deps.store, deps.registry, dept, since), {
         cwd: process.cwd(),
       });
+    } catch (err) {
+      deps.onEvent?.({ type: "agent.end", agent: lead, context, ok: false });
+      deps.log?.(`standup for ${dept} failed: ${(err as Error).message}`); // fail-silent per dept
+      continue;
+    }
+    // Bill the moment the turn returns, BEFORE the mail write: the spend is real whether or not
+    // the mail lands, and costUsd on agent.end is the ONLY thing attachBudgetLedger and the
+    // cost_daily rollup read. 48 standups ran before this line existed, every one recorded free.
+    deps.onEvent?.({ type: "agent.end", agent: lead, context, ok: true, costUsd: res.costUsd, turns: res.numTurns });
+    try {
       const id = randomUUID();
       deps.store.insertMail({
         id, from_agent: lead, to_agent: "neo", kind: "standup", body: res.text.slice(0, 1200),
@@ -95,7 +110,9 @@ export async function runStandups(deps: StandupDeps): Promise<number> {
       deps.onEvent?.({ type: "mail.sent", id, from: lead, to: "neo", kind: "standup" });
       written++;
     } catch (err) {
-      deps.log?.(`standup for ${dept} failed: ${(err as Error).message}`); // fail-silent per dept
+      // Contained per dept, as the run failure is: one bad mail write must not cost the
+      // remaining departments their standup.
+      deps.log?.(`standup mail for ${dept} failed: ${(err as Error).message}`);
     }
   }
   return written;
