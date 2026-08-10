@@ -124,6 +124,44 @@ describe("reconcile", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("backfills EVERY allowlisted event, not the newest slice of all traffic", () => {
+    // The bound is a window over all events, and the log is mostly chat: live, the newest 5000
+    // of 13,116 rows held 10 of 37 calendar events. Paired with the sweep below, the 27 it never
+    // examined were deleted. Filtering by type is what makes the replay complete.
+    const root = mkdtempSync(join(tmpdir(), "vault-"));
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(root, "AIOS");
+    vault.init();
+    store.addEvent(JSON.stringify({
+      type: "calendar.changed", account: "p", eventId: "old-one", summary: "Ancient standup",
+      start: "2026-01-01T10:00:00Z", end: "2026-01-01T11:00:00Z", status: "confirmed", organizer: "self",
+    }));
+    // Bury it under noisier, newer traffic of a type the index ignores.
+    for (let i = 0; i < 60; i++) {
+      store.addEvent(JSON.stringify({ type: "chat.in", channel: "cli", chatId: "1", text: `msg ${i}` }));
+    }
+    reconcile(store, vault);
+    expect(recall(store, "ancient standup")).toHaveLength(1);
+    expect(store.listMemoryRefs("event")).toEqual(["event:p:old-one"]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("leaves an event doc the replay never examined alone", () => {
+    const root = mkdtempSync(join(tmpdir(), "vault-"));
+    const store = new Store(":memory:");
+    const vault = new VaultWriter(root, "AIOS");
+    vault.init();
+    // Current-scheme doc with no backing event row: the backfill cannot adjudicate it, so
+    // deleting it would lose a meeting rather than clean one up.
+    indexDoc(store, {
+      source: "event", ref: "event:p:unseen", domain: "inbox", title: "Offsite",
+      body: "Offsite planning", ts: "2026-07-01T00:00:00.000Z", fingerprint: "f",
+    });
+    reconcile(store, vault);
+    expect(store.listMemoryRefs("event")).toEqual(["event:p:unseen"]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("retires event docs its replay no longer produces", () => {
     const root = mkdtempSync(join(tmpdir(), "vault-"));
     const store = new Store(":memory:");
