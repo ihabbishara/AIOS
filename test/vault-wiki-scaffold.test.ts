@@ -98,6 +98,12 @@ describe("the seeded schema", () => {
     expect(body("CLAUDE.md")).toContain("Do not create one wiki page per run artifact");
   });
 
+  it("warns against wrapping a wikilink across lines", () => {
+    // Observed on the maintainer's first live pass: a hard-wrapped [[Page\n  Name]] renders
+    // as literal text and the link is lost with no error anywhere.
+    expect(body("CLAUDE.md")).toContain("NEVER wrap a wikilink across a line break");
+  });
+
   it("ships a catalog with every category the schema names", () => {
     const index = body("index.md");
     for (const section of ["Sources", "Entities", "Concepts", "Topics", "Analyses"]) {

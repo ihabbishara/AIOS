@@ -138,9 +138,15 @@ export async function runWikiMaintenance(deps: WikiDeps): Promise<WikiResult> {
   }
 
   const batch = changed.slice(0, deps.batch ?? DEFAULT_BATCH);
+  const context = "wiki:maintain";
+  // start/end must be paired: an unpaired start leaves the agent stuck "working" forever
+  // in the org view, whose liveRuns map clears only on agent.end.
+  deps.onEvent?.({ type: "agent.start", agent, context });
+  let res;
   try {
-    await deps.run(agent, PROMPT(batch), { cwd: process.cwd() });
+    res = await deps.run(agent, PROMPT(batch), { cwd: process.cwd() });
   } catch (err) {
+    deps.onEvent?.({ type: "agent.end", agent, context, ok: false });
     // Watermark stays put: a failed pass re-offers the same files next night.
     deps.log?.(`wiki: ingest failed (${(err as Error).message}) — ${batch.length} file(s) deferred`);
     return { status: "failed", files: batch.length, agent };
@@ -149,7 +155,10 @@ export async function runWikiMaintenance(deps: WikiDeps): Promise<WikiResult> {
   // Advance only to the last file actually handed over, so a truncated batch leaves the
   // remainder queued rather than silently dropped.
   deps.store.kvSet(WATERMARK, batch[batch.length - 1].mtime);
-  deps.onEvent?.({ type: "agent.end", agent, context: "wiki:maintain", ok: true });
+  // costUsd MUST ride on agent.end: the ledger and the cost_daily rollup both key off it,
+  // and an unattended nightly run recorded as free is exactly the gap that made chat spend
+  // invisible for months (see router.ts / engine/budget.ts).
+  deps.onEvent?.({ type: "agent.end", agent, context, ok: true, costUsd: res.costUsd });
   const left = changed.length - batch.length;
   deps.log?.(`wiki: ${agent} ingested ${batch.length} file(s)${left ? `, ${left} queued for tomorrow` : ""}`);
   return { status: "ingested", files: batch.length, agent };
