@@ -16,6 +16,19 @@ const isImage = (p: string) => /\.(png|jpe?g|gif|webp)$/i.test(p);
 const isPdf = (p: string) => /\.pdf$/i.test(p);
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
 
+/**
+ * Does this actually end like a PDF? Every real one closes with `%%EOF`.
+ *
+ * A failed render once wrote a 57-byte placeholder — the literal text "%PDF-1.7 binary payload —
+ * cannot be represented as text". The `%PDF` header is enough for the server to type it
+ * application/pdf, so it reached an <embed> and rendered as a silently broken viewer. Agents
+ * write these files, so a stub is a thing that recurs; say what happened instead.
+ */
+async function endsLikePdf(b: Blob): Promise<boolean> {
+  const tail = await b.slice(Math.max(0, b.size - 1024)).text();
+  return tail.trimEnd().endsWith("%%EOF");
+}
+
 /** Frontmatter is metadata, not prose — the reader shows `type` and `updated` as chips instead
  *  of dumping raw YAML at the top of every page. Its `sources: [[...]]` links are not lost:
  *  they are already counted in the page's outbound list. */
@@ -80,11 +93,12 @@ function Reader({ path, onWikiLink, onRelLink }: {
 }) {
   const [text, setText] = useState<string | null>(null);
   const [blob, setBlob] = useState("");
+  const [broken, setBroken] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!path) return;
-    setText(null); setBlob(""); setError("");
+    setText(null); setBlob(""); setBroken(false); setError("");
     // `url` is a local, not the `blob` state: a cleanup that closed over state would capture
     // the value from the render that CREATED the effect — empty — and leak every object URL.
     let url = "";
@@ -93,9 +107,12 @@ function Reader({ path, onWikiLink, onRelLink }: {
     if (isText(path)) {
       api.libraryText(path).then((t) => { if (!cancelled) setText(t); }).catch(fail);
     } else {
-      api.libraryBlobUrl(path)
-        .then((u) => {
+      api.libraryBlob(path)
+        .then(async (b) => {
           // A selection that changed while the fetch was in flight still owns a URL to free.
+          if (cancelled) return;
+          if (isPdf(path)) setBroken(!(await endsLikePdf(b)));
+          const u = URL.createObjectURL(b);
           if (cancelled) return void URL.revokeObjectURL(u);
           url = u;
           setBlob(u);
@@ -119,6 +136,15 @@ function Reader({ path, onWikiLink, onRelLink }: {
       : <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-mono">{text}</pre>;
   }
   if (blob && isImage(path)) return <img src={blob} alt={path} className="max-w-full" />;
+  if (blob && isPdf(path) && broken) {
+    return (
+      <div className="text-[12px] text-dim flex flex-col gap-2 items-start">
+        <span>This file is named .pdf but has no PDF end marker — the render that produced it
+          did not finish, so there is nothing to display.</span>
+        <a href={blob} download={path.split("/").pop()} className="underline underline-offset-2">Download it anyway</a>
+      </div>
+    );
+  }
   if (blob && isPdf(path)) return <embed src={blob} type="application/pdf" className="w-full h-[80vh]" />;
   if (blob) return <a href={blob} download={path.split("/").pop()} className="underline underline-offset-2">Download</a>;
   return null;
