@@ -172,6 +172,7 @@ function EventsTail({ live }: { live: StoredEvent[] }) {
 function Costs({ events }: { events: StoredEvent[] }) {
   const { data: costs } = useLiveQuery(() => api.costs(), events, T.costs);
   const { data: goals } = useLiveQuery(() => api.goals(), events, T.goals);
+  const { data: budget } = useLiveQuery(() => api.budget(), events, T.costs);
   if (!costs) return <Empty>Loading…</Empty>;
   const days = Object.entries(costs.byDay ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
   const today = days[days.length - 1]?.[1] ?? 0;
@@ -193,6 +194,25 @@ function Costs({ events }: { events: StoredEvent[] }) {
         <Stat label="7 days" value={usdFloat(week)} />
         <Stat label="14 days" value={usdFloat(window14)} />
       </div>
+      {/* Spend without a limit beside it is only half the picture. This daemon has spent $56.71
+          in a single day, and an unset AIOS_DAILY_BUDGET_USD means SpendGuard.allow() is always
+          true — so the absence of a cap is the louder fact and has to be said, not implied. */}
+      {budget && (
+        budget.capCents == null ? (
+          <div className="text-[11.5px] text-accent">
+            No daily cap — background work is never held back for spend.
+            Set a limit in Config → Budgets (AIOS_DAILY_BUDGET_USD).
+          </div>
+        ) : (
+          <div className="text-[11.5px] text-dim">
+            {usd(budget.spentCents)} of {usd(budget.capCents)} today
+            {" · "}
+            {budget.spentCents >= budget.capCents
+              ? "cap reached — background work is paused until tomorrow"
+              : `${usd(budget.capCents - budget.spentCents)} left`}
+          </div>
+        )
+      )}
       <div>
         <SectionLabel>Last 14 days</SectionLabel>
         <div className="flex items-end gap-1 h-24">
@@ -236,7 +256,7 @@ const CONFIG_GROUPS: Record<string, string[]> = {
   Channels: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "AIOS_CHAT_BINDINGS"],
   Models: ["CLAUDE_CODE_OAUTH_TOKEN", "AIOS_MODERATOR_MODEL", "AIOS_SPECIALIST_MODEL"],
   Anchors: ["AIOS_FINANCE_COMPANY", "AIOS_FINANCE_MEMBERS", "AIOS_PROJECTS_ROOT"],
-  Budgets: ["AIOS_MAX_CONCURRENT_JOBS", "AIOS_TRUST_SEED", "AIOS_ALWAYS_SUPERVISED"],
+  Budgets: ["AIOS_DAILY_BUDGET_USD", "AIOS_MAX_CONCURRENT_JOBS", "AIOS_TRUST_SEED", "AIOS_ALWAYS_SUPERVISED"],
   Senses: ["AIOS_GMAIL_POLL_SECONDS", "AIOS_CALENDAR_POLL_SECONDS", "AIOS_MEETING_PING_MINUTES", "AIOS_GMAIL_SKIP_CATEGORIES"],
   Security: ["AIOS_UI_TOKEN"],
 };

@@ -222,3 +222,20 @@ describe("halalo env gating", () => {
       .toThrow(/AIOS_HALALO_DIR/);
   });
 });
+
+describe("the daily spend cap is settable", () => {
+  it("AIOS_DAILY_BUDGET_USD is an editable config key", async () => {
+    // It is the ONLY setting that caps spend — unset, SpendGuard.allow() is always true — and it
+    // was missing from CONFIG_KEYS, so the one control that stops a runaway day could not be set
+    // from the cockpit at all.
+    const src = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("../src/web/server.ts", import.meta.url), "utf8"));
+    const block = src.slice(src.indexOf("const CONFIG_KEYS"), src.indexOf("];", src.indexOf("const CONFIG_KEYS")));
+    expect(block).toContain("AIOS_DAILY_BUDGET_USD");
+  });
+
+  it("an unset cap really does mean no cap", () => {
+    expect(buildConfig({}, "/tmp").dailyBudgetUsd).toBeUndefined();
+    expect(buildConfig({ AIOS_DAILY_BUDGET_USD: "20" }, "/tmp").dailyBudgetUsd).toBe(20);
+  });
+});
