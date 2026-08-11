@@ -13,6 +13,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OrgTemplate } from "./templates.js";
 import { proposalShape, type OrgProposal, type ProposalAgent } from "./proposal.js";
 import { pingFailure } from "./auth.js";
+import { DOMAINS } from "../memory/recall.js";
 
 export interface Turn { role: "user" | "architect"; text: string }
 
@@ -82,7 +83,12 @@ export const INTERVIEW_SCHEMA = {
             properties: {
               department: { type: "string" },
               mission: { type: "string" },
-              memoDomain: { type: "string" },
+              // An ENUM, not free text. memoDomain names the memo file an agent loads
+              // (`memos/<domain>.md`) and the distiller only ever writes the seven real domains,
+              // so prose here — "research, articles, and drafts", observed live — points every
+              // agent in that department at a file nothing writes: no department memory, ever,
+              // and teachings to it stay undistilled forever.
+              memoDomain: { type: "string", enum: [...DOMAINS] },
               lead: { type: "string" },
               capabilities: { type: "array", items: { type: "string" } },
               playbooks: { type: "array", items: { type: "string" } },

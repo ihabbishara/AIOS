@@ -15,7 +15,7 @@ departments:
     mission: >-
       Market understanding and positioning — who the customer is, who else wants
       them, and what that is worth.
-    memoDomain: strategy
+    memoDomain: research
     lead: compass
     capabilities: [memory]
     playbooks: [market-scan]

@@ -665,10 +665,35 @@ export function startSetupServer(deps: SetupDeps): Server {
           // the same failure path — otherwise it would escape to the 500 handler with kv already
           // on `running`, which is the stale-running wedge by another route.
           void (async () => {
+            // moderator.handle() is normally reached through MessageRouter, and it is the ROUTER
+            // that emits the billing pair — handle() only rides costUsd out. Calling it directly
+            // here therefore bills nobody, which made the user's very first spend invisible on
+            // the one screen that is meant to show the org working. Same shape as the standup,
+            // planner and hand-off gaps: whoever calls a runner owns its agent.end.
+            //
+            // Resolved INSIDE the try, and the closing emit is swallowed, so no part of billing
+            // can wedge the dispatch: anything thrown out here skips `finally` and leaves
+            // `dispatching` up with nothing running, which 409s every retry until a restart.
+            let billed: { agent: string; context: string } | undefined;
             try {
+              billed = {
+                agent: w.registry.coordinator,
+                context: `chat:${JOB_ORIGIN.channel}:${JOB_ORIGIN.chatId}`,
+              };
+              w.bus.emit({ type: "agent.start", ...billed });
               const r = await w.moderator.handle(JOB_ORIGIN.channel, JOB_ORIGIN.chatId, request);
+              w.bus.emit({
+                type: "agent.end", ...billed, ok: true,
+                ...(r.costUsd === undefined ? {} : { costUsd: r.costUsd }),
+              });
               setJobState({ status: "done", request, reply: r.text });
             } catch (err) {
+              // A throw means no result message arrived, so there is no cost to report — but the
+              // pair must still close or the coordinator sticks at "working" in the org view.
+              if (billed) {
+                try { w.bus.emit({ type: "agent.end", ...billed, ok: false }); }
+                catch { /* the ledger is not the job — never let it change the outcome */ }
+              }
               log(`first job failed: ${(err as Error).message}`);
               setJobState({ status: "failed", request, error: (err as Error).message });
             } finally {

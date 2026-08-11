@@ -18,6 +18,11 @@ function scaffold() {
   writeFileSync(join(agents, "finance", "faris.yaml"),
     // faris doubles as the fixture's kind: coordinator (loader v2 requires exactly one at boot)
     "name: faris\ntitle: CFO\ndepartment: finance\ncharter: Manages money.\npersona: Precise.\nprompt: You are the CFO.\ntools: [Read]\nmaxTurns: 20\nkind: coordinator\n");
+  // ziad exists so the flat `echo` playbook resolves. These cases are about SCANNING both
+  // layouts (top-level + one subdir); a playbook naming an agent the org lacks is now dropped
+  // on purpose, and is covered in registry-loader.test.ts.
+  writeFileSync(join(agents, "finance", "ziad.yaml"),
+    "name: ziad\ntitle: Analyst\ndepartment: finance\ncharter: Analyses.\npersona: Fast.\nprompt: You analyse.\ntools: [Read]\n");
   writeFileSync(join(pbs, "sub-audit.yaml"),
     "name: sub-audit\ndescription: audit subs\nstages:\n  - { type: single, id: s1, role: faris }\n");
   return { root, agents, pbs };

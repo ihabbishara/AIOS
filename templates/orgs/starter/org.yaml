@@ -13,7 +13,7 @@ departments:
 
   - department: studio
     mission: Research and written deliverables — briefs, summaries, and drafts the user can act on.
-    memoDomain: studio
+    memoDomain: research
     lead: scribe
     capabilities: [memory]
     playbooks: [starter-brief]

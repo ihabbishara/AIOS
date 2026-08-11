@@ -1,7 +1,7 @@
 // src/boot.ts — normal-mode boot, moved verbatim out of index.ts so the onboarding
 // wizard can bring the daemon up in-process once it has provisioned an org.
 import { join, resolve } from "node:path";
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, unlinkSync } from "node:fs";
 import { loadConfig, assertAuth, ensureUiToken } from "./config.js";
 import { Store } from "./store/db.js";
 import { VaultWriter } from "./vault/writer.js";
@@ -138,6 +138,17 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
   });
   const vault = new VaultWriter(config.vaultPath, config.vaultSubdir);
   vault.init();
+
+  // projectsRoot is the cwd every specialist and hand-off is spawned in, and it defaults to
+  // ~/projects — a developer convention a new user's machine has no reason to contain. Spawning
+  // into a directory that is not there fails deep inside the SDK, which reports it as the Claude
+  // binary being unable to start ("likely a libc/architecture mismatch"), so the daemon looks
+  // broken and the real cause is never mentioned. Observed on a clean install 2026-08-11.
+  try {
+    mkdirSync(config.projectsRoot, { recursive: true });
+  } catch (err) {
+    log(`projects root ${config.projectsRoot} could not be created: ${(err as Error).message}`);
+  }
 
   // ---- second brain: write-time indexing — registered BEFORE channels start so a
   // decision resolved during the startup window (e.g. /approve, an autonomous

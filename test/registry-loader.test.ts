@@ -59,6 +59,29 @@ describe("loadRegistry", () => {
     expect(() => loadRegistry(t2.agents, t2.pbs)).toThrow(/alias collision/i);
   });
 
+  it("does not offer a playbook whose agents this org does not have", () => {
+    // playbooksDir is shared install state; agents/ is per-user. A cloned install ships the
+    // author's playbooks and onboarding then provisions a different roster — watched live on
+    // 2026-08-11, where a fresh 3-agent org loaded all 7 of the author's playbooks and its very
+    // first job died on "Unknown agent: clio". A tool that cannot run must not be offered.
+    const { agents, pbs } = scaffold();
+    writeFileSync(join(pbs, "foreign.yaml"),
+      "name: foreign\ndescription: someone else's\nstages:\n  - type: single\n    id: a\n    role: clio\n");
+    writeFileSync(join(pbs, "half-foreign.yaml"),
+      "name: half-foreign\ndescription: one real one not\nstages:\n  - type: loop\n    id: b\n    producer: maya\n    critic: odin\n");
+    const lines: string[] = [];
+    const reg = loadRegistry(agents, pbs, {}, (l) => lines.push(l));
+
+    expect(reg.playbooks.has("foreign")).toBe(false);
+    expect(reg.playbooks.has("half-foreign")).toBe(false);
+    expect(reg.ownerOfPlaybook.has("foreign")).toBe(false);
+    // The org's own playbooks are untouched.
+    expect(reg.playbooks.has("echo")).toBe(true);
+    expect(reg.playbooks.has("eng-build")).toBe(true);
+    // Silence would make this look like the playbook was never there.
+    expect(lines.some((l) => l.includes("foreign") && l.includes("clio"))).toBe(true);
+  });
+
   it("skips a department referencing a missing playbook", () => {
     mkdirSync(join(t.agents, "ghost"));
     writeFileSync(join(t.agents, "ghost", "department.yaml"),
