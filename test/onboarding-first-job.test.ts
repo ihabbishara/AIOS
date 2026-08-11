@@ -29,6 +29,11 @@ function fakeWorld(over: Partial<BootedWorld> = {}): BootedWorld {
   return {
     moderator: { handle: async () => ({ text: "done", attachments: [] }) },
     store: { listGoals: () => [], listNodes: () => [] },
+    // The dispatch bills the coordinator's turn, so the world it runs against has to carry a
+    // bus and a registry — the router does this everywhere else, and calling handle() directly
+    // means this endpoint owns the agent.start/agent.end pair itself.
+    bus: { emit: () => {} },
+    registry: { coordinator: "nova" },
     startWeb: () => {},
     ...over,
   } as unknown as BootedWorld;
@@ -103,6 +108,39 @@ describe("first job", () => {
   it("is idle before anything is dispatched", async () => {
     const { base } = await boot({});
     expect(await get(base)).toMatchObject({ status: "idle", goals: [] });
+  });
+
+  it("bills the coordinator's turn — the user's first spend must not be invisible", async () => {
+    // handle() only rides costUsd out; the ROUTER emits the pair everywhere else. Dispatching
+    // directly here billed nobody, on the one screen meant to show the org working.
+    const events: Array<Record<string, unknown>> = [];
+    const { base } = await boot({
+      bus: { emit: (e: Record<string, unknown>) => events.push(e) } as unknown as BootedWorld["bus"],
+      registry: { coordinator: "nova" } as unknown as BootedWorld["registry"],
+      moderator: {
+        handle: async () => ({ text: "done", attachments: [], costUsd: 0.42 }),
+      } as unknown as BootedWorld["moderator"],
+    });
+    await post(base, { request: "Draft the chaser." });
+    await settle(base);
+    expect(events).toEqual([
+      { type: "agent.start", agent: "nova", context: "chat:web:onboarding" },
+      { type: "agent.end", agent: "nova", context: "chat:web:onboarding", ok: true, costUsd: 0.42 },
+    ]);
+  });
+
+  it("a failed turn still closes the pair, and a broken bus never wedges the dispatch", async () => {
+    // Anything thrown out of the billing path skips `finally`, leaving `dispatching` up with
+    // nothing running — every later POST then 409s against a job that will never settle.
+    const { base } = await boot({
+      bus: { emit: () => { throw new Error("bus down"); } } as unknown as BootedWorld["bus"],
+      registry: { coordinator: "nova" } as unknown as BootedWorld["registry"],
+    });
+    await post(base, { request: "Draft the chaser." });
+    const s = await settle(base);
+    expect(s).toMatchObject({ status: "failed" });
+    // Settled, so the flag came back down and a retry is accepted rather than 409'd.
+    expect((await post(base, { request: "Again." })).status).toBe(200);
   });
 
   it("hands the request to the coordinator on the onboarding origin and stores the reply", async () => {
