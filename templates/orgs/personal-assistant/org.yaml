@@ -15,14 +15,14 @@ departments:
     mission: >-
       Tasks, reminders, and the small logistics of a week — the things that fall
       through when nobody is watching.
-    memoDomain: life
+    memoDomain: lifeops
     lead: pilot
     capabilities: [lifeops]
     playbooks: [weekly-review]
 
   - department: finance
     mission: Personal money — spending, subscriptions, and where it actually goes.
-    memoDomain: finance
+    memoDomain: money
     lead: tally
     capabilities: [memory]
     playbooks: []

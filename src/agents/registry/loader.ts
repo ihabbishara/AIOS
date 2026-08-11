@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadPlaybook, type Playbook } from "../../engine/playbook.js";
+import { loadPlaybook, playbookAgents, type Playbook } from "../../engine/playbook.js";
 import { agentSchema, departmentSchema, type AgentManifest, type DepartmentManifest } from "./types.js";
 import { capabilitySchema, loadCapabilities, fqPackTool, toolsFromCaps, type CapabilityDef } from "./capabilities.js";
 import { VERDICT_SCHEMA, TEST_REPORT_SCHEMA, type RoleDef } from "../roles/index.js";
@@ -195,6 +195,25 @@ export function loadRegistry(
     throw new Error(`exactly one kind: coordinator agent required, found ${coordinators.length} [${coordinators.join(", ")}]`);
   }
   const coordinator = coordinators[0] ?? "";
+
+  // Drop playbooks whose agents this org does not have.
+  //
+  // Playbooks are scanned before any agent is read, so this cannot happen earlier. It matters
+  // because playbooksDir is shared install state while agents/ is per-user: a cloned install
+  // ships playbooks bound to the author's roster, and onboarding then provisions a completely
+  // different one. Watched live on 2026-08-11 — a fresh three-agent org loaded all seven of the
+  // author's playbooks, and its very first job died on "Unknown agent: clio".
+  //
+  // Offering a tool that cannot run is worse than not offering it, so drop and say so. Nothing
+  // is deleted from disk and no department is skipped: a manifest may still name the playbook,
+  // it simply can no longer be invoked.
+  for (const [name, pb] of [...playbooks]) {
+    const missing = playbookAgents(pb).filter((a) => !agentOf.has(a));
+    if (!missing.length) continue;
+    playbooks.delete(name);
+    ownerOfPlaybook.delete(name);
+    log(`playbook ${name} not offered: no such agent — ${missing.join(", ")}`);
+  }
 
   return { agents, departments, agentOf, ownerOfPlaybook, playbooks, capabilities, coordinator };
 }

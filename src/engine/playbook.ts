@@ -41,6 +41,18 @@ export const playbookSchema = z.object({
 export type Stage = z.infer<typeof stageSchema>;
 export type Playbook = z.infer<typeof playbookSchema>;
 
+/** Every agent a playbook needs, across all three stage shapes. Deduped, in stage order. */
+export function playbookAgents(pb: Playbook): string[] {
+  const out: string[] = [];
+  const add = (n: string) => { if (n && !out.includes(n)) out.push(n); };
+  for (const s of pb.stages) {
+    if (s.type === "single") add(s.role);
+    else if (s.type === "loop") { add(s.producer); add(s.critic); }
+    else { add(s.runner); add(s.fixer); }
+  }
+  return out;
+}
+
 export function loadPlaybook(path: string): Playbook {
   return playbookSchema.parse(parse(readFileSync(path, "utf8")));
 }

@@ -13,7 +13,7 @@ departments:
 
   - department: engineering
     mission: Write, review, and ship code. Own correctness before speed.
-    memoDomain: engineering
+    memoDomain: code
     lead: forge
     capabilities: [files-ro, memory]
     playbooks: [ship-feature]

@@ -10,6 +10,7 @@ import { provision } from "../src/onboarding/provision.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 import { deptWallViolations } from "../src/agents/registry/walls.js";
 import { toolsFromCaps } from "../src/agents/registry/capabilities.js";
+import { DOMAINS } from "../src/memory/recall.js";
 
 const templatesDir = join(process.cwd(), "templates");
 const SHIPPED = ["founder", "personal-assistant", "researcher", "solo-dev", "starter"];
@@ -47,6 +48,19 @@ describe("shipped templates", () => {
         expect(reg.agents.size).toBe(result.agents.length);
         // A department the loader skipped (bad manifest, missing playbook) would silently vanish.
         for (const d of result.departments) expect(reg.departments.has(d)).toBe(true);
+      });
+
+      it("gives every department a REAL memo domain", () => {
+        // memoDomain names the file an agent loads (`memos/<domain>.md`) and the distiller only
+        // ever writes the seven in DOMAINS. Shipped values like "engineering", "life", "finance",
+        // "strategy" and "studio" pointed every agent in those departments at a file nothing
+        // writes: no department memory, ever, and teachings to them never distil. Found by
+        // walking onboarding end-to-end on 2026-08-11.
+        const { agentsDir, playbooksDir } = provisionInTemp(name);
+        const reg = loadRegistry(agentsDir, playbooksDir);
+        for (const [dept, def] of reg.departments) {
+          expect(DOMAINS, `${name}/${dept} memoDomain "${def.memoDomain}"`).toContain(def.memoDomain);
+        }
       });
 
       it("violates no department capability wall", () => {
