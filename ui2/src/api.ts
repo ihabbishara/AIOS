@@ -71,6 +71,21 @@ export interface OrgProposalView {
   firstJob: string;
 }
 
+/** What the architect proposes ADDING to an org that already runs. Same shape the wizard's
+ *  proposal has, minus the guarantees that only hold on day one: `departments` may be empty (most
+ *  growth is a new agent in a department that exists), and no agent is ever a coordinator. */
+export interface OrgGrowthProposal {
+  departments: Array<{
+    department: string; mission: string; memoDomain: string;
+    capabilities: string[]; playbooks: string[];
+  }>;
+  agents: Array<{
+    name: string; department: string; kind: string; title: string;
+    charter: string; persona: string; prompt: string; capabilities: string[]; skills: string[];
+  }>;
+  firstJob: string;
+}
+
 /** What an advance answers with. Only the last one — first-job → done — carries anything past
  *  the step, and it is the only chance to read it: by the time the browser could ask again, the
  *  setup server has handed the port to mission control and every route is behind the token gate.
@@ -168,6 +183,16 @@ export const api = {
   agent: (name: string) => request<AgentProfileInfo>(`/api/agents/${encodeURIComponent(name)}`),
   hireAgent: (body: { name: string; department: string; kind: string; title: string; charter: string; persona: string; prompt: string; capabilities: string[] }) =>
     request<AgentProfileInfo>("/api/agents", { method: "POST", body: JSON.stringify(body) }),
+  growOrg: (turns: Array<{ role: "user" | "architect"; text: string }>) =>
+    request<{ done: false; question: string } | { done: true; proposal: OrgGrowthProposal }>(
+      "/api/org/grow", { method: "POST", body: JSON.stringify({ turns }) }),
+  applyOrgGrowth: (proposal: OrgGrowthProposal) =>
+    request<{ ok: true; departments: string[]; agents: string[] }>(
+      "/api/org/grow/apply", { method: "POST", body: JSON.stringify({ proposal }) }),
+  createDepartment: (body: {
+    department: string; mission: string; memoDomain: string;
+    capabilities: string[]; playbooks: string[];
+  }) => request<{ department: string; agents: string[] }>("/api/departments", { method: "POST", body: JSON.stringify(body) }),
   retireAgent: (name: string) =>
     request<{ ok: true; archived: string }>(`/api/agents/${encodeURIComponent(name)}`, { method: "DELETE" }),
   retiredAgents: () =>

@@ -31,6 +31,16 @@ import { buildAgentActivity, spliceManifestField } from "./persona-view.js";
 import type { AttachmentRegistry, AttachmentDescriptor } from "./attachment-registry.js";
 import { validateHire, renderAgentYaml, retireBlockers, listRetired, validateRehire, validateDepartment, renderDepartmentYaml } from "./agents-admin.js";
 import { updateEnvFile } from "./env-file.js";
+// Growing a running org reuses onboarding's architect wholesale — same interview, same
+// validators, same provisioner. Only the invariants differ, and those live in growthShape.
+import {
+  buildArchitectContext, growthTurn, renderExistingOrg, sdkArchitect, type Turn,
+} from "../onboarding/architect.js";
+import { listTemplates, loadTemplate } from "../onboarding/templates.js";
+import { provision } from "../onboarding/provision.js";
+import type { OrgProposal } from "../onboarding/proposal.js";
+import { loadRegistry } from "../agents/registry/loader.js";
+import { listSkills } from "./skills-view.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -782,6 +792,65 @@ export function startWebServer(
           }
           log(`department created: ${v.manifest.department}`);
           return json(res, 200, { department: v.manifest.department, agents: [] });
+        }
+
+        // ---- growing the org: the architect, after setup ----
+        //
+        // Onboarding's interview is unreachable the moment an org exists — bootMode answers
+        // "normal" as soon as agentsDir has one agent, and the wizard never runs again. So the
+        // only way to extend an org was one hand-written agent at a time, into whichever
+        // departments the architect happened to invent on day one. These two routes are the same
+        // conversation, pointed at an org that is already running.
+        //
+        // Two endpoints, not one, and for the same reason the wizard splits them: nothing touches
+        // disk until the user has seen what the model actually proposed and said yes.
+        if (path === "/api/org/grow" && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { turns?: Turn[] };
+          const turns = Array.isArray(body.turns) ? body.turns : [];
+          const context = [
+            buildArchitectContext({
+              capabilities: [...registry.capabilities].map(([name, def]) => ({ name, labels: def.labels })),
+              skills: listSkills(skillsPluginRoot()),
+              templates: listTemplates(config.templatesDir, log)
+                .map((t) => loadTemplate(config.templatesDir, t.name))
+                .filter((t): t is NonNullable<typeof t> => Boolean(t)),
+            }),
+            "",
+            renderExistingOrg(
+              [...registry.departments.values()].map((d) => ({ department: d.department, mission: d.mission })),
+              [...registry.agents.values()].map((a) => ({
+                name: a.manifest.name, kind: a.kind, department: a.department, title: a.manifest.title,
+              })),
+            ),
+          ].join("\n");
+          try {
+            return json(res, 200, await growthTurn(turns, context, sdkArchitect, {
+              departments: new Set(registry.departments.keys()),
+              agents: new Set(registry.agentOf.keys()),
+            }));
+          } catch (err) {
+            // 400, not 500: every throw here is the model returning something the org cannot
+            // accept, and the message names the rule it broke.
+            return json(res, 400, { error: (err as Error).message });
+          }
+        }
+
+        if (path === "/api/org/grow/apply" && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { proposal?: OrgProposal };
+          if (!body.proposal) return json(res, 400, { error: "proposal required" });
+          // source is forced rather than trusted: a "template" source would make provision copy
+          // that template's playbooks in, which is not what growing an org means.
+          const result = provision({ ...body.proposal, source: { kind: "interview" } }, {
+            agentsDir: config.agentsDir, playbooksDir: config.playbooksDir,
+            templatesDir: config.templatesDir, loadRegistry, log,
+          }, { mode: "grow" });
+          if (!result.ok) return json(res, 400, { errors: result.errors });
+          // provision already proved the org loads; this is what makes the running daemon see it.
+          try { reloadPacks(); } catch (err) {
+            return json(res, 500, { error: `grow reload failed: ${(err as Error).message}` });
+          }
+          log(`org grown: +${result.departments.join(", ") || "no departments"} +${result.agents.join(", ")}`);
+          return json(res, 200, result);
         }
 
         // ---- hire/fire (spec 2026-07-20) ----

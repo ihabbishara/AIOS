@@ -97,6 +97,16 @@ export function validateProposalAgent(
   return checkAgentBody(body, registry, { ...opts, allowCoordinator: true });
 }
 
+/** Growing an org that already runs. Same as the provisioning path except a coordinator is
+ *  refused — there is already one, and a second one makes the registry unloadable. Unlike
+ *  validateHire this keeps `skills`, because a grown agent is written from a full proposal. */
+export function validateGrowthAgent(
+  body: unknown, registry: LoadedRegistry,
+  opts: { taken?: Set<string>; knownDepartments?: Set<string> } = {},
+): { ok: true; manifest: ProposalAgentBody } | { ok: false; error: string } {
+  return checkAgentBody(body, registry, { ...opts, allowCoordinator: false });
+}
+
 /** Block scalar: arbitrary text as YAML `>`-folded block, 2-space indented, blank lines kept. */
 const block = (s: string) => ">\n" + s.trim().split("\n").map((l) => (l.trim() ? `  ${l.trim()}` : "")).join("\n");
 

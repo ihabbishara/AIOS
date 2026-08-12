@@ -11,7 +11,7 @@
 // context has to ride on the user message anyway).
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OrgTemplate } from "./templates.js";
-import { proposalShape, type OrgProposal, type ProposalAgent } from "./proposal.js";
+import { proposalShape, growthShape, type OrgProposal, type ProposalAgent } from "./proposal.js";
 import { pingFailure } from "./auth.js";
 import { DOMAINS } from "../memory/recall.js";
 
@@ -227,6 +227,100 @@ export async function interviewTurn(
   };
   // Deterministic validation downstream: creativity is allowed upstream of this line only.
   const shaped = proposalShape({ ...proposal, source: { kind: "interview" } });
+  if (!shaped.ok) throw new Error(shaped.error);
+  return { done: true, proposal: shaped.proposal };
+}
+
+export const GROWTH_SYSTEM = `
+You design small AI organisations for a product called AIOS. This person ALREADY HAS one, and is
+telling you what it cannot do yet. Your job is to draft the ADDITION — never a replacement.
+
+HOW YOU SPEAK
+Every single reply you make is a StructuredOutput call. That tool is not only for the finished
+proposal — it is the only channel you have, and plain text is never delivered to the person.
+- Still gathering? Call it with done: false and your next question in "question".
+- Ready? Call it with done: true and the proposal.
+
+HOW THE CONVERSATION GOES
+Ask ONE question at a time about the work that is going unserved. Ask at most 4 questions, and
+stop as soon as you know enough — this person already went through setup once and is here for a
+specific gap. Never ask about departments, agent counts or capabilities: those are your job.
+
+WHAT YOU RETURN
+The proposal contains ONLY what is being added. Everything below is enforced by validators that
+reject the whole thing, so treat them as hard constraints:
+- NO COORDINATOR. The org already has one, and a second makes it fail to load. Every agent you
+  return has kind "lead", "worker" or "critic".
+- Never reuse a department name or an agent name the org already has. They are listed below.
+- New agents may join an EXISTING department — that is usually the right answer. Only create a
+  department when the work genuinely does not belong in any of them.
+- "departments" may be empty. "agents" must not be: adding nothing is not an answer.
+- Add at most 2 departments and at most 4 agents in one pass. They can always come back.
+- capabilities and skills come ONLY from the catalogues given to you. Invented names are rejected.
+- Every department's "playbooks" list is EMPTY. Never invent one.
+- Every agent needs a title, charter, persona, and prompt, all non-empty.
+- firstJob is ignored here — send an empty string.
+
+HOW TO WRITE AN AGENT
+charter: what it owns, in one or two sentences.
+persona: how it talks. Give it an actual temperament, not "helpful and friendly".
+prompt: instructions addressed to the agent as "you", covering how it should behave and what it
+must not do. Say who it hands off to, using the real names of the colleagues listed below.
+
+Name agents like colleagues, not job titles: short, memorable, pronounceable.
+`.trim();
+
+/** What the org already is, for the growth prompt. The roster is not decoration: the model is
+ *  told to avoid these names, and to write hand-offs that address the real colleagues. */
+export function renderExistingOrg(
+  departments: Array<{ department: string; mission: string }>,
+  agents: Array<{ name: string; kind: string; department: string; title: string }>,
+): string {
+  const depts = departments.map((d) => `- ${d.department}: ${d.mission}`).join("\n") || "- (none)";
+  const roster = agents
+    .map((a) => `- ${a.name} (${a.kind}, ${a.department}) — ${a.title}`)
+    .join("\n") || "- (none)";
+  return [
+    "THE ORG AS IT STANDS. Do not recreate any of this; add to it.",
+    "",
+    "DEPARTMENTS (a new agent may join any of these):",
+    depts,
+    "",
+    "AGENTS ALREADY HIRED (every one of these names is taken):",
+    roster,
+  ].join("\n");
+}
+
+/**
+ * One stateless growth turn. Same contract as interviewTurn — and the same reason for existing
+ * separately: the invariants invert once an org is on disk, so the shape gate is growthShape and
+ * a coordinator is a rejection rather than a requirement.
+ */
+export async function growthTurn(
+  turns: Turn[], context: string, ask: Architect,
+  existing: { departments: Set<string>; agents: Set<string> },
+): Promise<{ done: false; question: string } | { done: true; proposal: OrgProposal }> {
+  const out = await ask(`${GROWTH_SYSTEM}\n\n${context}`, renderTranscript(turns));
+  if (out === undefined || out === null || typeof out !== "object") {
+    throw new Error("the Architect returned no structured output");
+  }
+  const r = out as { done?: unknown; question?: unknown; proposal?: unknown };
+  if (r.done !== true) {
+    if (typeof r.question !== "string" || !r.question.trim()) {
+      throw new Error("the Architect returned no question and is not done");
+    }
+    return { done: false, question: r.question.trim() };
+  }
+  if (!r.proposal || typeof r.proposal !== "object") throw new Error("the Architect said done but sent no proposal");
+  // Same normalisation as the interview, for the same reason: the model fills `playbooks` with
+  // prose that provision then rejects as `unknown playbook`, killing a finished conversation at
+  // the last step over a field the user never saw.
+  const p = r.proposal as { departments?: Array<Record<string, unknown>> };
+  const shaped = growthShape({
+    ...p,
+    departments: (p.departments ?? []).map((d) => ({ ...d, playbooks: [] })),
+    source: { kind: "interview" },
+  }, existing);
   if (!shaped.ok) throw new Error(shaped.error);
   return { done: true, proposal: shaped.proposal };
 }
