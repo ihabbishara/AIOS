@@ -3,32 +3,39 @@ description: >-
   Build or extend software inside a sandboxed workspace: research, design (review loop),
   implement, test-and-fix, code review. Code persists in the workspace; never pushed.
 needsProjectDir: false
+bind:
+  code-researcher: { prefer: odin, kind: [worker, lead], capabilities: [files-ro] }
+  architect:       { prefer: athena, kind: [lead, worker], capabilities: [files-ro] }
+  reviewer:        { prefer: minos, kind: [critic] }
+  implementer:     { prefer: vulcan, kind: [worker, lead], capabilities: [code-sandbox] }
+  tester:          { prefer: argus, kind: [critic, worker], capabilities: [code-sandbox] }
+  code-reviewer:   { prefer: themis, kind: [worker, critic, lead], capabilities: [code-sandbox] }
 stages:
   - type: single
     id: research
-    role: odin
+    role: code-researcher
     brief: >-
       Research what is needed to build this task well in the workspace: libraries, patterns,
       pitfalls. If a source repo is present in the working directory, study it first.
   - type: loop
     id: design
-    producer: athena
-    critic: minos
+    producer: architect
+    critic: reviewer
     maxRounds: 3
     brief: Design the solution using the research brief.
   - type: single
     id: implement
-    role: vulcan
+    role: implementer
     brief: >-
       Implement the approved design in the working directory using mcp__code__sh for any shell
       step. End your summary with the absolute workspace path and the output of `git status`/diff.
   - type: verify
     id: test
-    runner: argus
-    fixer: vulcan
+    runner: tester
+    fixer: implementer
     maxRounds: 2
     brief: Build and run the tests in the workspace via mcp__code__sh.
   - type: single
     id: code-review
-    role: themis
+    role: code-reviewer
     brief: Review the implementation in the workspace (use mcp__code__sh `git diff`).
