@@ -186,6 +186,9 @@ export const api = {
   growOrg: (turns: Array<{ role: "user" | "architect"; text: string }>) =>
     request<{ done: false; question: string } | { done: true; proposal: OrgGrowthProposal }>(
       "/api/org/grow", { method: "POST", body: JSON.stringify({ turns }) }),
+  draftDepartment: (description: string) =>
+    request<{ proposal: OrgGrowthProposal }>("/api/org/draft-department",
+      { method: "POST", body: JSON.stringify({ description }) }),
   applyOrgGrowth: (proposal: OrgGrowthProposal) =>
     request<{ ok: true; departments: string[]; agents: string[] }>(
       "/api/org/grow/apply", { method: "POST", body: JSON.stringify({ proposal }) }),

@@ -145,6 +145,29 @@
     "maxTurns": 30,
     "guarded": true
   },
+  "loom": {
+    "tools": [
+      "Bash",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Write",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh",
+      "mcp__research__list_sources",
+      "mcp__research__save_source",
+      "mcp__research__search_sources"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 25,
+    "guarded": false
+  },
   "midas": {
     "tools": [
       "ToolSearch",
@@ -304,6 +327,24 @@
     ],
     "permissionMode": "bypassPermissions",
     "maxTurns": 80,
+    "guarded": false
+  },
+  "weave": {
+    "tools": [
+      "Bash",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "ToolSearch",
+      "Write",
+      "mcp__aios-pack__recall",
+      "mcp__aios-pack__vault_read",
+      "mcp__aios-pack__vault_write",
+      "mcp__code__sh"
+    ],
+    "permissionMode": "dontAsk",
+    "maxTurns": 25,
     "guarded": false
   }
 }

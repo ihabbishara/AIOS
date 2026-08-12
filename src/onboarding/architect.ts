@@ -325,6 +325,79 @@ export async function growthTurn(
   return { done: true, proposal: shaped.proposal };
 }
 
+export const DEPARTMENT_DRAFT_SYSTEM = `
+You design small AI organisations for a product called AIOS. This person already has one and
+wants ONE new department in it. They have described what it is for in their own words. Turn that
+description into the department and the agents that staff it.
+
+HOW YOU ANSWER
+One StructuredOutput call with done: true, on your first and only turn. NEVER ask a question —
+there is nobody to answer it, and a reply with done: false is discarded. If the description is
+thin, make the most reasonable department it could mean and keep it small.
+
+WHAT YOU RETURN — all enforced by validators that reject the whole draft:
+- EXACTLY ONE department, and it is not one the org already has.
+- Between 1 and 3 agents, every one of them in that new department.
+- NO COORDINATOR. The org has one; a second makes it fail to load.
+- Never reuse an agent name the org already has. They are listed below.
+- capabilities and skills come ONLY from the catalogues given to you. Invented names are rejected.
+- The department's "playbooks" list is EMPTY. Never invent one.
+- Every agent needs a title, charter, persona, and prompt, all non-empty.
+- firstJob is ignored here — send an empty string.
+
+WRITING THE DEPARTMENT
+mission: one or two sentences saying what this department OWNS, in the person's own terms. Not a
+restatement of their sentence — the version they would have written with more time.
+memoDomain: which of the seven memory domains its work belongs to. Pick the closest honest fit;
+"general" is correct more often than a forced match.
+capabilities: the department-wide floor every agent in it inherits. Be sparing — an agent can add
+its own, and a capability granted here is granted to everyone in the department forever.
+
+WRITING AN AGENT
+charter: what it owns, in one or two sentences.
+persona: how it talks. Give it an actual temperament, not "helpful and friendly".
+prompt: instructions addressed to the agent as "you", covering how it should behave and what it
+must not do. Name the real colleagues it hands off to, from the roster below.
+
+Name agents like colleagues, not job titles: short, memorable, pronounceable.
+`.trim();
+
+/**
+ * One department, drafted from a sentence. This is the same machinery as growthTurn with the
+ * conversation taken out: the person has already said what they want, and making them answer
+ * four questions to get one department would be worse than the form it replaces.
+ *
+ * Returns a growth proposal, so the review screen and /api/org/grow/apply are unchanged.
+ */
+export async function draftDepartment(
+  description: string, context: string, ask: Architect,
+  existing: { departments: Set<string>; agents: Set<string> },
+): Promise<OrgProposal> {
+  const out = await ask(`${DEPARTMENT_DRAFT_SYSTEM}\n\n${context}`, `WHAT THEY WANT:\n${description.trim()}`);
+  if (out === undefined || out === null || typeof out !== "object") {
+    throw new Error("the Architect returned no structured output");
+  }
+  const r = out as { done?: unknown; proposal?: unknown };
+  // A question here is a dead end — nothing is going to answer it — so it is a failure the user
+  // can retry, not a conversation to start.
+  if (r.done !== true || !r.proposal || typeof r.proposal !== "object") {
+    throw new Error("the Architect did not draft a department — try describing it in a bit more detail");
+  }
+  const p = r.proposal as { departments?: Array<Record<string, unknown>> };
+  const shaped = growthShape({
+    ...p,
+    departments: (p.departments ?? []).map((d) => ({ ...d, playbooks: [] })),
+    source: { kind: "interview" },
+  }, existing);
+  if (!shaped.ok) throw new Error(shaped.error);
+  // The one rule growthShape cannot express, because growth in general allows any number: this
+  // endpoint exists to make ONE department, and the review screen is written to show one.
+  if (shaped.proposal.departments.length !== 1) {
+    throw new Error(`expected exactly one department, got ${shaped.proposal.departments.length}`);
+  }
+  return shaped.proposal;
+}
+
 const REDRAFT_NOTE = `
 Redraft ONE agent in the org below, applying the note. Return done: true with the whole
 proposal, changing only that agent's title, charter, persona, capabilities, and skills.

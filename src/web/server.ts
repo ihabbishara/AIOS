@@ -34,7 +34,7 @@ import { updateEnvFile } from "./env-file.js";
 // Growing a running org reuses onboarding's architect wholesale — same interview, same
 // validators, same provisioner. Only the invariants differ, and those live in growthShape.
 import {
-  buildArchitectContext, growthTurn, renderExistingOrg, sdkArchitect, type Turn,
+  buildArchitectContext, growthTurn, draftDepartment, renderExistingOrg, sdkArchitect, type Turn,
 } from "../onboarding/architect.js";
 import { listTemplates, loadTemplate } from "../onboarding/templates.js";
 import { provision } from "../onboarding/provision.js";
@@ -192,6 +192,27 @@ export function startWebServer(
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
   let sseClients = 0;
+
+  /** What the Org Architect is told before it drafts anything for a RUNNING org: the catalogues
+   *  it may draw from, then the org as it stands. Rebuilt per request rather than captured — the
+   *  roster changes under it every time someone hires, and a stale one is how the model proposes
+   *  a name that is already taken. */
+  const growthContext = (): string => [
+    buildArchitectContext({
+      capabilities: [...registry.capabilities].map(([name, def]) => ({ name, labels: def.labels })),
+      skills: listSkills(skillsPluginRoot()),
+      templates: listTemplates(config.templatesDir, log)
+        .map((t) => loadTemplate(config.templatesDir, t.name))
+        .filter((t): t is NonNullable<typeof t> => Boolean(t)),
+    }),
+    "",
+    renderExistingOrg(
+      [...registry.departments.values()].map((d) => ({ department: d.department, mission: d.mission })),
+      [...registry.agents.values()].map((a) => ({
+        name: a.manifest.name, kind: a.kind, department: a.department, title: a.manifest.title,
+      })),
+    ),
+  ].join("\n");
 
   // SSE can't send an Authorization header, so the old path put the long-lived token in the
   // stream URL (?token=) — leaking it into access/proxy logs and browser history. Instead the
@@ -807,30 +828,33 @@ export function startWebServer(
         if (path === "/api/org/grow" && req.method === "POST") {
           const body = JSON.parse(await readBody(req)) as { turns?: Turn[] };
           const turns = Array.isArray(body.turns) ? body.turns : [];
-          const context = [
-            buildArchitectContext({
-              capabilities: [...registry.capabilities].map(([name, def]) => ({ name, labels: def.labels })),
-              skills: listSkills(skillsPluginRoot()),
-              templates: listTemplates(config.templatesDir, log)
-                .map((t) => loadTemplate(config.templatesDir, t.name))
-                .filter((t): t is NonNullable<typeof t> => Boolean(t)),
-            }),
-            "",
-            renderExistingOrg(
-              [...registry.departments.values()].map((d) => ({ department: d.department, mission: d.mission })),
-              [...registry.agents.values()].map((a) => ({
-                name: a.manifest.name, kind: a.kind, department: a.department, title: a.manifest.title,
-              })),
-            ),
-          ].join("\n");
           try {
-            return json(res, 200, await growthTurn(turns, context, sdkArchitect, {
+            return json(res, 200, await growthTurn(turns, growthContext(), sdkArchitect, {
               departments: new Set(registry.departments.keys()),
               agents: new Set(registry.agentOf.keys()),
             }));
           } catch (err) {
             // 400, not 500: every throw here is the model returning something the org cannot
             // accept, and the message names the rule it broke.
+            return json(res, 400, { error: (err as Error).message });
+          }
+        }
+
+        // One department from one sentence. Same architect, same review, same apply — only the
+        // conversation is removed, because someone who can already name the department they want
+        // should not have to answer four questions to get it.
+        if (path === "/api/org/draft-department" && req.method === "POST") {
+          const body = JSON.parse(await readBody(req)) as { description?: unknown };
+          const description = typeof body.description === "string" ? body.description.trim() : "";
+          if (!description) return json(res, 400, { error: "describe what the department is for" });
+          try {
+            return json(res, 200, {
+              proposal: await draftDepartment(description, growthContext(), sdkArchitect, {
+                departments: new Set(registry.departments.keys()),
+                agents: new Set(registry.agentOf.keys()),
+              }),
+            });
+          } catch (err) {
             return json(res, 400, { error: (err as Error).message });
           }
         }

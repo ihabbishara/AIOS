@@ -97,6 +97,67 @@ describe("creating a department from Staff", () => {
     expect(screen.queryByText("New department")).toBeNull();
   });
 
+  it("drafts a department from a description and applies it with its staff in one pass", async () => {
+    // The four decisions a department needs — mission wording, memory domain, capability floor,
+    // who staffs it — are exactly the ones someone asking for a department has no opinion about.
+    let departments = [dept("ops")];
+    const DRAFT = {
+      departments: [{
+        department: "finance", mission: "Own invoices, budgets and spend.",
+        memoDomain: "money", capabilities: ["memory"], playbooks: [],
+      }],
+      agents: [{
+        name: "midas", department: "finance", kind: "lead", title: "Finance Lead",
+        charter: "Owns the books.", persona: "p", prompt: "x", capabilities: [], skills: [],
+      }],
+      firstJob: "",
+    };
+    const posted = stub({
+      departments: () => departments,
+      onPost: (p) => {
+        if (p.path === "/api/org/draft-department") return new Response(JSON.stringify({ proposal: DRAFT }), { status: 200 });
+        departments = [dept("ops"), dept("finance")];
+        return new Response(JSON.stringify({ ok: true, departments: ["finance"], agents: ["midas"] }), { status: 200 });
+      },
+    });
+    await mount();
+
+    openForm();
+    fireEvent.click(screen.getByText(/Describe it and let the architect draft it/));
+    fireEvent.change(screen.getByLabelText("describe the department"),
+      { target: { value: "keeping on top of invoices and budgets" } });
+    await act(async () => { fireEvent.click(screen.getByText("Draft it")); });
+
+    expect(posted[0]!.body).toEqual({ description: "keeping on top of invoices and budgets" });
+    expect(screen.getByText(/Own invoices, budgets and spend/)).toBeTruthy();
+    expect(screen.getByText(/memory: money/)).toBeTruthy();
+    expect(screen.getByText("midas")).toBeTruthy();
+    expect(screen.getByText(/Nothing is written until you say so/)).toBeTruthy();
+
+    await act(async () => { fireEvent.click(screen.getByText("Add to my org")); });
+    // Applied through the GROWTH path, so the department and its staff land together — a
+    // department created alone would sit empty if the hire then failed.
+    expect(posted.at(-1)!.path).toBe("/api/org/grow/apply");
+    expect(posted.at(-1)!.body).toEqual({ proposal: DRAFT });
+    expect(await screen.findByText("finance mission")).toBeTruthy();
+  });
+
+  it("keeps the description on screen when the architect cannot draft one", async () => {
+    stub({
+      departments: () => [dept("ops")],
+      onPost: () => new Response(JSON.stringify({ error: "did not draft a department" }), { status: 400 }),
+    });
+    await mount();
+    openForm();
+    fireEvent.click(screen.getByText(/Describe it and let the architect draft it/));
+    fireEvent.change(screen.getByLabelText("describe the department"), { target: { value: "stuff" } });
+    await act(async () => { fireEvent.click(screen.getByText("Draft it")); });
+    expect(screen.getByText("did not draft a department")).toBeTruthy();
+    expect((screen.getByLabelText("describe the department") as HTMLTextAreaElement).value).toBe("stuff");
+    // And the hand-written form is still one click away rather than a dead end.
+    expect(screen.getByText("Fill it in myself")).toBeTruthy();
+  });
+
   it("interviews, shows what would be added, and writes nothing until asked", async () => {
     let departments = [dept("ops")];
     const replies: Response[] = [

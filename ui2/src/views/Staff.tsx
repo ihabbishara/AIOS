@@ -271,6 +271,12 @@ function DepartmentForm({ capabilities, onDone }: {
   const [caps, setCaps] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // The describe-it path. A department is four decisions the person asking for one usually has
+  // no opinion about — a memory domain, a capability floor, a mission worded well, and who staffs
+  // it. They can say what it is FOR, so let them say that and have the architect answer the rest.
+  const [describing, setDescribing] = useState(false);
+  const [description, setDescription] = useState("");
+  const [drafted, setDrafted] = useState<OrgGrowthProposal | null>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((v) => ({ ...v, [k]: e.target.value }));
   const submit = async () => {
     setError(""); setBusy(true);
@@ -282,10 +288,90 @@ function DepartmentForm({ capabilities, onDone }: {
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
   };
+  const draft = async () => {
+    setError(""); setBusy(true);
+    try { setDrafted((await api.draftDepartment(description.trim())).proposal); }
+    catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
+  };
+  // Applied through the growth path, not createDepartment: the draft comes with the agents that
+  // staff the department, and those have to land in the SAME pass — a department written on its
+  // own would sit there empty if hiring then failed.
+  const applyDraft = async () => {
+    if (!drafted) return;
+    setError(""); setBusy(true);
+    try {
+      await api.applyOrgGrowth(drafted);
+      onDone(drafted.departments[0]?.department ?? "");
+    } catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
+  };
   const input = "bg-bg border border-line rounded-md px-2.5 py-1.5 text-[13px] text-fg outline-none focus:border-dim";
+
+  if (drafted) {
+    const d = drafted.departments[0];
+    return (
+      <div className="panel p-4 mb-4 flex flex-col gap-2.5">
+        <SectionLabel>New department</SectionLabel>
+        <div className="text-[12px] text-dim">Nothing is written until you say so.</div>
+        {d && (
+          <div className="text-[12px]">
+            <span className="text-strong">{d.department}</span>
+            <span className="text-dim"> — {d.mission}</span>
+            <div className="text-[11px] text-dim">
+              memory: {d.memoDomain} · capabilities: {d.capabilities.join(", ") || "none"}
+            </div>
+          </div>
+        )}
+        <div className="text-[11px] uppercase tracking-[0.12em] text-dim">Staffed by</div>
+        {drafted.agents.map((a) => (
+          <div key={a.name} className="text-[12px]">
+            <span className="text-strong">{a.name}</span>
+            <span className="text-dim"> — {a.title} ({a.kind})</span>
+            <div className="text-[11px] text-dim leading-relaxed">{a.charter}</div>
+          </div>
+        ))}
+        {error && <div className="text-[12px] text-err">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <Button disabled={busy} onClick={() => setDrafted(null)}>Back</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void applyDraft()}>
+            {busy ? "…" : "Add to my org"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (describing) {
+    return (
+      <div className="panel p-4 mb-4 flex flex-col gap-2.5">
+        <SectionLabel>New department</SectionLabel>
+        <p className="text-[12px] text-dim leading-relaxed">
+          Say what this department is for, in your own words. The architect writes the mission,
+          picks the memory domain and capabilities, and suggests who should staff it.
+        </p>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} disabled={busy}
+          aria-label="describe the department" rows={3}
+          placeholder="e.g. keeping on top of invoices, budgets and what we're spending"
+          className={`${input} resize-y disabled:opacity-60`} />
+        {error && <div className="text-[12px] text-err">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <Button disabled={busy} onClick={() => { setDescribing(false); setError(""); }}>Fill it in myself</Button>
+          <Button variant="primary" disabled={busy || !description.trim()} onClick={() => void draft()}>
+            {busy ? "drafting…" : "Draft it"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="panel p-4 mb-4 flex flex-col gap-2.5">
       <SectionLabel>New department</SectionLabel>
+      <button onClick={() => { setDescribing(true); setError(""); }}
+        className="text-left text-[12px] text-fg hover:text-strong underline underline-offset-2 self-start">
+        Not sure? Describe it and let the architect draft it
+      </button>
       <div className="flex gap-2 flex-wrap">
         <input placeholder="name (kebab-case)" value={f.department} onChange={set("department")} className={`${input} w-44`} />
         <select value={f.memoDomain} onChange={set("memoDomain")} className={input} aria-label="memory domain">

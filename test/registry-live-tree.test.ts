@@ -24,10 +24,14 @@ const reg = loadRegistry(
 
 
 describe("live agents/ tree", () => {
-  it("loads 6 departments and 15 agents", () => {
+  // 17 since 2026-08-12: loom and weave were added to engineering through /api/org/grow — the
+  // first agents on this install the Org Architect wrote rather than a human. Bump deliberately,
+  // the way org-golden.json is regenerated: this count is here to catch an org that changed by
+  // accident, so it is only ever moved alongside a change that was meant.
+  it("loads 6 departments and 17 agents", () => {
     expect([...reg.departments.keys()].sort()).toEqual(
       ["clients", "engineering", "finance", "life", "operations", "research"]);
-    expect(reg.agents.size).toBe(15);
+    expect(reg.agents.size).toBe(17);
   });
 
   it("legacy @role aliases resolve to mythic canonical names", () => {

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { growthShape } from "../src/onboarding/proposal.js";
 import { provision } from "../src/onboarding/provision.js";
-import { growthTurn, renderExistingOrg } from "../src/onboarding/architect.js";
+import { growthTurn, draftDepartment, renderExistingOrg } from "../src/onboarding/architect.js";
 import { loadRegistry } from "../src/agents/registry/loader.js";
 
 const EXISTING = { departments: new Set(["ops", "research"]), agents: new Set(["nova", "delve"]) };
@@ -127,6 +127,61 @@ describe("provision in grow mode", () => {
     const r = grow(dirs, { agents: [agent({ name: "delve", title: "IMPOSTER" })] });
     expect(r.ok).toBe(false);
     expect(readFileSync(join(dirs.agentsDir, "research", "delve.yaml"), "utf8")).toBe(before);
+  });
+});
+
+describe("draftDepartment", () => {
+  const ask = (out: unknown) => async () => out;
+  const draft = (over: Record<string, unknown> = {}) => ({
+    done: true,
+    proposal: {
+      departments: [{ department: "finance", mission: "Own the numbers.", memoDomain: "money", capabilities: [], playbooks: [] }],
+      agents: [agent({ name: "midas", department: "finance", kind: "lead" })],
+      firstJob: "",
+      ...over,
+    },
+  });
+
+  it("turns a sentence into one department and the agents that staff it", async () => {
+    const p = await draftDepartment("keeping on top of invoices", "ctx", ask(draft()), EXISTING);
+    expect(p.departments).toHaveLength(1);
+    expect(p.departments[0]).toMatchObject({ department: "finance", memoDomain: "money" });
+    expect(p.agents.map((a) => a.name)).toEqual(["midas"]);
+  });
+
+  it("treats a question as a failure, because nothing here can answer one", async () => {
+    await expect(draftDepartment("something", "ctx", ask({ done: false, question: "Which one?" }), EXISTING))
+      .rejects.toThrow(/did not draft a department/);
+  });
+
+  it("refuses a draft that quietly adds more than the one department asked for", async () => {
+    await expect(draftDepartment("something", "ctx", ask(draft({
+      departments: [
+        { department: "finance", mission: "m", memoDomain: "money", capabilities: [], playbooks: [] },
+        { department: "legal", mission: "m", memoDomain: "general", capabilities: [], playbooks: [] },
+      ],
+    })), EXISTING)).rejects.toThrow(/exactly one department/);
+  });
+
+  it("applies every growth rule the interview applies", async () => {
+    // Same gate, so a draft cannot smuggle in a coordinator or a name the org already uses.
+    await expect(draftDepartment("x", "ctx", ask(draft({
+      agents: [agent({ name: "midas", department: "finance", kind: "coordinator" })],
+    })), EXISTING)).rejects.toThrow(/already has one/);
+    await expect(draftDepartment("x", "ctx", ask(draft({
+      departments: [{ department: "ops", mission: "m", memoDomain: "general", capabilities: [], playbooks: [] }],
+      agents: [agent({ name: "midas", department: "ops" })],
+    })), EXISTING)).rejects.toThrow(/department "ops" already exists/);
+  });
+
+  it("strips invented playbooks, which would otherwise fail at provision", async () => {
+    const p = await draftDepartment("x", "ctx", ask(draft({
+      departments: [{
+        department: "finance", mission: "m", memoDomain: "money",
+        capabilities: [], playbooks: ["monthly-close"],
+      }],
+    })), EXISTING);
+    expect(p.departments[0]!.playbooks).toEqual([]);
   });
 });
 
