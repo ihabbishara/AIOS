@@ -12,9 +12,10 @@ import { join } from "node:path";
 import type { LoadedRegistry } from "../agents/registry/loader.js";
 import {
   renderAgentYaml, renderDepartmentYaml, validateDepartment, validateProposalAgent,
+  validateGrowthAgent,
 } from "../web/agents-admin.js";
-import { proposalShape, type OrgProposal } from "./proposal.js";
-import { seedCapabilities } from "./seed.js";
+import { proposalShape, growthShape, type OrgProposal } from "./proposal.js";
+import { seedCapabilities, CAPABILITIES_FILE } from "./seed.js";
 import { templatePlaybookDir } from "./templates.js";
 
 export interface ProvisionDeps {
@@ -36,13 +37,34 @@ export type ProvisionResult =
   | { ok: true; departments: string[]; agents: string[]; playbooks: string[] }
   | { ok: false; errors: ProposalError[] };
 
-export function provision(proposal: OrgProposal, deps: ProvisionDeps): ProvisionResult {
+export function provision(
+  proposal: OrgProposal, deps: ProvisionDeps, opts: { mode?: "create" | "grow" } = {},
+): ProvisionResult {
   const log = deps.log ?? (() => {});
-  const shape = proposalShape(proposal);
-  if (!shape.ok) return { ok: false, errors: [{ scope: "proposal", error: shape.error }] };
+  const growing = opts.mode === "grow";
+  // Create checks its shape before touching anything, so a malformed proposal writes no
+  // capabilities file. Growth cannot: its rules are all relative to what is already loaded, so
+  // the registry has to be read first. Safe here because nothing below writes before the gate.
+  if (!growing) {
+    const shape = proposalShape(proposal);
+    if (!shape.ok) return { ok: false, errors: [{ scope: "proposal", error: shape.error }] };
+  }
 
-  seedCapabilities(deps.agentsDir, deps.templatesDir);
+  // A running org already has its catalog, and seedCapabilities checks the SOURCE before the
+  // target — so calling it here would make adding one agent fail on any install whose product
+  // templates are missing or moved, for a copy it was never going to make.
+  if (!growing || !existsSync(join(deps.agentsDir, CAPABILITIES_FILE))) {
+    seedCapabilities(deps.agentsDir, deps.templatesDir);
+  }
   const before = deps.loadRegistry(deps.agentsDir, deps.playbooksDir);
+
+  if (growing) {
+    const shape = growthShape(proposal, {
+      departments: new Set(before.departments.keys()),
+      agents: new Set(before.agentOf.keys()),
+    });
+    if (!shape.ok) return { ok: false, errors: [{ scope: "proposal", error: shape.error }] };
+  }
 
   // Everything this call creates, so compensation can be exact. Reverse order on unwind:
   // files before the directories that hold them.
@@ -84,8 +106,9 @@ export function provision(proposal: OrgProposal, deps: ProvisionDeps): Provision
     ...before.departments.keys(), ...proposal.departments.map((d) => d.department),
   ]);
   const taken = new Set<string>();
+  const checkAgent = growing ? validateGrowthAgent : validateProposalAgent;
   for (const a of proposal.agents) {
-    const v = validateProposalAgent(a, before, { knownDepartments, taken });
+    const v = checkAgent(a, before, { knownDepartments, taken });
     if (!v.ok) errors.push({ scope: "agent", name: a.name, error: v.error });
     else taken.add(a.name);
   }
@@ -115,7 +138,7 @@ export function provision(proposal: OrgProposal, deps: ProvisionDeps): Provision
     return { ok: false, errors: [{ scope: "proposal", error: `provision failed: ${(err as Error).message}` }] };
   }
 
-  log(`provisioned ${proposal.departments.length} departments, ${proposal.agents.length} agents`);
+  log(`${growing ? "grew the org by" : "provisioned"} ${proposal.departments.length} departments, ${proposal.agents.length} agents`);
   return {
     ok: true,
     departments: proposal.departments.map((d) => d.department),

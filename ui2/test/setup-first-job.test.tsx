@@ -92,6 +92,40 @@ describe("first-job step", () => {
     expect(btn("Continue").disabled).toBe(false);
   });
 
+  // The gap a real walk exposed: the coordinator answered in prose, filed a research report in
+  // the vault, and the screen mentioned neither the file nor why Goals was empty. The user read
+  // that as a job that had vanished.
+  it("names the files the job wrote and explains an empty goal list", async () => {
+    stub({
+      "GET /api/onboarding/first-job": {
+        body: {
+          status: "done", request: "Research Basel IV", reply: "Here is the briefing.",
+          goals: [], wrote: ["research/basel-iv-europe-august-2026.md"],
+        },
+      },
+      "GET /api/state": { body: STATE },
+    });
+    render(<Setup step="first-job" onStepChange={() => {}} />);
+    await screen.findByText("Here is the briefing.");
+    expect(screen.getByText("research/basel-iv-europe-august-2026.md")).toBeTruthy();
+    expect(screen.getByText(/find these in the Library/)).toBeTruthy();
+    expect(screen.getByText(/handled this as a conversation/)).toBeTruthy();
+  });
+
+  it("says nothing about conversations when the job actually planned a goal", async () => {
+    stub({
+      "GET /api/onboarding/first-job": {
+        body: { status: "done", request: "Ship it", reply: "On it.", goals: [GOAL], wrote: [] },
+      },
+      "GET /api/state": { body: STATE },
+    });
+    render(<Setup step="first-job" onStepChange={() => {}} />);
+    await screen.findByText("On it.");
+    expect(screen.getByText("Launch plan")).toBeTruthy();
+    expect(screen.queryByText(/handled this as a conversation/)).toBeNull();
+    expect(screen.queryByText(/Saved to your workspace/)).toBeNull();
+  });
+
   it("dispatches, polls while it works, and stops polling once it settles", async () => {
     let status: Reply = { body: { status: "idle", goals: [] } };
     const calls = stub({
