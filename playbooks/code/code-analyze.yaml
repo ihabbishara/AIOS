@@ -3,20 +3,25 @@ description: >-
   Read-only audit of an existing repository: assess architecture, quality, risks. Writes a
   vault report only — never modifies the analyzed repo. Requires project_dir.
 needsProjectDir: true
+bind:
+  code-researcher: { prefer: odin, kind: [worker, lead], capabilities: [files-ro] }
+  assessor:        { prefer: athena, kind: [lead, worker], capabilities: [files-ro] }
+  reviewer:        { prefer: minos, kind: [critic] }
+  code-reviewer:   { prefer: themis, kind: [worker, critic, lead], capabilities: [files-ro] }
 stages:
   - type: single
     id: research
-    role: odin
+    role: code-researcher
     brief: Read and map the repository in the working directory. Summarize structure and stack.
   - type: loop
     id: assessment
-    producer: athena
-    critic: minos
+    producer: assessor
+    critic: reviewer
     maxRounds: 2
     brief: >-
       Produce an architecture + quality assessment of the repository: strengths, risks,
       tech-debt, concrete recommendations. The reviewer checks accuracy and completeness.
   - type: single
     id: code-review
-    role: themis
+    role: code-reviewer
     brief: Deep-review the most important modules (read-only) and list issues with file:line.

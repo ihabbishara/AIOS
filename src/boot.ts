@@ -261,7 +261,7 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
     pythonBin: config.pythonBin,
   });
   if (bunq.enabled()) log(`bunq sense: enabled (${config.bunqEnv})`);
-  else log(`bunq sense: disabled — ${bunq.degraded()[0]?.reason ?? "no context"}`);
+  else log(`bunq sense: disabled — ${bunq.disabledReason()}`);
 
   const categorize = makeCategorizer(store, categoryClassifier(config.triageModel));
   // memory-v2 retrieval knobs, shared by the moderator + every pack agent's recall tool.
@@ -882,6 +882,10 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
   }
 
   // /api/health senses provider — google degradations are per-account, bunq is one line.
+  // Both report only what EXISTS: google maps over its accounts, so none means nothing, and
+  // bunq contributes nothing until it is configured. That absence is the point rather than a
+  // side effect — this feeds the attention view, where an unconfigured sense would read as a
+  // chore the user has to go and do.
   const sensesStatus = () => [
     ...google.accounts().map((a) => ({
       name: `google:${a.name}`,
@@ -890,8 +894,9 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
         ? { reason: google.degraded().find((d) => d.name === a.name)?.reason ?? "degraded" }
         : {}),
     })),
-    ...bunq.degraded().map((d) => ({ name: d.name, ok: false, reason: d.reason })),
-    ...(bunq.enabled() && bunq.degraded().length === 0 ? [{ name: "bunq", ok: true }] : []),
+    ...(!bunq.enabled() ? []
+      : bunq.degraded().length ? [{ name: "bunq", ok: false, reason: bunq.degraded()[0]!.reason }]
+      : [{ name: "bunq", ok: true }]),
   ];
 
   // Deferred so the setup server can keep the port while onboarding is still running.

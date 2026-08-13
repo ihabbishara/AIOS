@@ -211,6 +211,10 @@ export interface FirstJobStatus {
   reply?: string;
   error?: string;
   goals: GoalView[];
+  /** Vault files that appeared while the job ran, relative to the workspace folder. The reply is
+   *  prose; this is where the deliverable actually landed, which is what the user goes looking
+   *  for once the wizard is gone. */
+  wrote?: string[];
 }
 
 export interface GoalDetail extends GoalView {

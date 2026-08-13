@@ -3,11 +3,14 @@ description: >-
   Market analysis for a product or idea: competitors, audience, pricing,
   trends, opportunities — with a quality review loop. No project directory needed.
 needsProjectDir: false
+bind:
+  market-analyst: { prefer: janus, kind: [worker, lead], capabilities: [web] }
+  reviewer:       { prefer: minos, kind: [critic] }
 stages:
   - type: loop
     id: market-report
-    producer: janus
-    critic: minos
+    producer: market-analyst
+    critic: reviewer
     maxRounds: 2
     brief: >-
       Produce a thorough market research report for the product/idea. The reviewer

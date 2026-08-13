@@ -19,6 +19,7 @@ import {
 } from "./architect.js";
 import { listSkills, skillsPluginRoot } from "../web/skills-view.js";
 import { buildGoalsForOrigin } from "../web/goals-view.js";
+import { vaultSnapshot, newFiles } from "./artifacts.js";
 import { loadCapabilities } from "../agents/registry/capabilities.js";
 import { CAPABILITIES_FILE } from "./seed.js";
 import type { BootedWorld } from "../boot.js";
@@ -125,7 +126,11 @@ export function startSetupServer(deps: SetupDeps): Server {
   // The coordinator answers on a chat like any other caller; this tuple is what makes the
   // goals it spawns findable later without inventing an id registry.
   const JOB_ORIGIN = { channel: "web", chatId: "onboarding" };
-  type JobState = { status: "running" | "done" | "failed"; request: string; reply?: string; error?: string };
+  type JobState = {
+    status: "running" | "done" | "failed"; request: string; reply?: string; error?: string;
+    /** Vault files that appeared while the job ran — see onboarding/artifacts.ts for why. */
+    wrote?: string[];
+  };
   // In-process on purpose, and never persisted: kv alone cannot tell a live dispatch from one
   // whose process died mid-turn. This flag is what makes that distinction knowable.
   let dispatching = false;
@@ -224,6 +229,14 @@ export function startSetupServer(deps: SetupDeps): Server {
       process.env.AIOS_VAULT_PATH ?? join(homedir(), "AIOS", "workspace"),
       process.env.AIOS_VAULT_SUBDIR ?? "AIOS",
     );
+
+  /** The file list is a nicety; the job is not. Anything that can throw on the way to it — a
+   *  world booted without a vault, a workspace the daemon cannot read — must cost the user their
+   *  list, never their dispatch, so this swallows and returns nothing rather than propagating
+   *  into the handler that is about to run their first job. */
+  const snapshotVault = (): Set<string> => {
+    try { return vaultSnapshot(workspacePath()); } catch { return new Set(); }
+  };
 
   /**
    * first-job → done is the port handover, and the only place the UI token ever reaches the
@@ -660,6 +673,9 @@ export function startSetupServer(deps: SetupDeps): Server {
           // while GET reports idle, until the process restarts.
           setJobState({ status: "running", request });
           dispatching = true;
+          // Taken before the coordinator is handed anything, so the diff on the other side is
+          // "what appeared while this ran" and not "what the vault happens to contain".
+          const vaultBefore = snapshotVault();
           // Deliberately not awaited: the coordinator can take minutes, and the browser polls GET
           // for progress. Wrapped rather than chained off handle() so a *synchronous* throw takes
           // the same failure path — otherwise it would escape to the 500 handler with kv already
@@ -686,7 +702,10 @@ export function startSetupServer(deps: SetupDeps): Server {
                 type: "agent.end", ...billed, ok: true,
                 ...(r.costUsd === undefined ? {} : { costUsd: r.costUsd }),
               });
-              setJobState({ status: "done", request, reply: r.text });
+              setJobState({
+                status: "done", request, reply: r.text,
+                wrote: newFiles(vaultBefore, snapshotVault()),
+              });
             } catch (err) {
               // A throw means no result message arrived, so there is no cost to report — but the
               // pair must still close or the coordinator sticks at "working" in the org view.

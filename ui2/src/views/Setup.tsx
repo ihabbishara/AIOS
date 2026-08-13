@@ -694,6 +694,26 @@ function FirstJob({ onDone }: { onDone: (r: AdvanceResult, booted: boolean) => v
               {g.nodes.length > 0 && <Thread nodes={g.nodes} />}
             </div>
           ))}
+          {/* Where the deliverable actually is. The reply above is prose the user cannot go back
+              to once this screen is gone; these files are in the Library from now on, and saying
+              so here is the difference between "it ran" and "here is what it made". */}
+          {job.wrote && job.wrote.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-dim">Saved to your workspace</div>
+              {job.wrote.map((f) => (
+                <div key={f} className="font-mono text-[11px] text-fg break-all">{f}</div>
+              ))}
+              <div className="text-[12px] text-dim">You'll find these in the Library.</div>
+            </div>
+          )}
+          {/* A coordinator that answers directly spawns no goal, which is the usual outcome for a
+              question. Left unsaid, an empty Goals list reads as a job that vanished. */}
+          {job.status === "done" && job.goals.length === 0 && (
+            <div className="text-[12px] text-dim">
+              Your coordinator handled this as a conversation, so there's no goal to track.
+              Work that needs a plan shows up in Goals instead.
+            </div>
+          )}
         </div>
       )}
 

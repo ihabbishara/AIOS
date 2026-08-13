@@ -72,3 +72,49 @@ export function proposalShape(p: unknown): { ok: true; proposal: OrgProposal } |
   if (coordinators !== 1) return fail(`proposal needs exactly one coordinator, found ${coordinators}`);
   return { ok: true, proposal: c as OrgProposal };
 }
+
+/**
+ * The same gate for an org that already exists. Every rule here is the FIRST-RUN rule turned
+ * around, which is why it cannot share a code path with proposalShape:
+ *
+ *   - exactly one coordinator  ->  exactly ZERO. The org has one; a second makes the whole
+ *     registry unloadable (loader.ts:194), and the failure would land after the write.
+ *   - at least one department  ->  none required. Most growth is a new agent in a department
+ *     that is already there.
+ *   - departments the proposal creates  ->  those PLUS the ones the org already has.
+ *   - names unique within the proposal  ->  unique against the live org too, which is the only
+ *     place a collision can come from once setup is over.
+ *
+ * firstJob is not asked for: it is the wizard's one-click card, and there is no wizard here.
+ */
+export function growthShape(
+  p: unknown, existing: { departments: Set<string>; agents: Set<string> },
+): { ok: true; proposal: OrgProposal } | { ok: false; error: string } {
+  const fail = (error: string) => ({ ok: false as const, error });
+  if (!p || typeof p !== "object" || Array.isArray(p)) return fail("proposal must be an object");
+  const c = p as Partial<OrgProposal>;
+  const departments = Array.isArray(c.departments) ? c.departments : [];
+  if (!Array.isArray(c.agents) || c.agents.length === 0) return fail("nothing to add — propose at least one agent");
+
+  const depts = new Set<string>();
+  for (const d of departments) {
+    if (!d || typeof d.department !== "string") return fail("every department needs a name");
+    if (depts.has(d.department)) return fail(`duplicate department "${d.department}" in proposal`);
+    if (existing.departments.has(d.department)) return fail(`department "${d.department}" already exists`);
+    depts.add(d.department);
+  }
+  const names = new Set<string>();
+  for (const a of c.agents) {
+    if (!a || typeof a.name !== "string") return fail("every agent needs a name");
+    if (names.has(a.name)) return fail(`duplicate agent name "${a.name}" in proposal`);
+    if (existing.agents.has(a.name)) return fail(`agent "${a.name}" already exists`);
+    names.add(a.name);
+    if (!depts.has(a.department) && !existing.departments.has(a.department)) {
+      return fail(`agent "${a.name}" names department "${a.department}", which does not exist and is not being created`);
+    }
+    if (a.kind === "coordinator") {
+      return fail(`agent "${a.name}" is a coordinator — this org already has one, and two cannot load`);
+    }
+  }
+  return { ok: true, proposal: { ...c, departments, firstJob: c.firstJob ?? "" } as OrgProposal };
+}
