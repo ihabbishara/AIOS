@@ -7,7 +7,8 @@
     "test": "vitest run",
     "build": "tsc",
     "dev": "tsx src/index.ts --cli",
-    "start": "node dist/src/index.js"
+    "start": "node dist/src/index.js",
+    "onboarding:sandbox": "bash scripts/onboarding-sandbox.sh"
   },
   "keywords": [],
   "author": "",
