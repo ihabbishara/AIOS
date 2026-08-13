@@ -7,6 +7,7 @@ import type { ActionRow } from "../src/kernel/actions.js";
 import { buildAttentionView } from "../src/web/attention-view.js";
 import { buildGoalsView } from "../src/web/goals-view.js";
 import { startWebServer, type WebDeps } from "../src/web/server.js";
+import { BunqSense } from "../src/senses/bunq/index.js";
 
 const NOW = () => new Date("2026-07-13T10:00:00.000Z");
 
@@ -74,6 +75,20 @@ describe("buildAttentionView", () => {
     const future = () => new Date(Date.now() + 72 * 3_600_000); // 48h window has passed
     const senses = () => [{ name: "gmail", ok: true }];
     expect(buildAttentionView(store, senses, future)).toEqual([]);
+  });
+
+  it("puts no card in front of a new user for a sense they never configured", () => {
+    // Regression: BunqSense.degraded() used to report the boot reason, so a fresh install —
+    // where the context file has simply never been created — showed a permanent
+    // "bunq needs attention — run: python3 scripts/bunq-setup.py" card. The real sense is used
+    // here rather than a literal, because the literal was never the thing that was wrong.
+    const store = new Store(":memory:");
+    const bunq = BunqSense.load({
+      contextPath: "/nope/missing.conf", helperPath: "/x/bunq_read.py",
+      env: "sandbox", backfillDays: 90, pythonBin: "python3",
+    });
+    const senses = () => bunq.degraded().map((d) => ({ name: d.name, ok: false, reason: d.reason }));
+    expect(buildAttentionView(store, senses, NOW)).toEqual([]);
   });
 
   it("surfaces paused-budget, paused-user and paused-session goals regardless of age", () => {

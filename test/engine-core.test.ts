@@ -76,6 +76,18 @@ export function plannedGoal(engine: GoalEngine, nodes: Array<{ key: string; agen
 }
 
 describe("engine core (ports of goal-scheduler intents)", () => {
+  it("gives an unclaimed playbook's goal to the org's own coordinator", () => {
+    // Onboarding writes every department with `playbooks: []`, so an unclaimed playbook is the
+    // NORMAL case for a provisioned org — and the old fallback handed the goal to department
+    // "operations" under lead "neo", two names that exist only on the author's install. The
+    // fixture's coordinator is athena in engineering, and neither literal appears here.
+    const { engine, store } = harness();
+    const g = engine.createFromPlaybook({ playbook: "research-report", title: "R", request: "r", channel: "t", chatId: "1" });
+    const row = store.getGoal(g.id)!;
+    expect(row.department).toBe("engineering");
+    expect(row.lead).toBe("athena");
+  });
+
   it("facade goal runs compiled chain to done, notifies", async () => {
     const { engine, store, completions } = harness();
     const g = engine.createFromPlaybook({ playbook: "research-report", title: "R", request: "r it", channel: "telegram", chatId: "1" });

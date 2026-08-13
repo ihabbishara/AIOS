@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadPlaybook, playbookAgents, type Playbook } from "../../engine/playbook.js";
+import { loadPlaybook, type Playbook } from "../../engine/playbook.js";
+import { bindPlaybook } from "./bind.js";
 import { agentSchema, departmentSchema, type AgentManifest, type DepartmentManifest } from "./types.js";
 import { capabilitySchema, loadCapabilities, fqPackTool, toolsFromCaps, type CapabilityDef } from "./capabilities.js";
 import { VERDICT_SCHEMA, TEST_REPORT_SCHEMA, type RoleDef } from "../roles/index.js";
@@ -196,7 +197,7 @@ export function loadRegistry(
   }
   const coordinator = coordinators[0] ?? "";
 
-  // Drop playbooks whose agents this org does not have.
+  // Bind each playbook to this org's agents, and drop the ones it cannot fill.
   //
   // Playbooks are scanned before any agent is read, so this cannot happen earlier. It matters
   // because playbooksDir is shared install state while agents/ is per-user: a cloned install
@@ -204,15 +205,27 @@ export function loadRegistry(
   // different one. Watched live on 2026-08-11 — a fresh three-agent org loaded all seven of the
   // author's playbooks, and its very first job died on "Unknown agent: clio".
   //
-  // Offering a tool that cannot run is worse than not offering it, so drop and say so. Nothing
-  // is deleted from disk and no department is skipped: a manifest may still name the playbook,
-  // it simply can no longer be invoked.
+  // Dropping alone was the first answer to that, and it was too blunt: since the architect names
+  // every agent afresh, NO stock playbook ever matched, so every new org booted with an empty
+  // library and no sign that one existed. Binding (registry/bind.ts) resolves slots against the
+  // roster first; the drop is now only for playbooks this org genuinely cannot staff — a
+  // three-agent research org still has no one to run code-build, and saying so is honest.
+  //
+  // Rewritten in place, so everything downstream keeps reading concrete agent names and no
+  // engine code needs to know slots exist. Nothing is deleted from disk and no department is
+  // skipped: a manifest may still name a dropped playbook, it simply can no longer be invoked.
+  const roster = [...agents.values()].map((a) => ({
+    name: a.manifest.name, kind: a.kind as string, capabilities: a.capabilities,
+  }));
   for (const [name, pb] of [...playbooks]) {
-    const missing = playbookAgents(pb).filter((a) => !agentOf.has(a));
-    if (!missing.length) continue;
+    const bound = bindPlaybook(pb, roster, agentOf);
+    if (!bound.unresolved.length) {
+      playbooks.set(name, bound.playbook);
+      continue;
+    }
     playbooks.delete(name);
     ownerOfPlaybook.delete(name);
-    log(`playbook ${name} not offered: no such agent — ${missing.join(", ")}`);
+    log(`playbook ${name} not offered: no agent here fills — ${bound.unresolved.join(", ")}`);
   }
 
   return { agents, departments, agentOf, ownerOfPlaybook, playbooks, capabilities, coordinator };

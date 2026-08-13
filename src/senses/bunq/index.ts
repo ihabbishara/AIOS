@@ -30,8 +30,19 @@ export class BunqSense {
     return this.ready;
   }
 
+  /** Why the sense is off, for the boot log only. It is deliberately NOT a degradation, so it
+   *  must be read from here rather than from degraded()[0] — see the note there. */
+  disabledReason(): string {
+    return this.bootReason ?? "no context";
+  }
+
+  /** Runtime failures only. A sense the user never configured is ABSENT, not broken: this feeds
+   *  /api/health and, through it, the attention feed, and returning the boot reason here gave
+   *  every brand-new install a permanent "bunq needs attention — run: python3 scripts/bunq-setup.py"
+   *  card for a bank it may well not use. GoogleAccounts has always behaved this way (its
+   *  degraded() reads a map that markDegraded fills); bunq was the odd one out. */
   degraded(): Array<{ name: string; reason: string }> {
-    if (!this.ready) return [{ name: "bunq", reason: this.bootReason ?? "disabled" }];
+    if (!this.ready) return [];
     return this.degradedReason ? [{ name: "bunq", reason: this.degradedReason }] : [];
   }
 

@@ -16,8 +16,13 @@ describe("playbook loading", () => {
     const pb = playbooks.get("code-inplace")!;
     expect(pb.needsProjectDir).toBe(true);
     expect(pb.stages.map((s) => s.id)).toEqual(["research", "design", "implement", "test", "code-review"]);
+    // Stages name slots, not agents: the same file has to bind on an org that has never heard of
+    // athena. `prefer` is what keeps THIS install on the pair the playbook was written for —
+    // test/playbook-bind.test.ts covers the resolution itself.
     const design = pb.stages.find((s) => s.id === "design");
-    expect(design).toMatchObject({ type: "loop", producer: "athena", critic: "minos", maxRounds: 3 });
+    expect(design).toMatchObject({ type: "loop", producer: "architect", critic: "reviewer", maxRounds: 3 });
+    expect(pb.bind?.architect?.prefer).toBe("athena");
+    expect(pb.bind?.reviewer?.prefer).toBe("minos");
   });
 
   it("rejects invalid stage types", () => {

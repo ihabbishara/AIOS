@@ -370,8 +370,16 @@ export class GoalEngine {
         projectsRoot: this.deps.projectsRoot,
       });
     }
-    const dept = this.deps.registry.ownerOfPlaybook.get(params.playbook) ?? "operations";
-    const lead = this.deps.registry.departments.get(dept)?.lead ?? "neo";
+    // Fall back to the org's own coordinator, not to this install's names. A playbook no
+    // department claims is the normal case for a provisioned org — onboarding writes every
+    // department with `playbooks: []` — and "operations"/"neo" exist in exactly one org on
+    // earth, so the old literals produced goals owned by a department and a lead that were not
+    // there. On this install the coordinator IS neo in operations, so nothing changes here.
+    const reg = this.deps.registry;
+    const dept = reg.ownerOfPlaybook.get(params.playbook)
+      ?? reg.agents.get(reg.coordinator)?.department
+      ?? "operations";
+    const lead = reg.departments.get(dept)?.lead ?? reg.coordinator ?? "neo";
     return this.createGoal({
       title: params.title, request: params.request, department: dept, lead,
       origin: { channel: params.channel, chatId: params.chatId },
