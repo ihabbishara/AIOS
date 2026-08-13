@@ -34,7 +34,8 @@ import { updateEnvFile } from "./env-file.js";
 // Growing a running org reuses onboarding's architect wholesale — same interview, same
 // validators, same provisioner. Only the invariants differ, and those live in growthShape.
 import {
-  buildArchitectContext, growthTurn, draftDepartment, renderExistingOrg, sdkArchitect, type Turn,
+  buildArchitectContext, growthTurn, draftDepartment, renderExistingOrg, sdkArchitect,
+  type Architect, type Turn,
 } from "../onboarding/architect.js";
 import { listTemplates, loadTemplate } from "../onboarding/templates.js";
 import { provision } from "../onboarding/provision.js";
@@ -110,6 +111,9 @@ export interface WebDeps {
   /** Optional senses status provider for /api/health (index.ts wires the real one). */
   senses?: () => Array<{ name: string; ok: boolean; reason?: string }>;
   reloadPacks: () => void;
+  /** The Org Architect behind the two growth routes. Injected so they can be driven over HTTP
+   *  without reaching a model — index.ts leaves it unset and gets sdkArchitect. */
+  architect?: Architect;
   envPath: string;
   uiDist: string;
   log?: (line: string) => void;
@@ -189,6 +193,7 @@ export function startWebServer(
   onListenError?: (err: NodeJS.ErrnoException) => void,
 ): Server {
   const { store, bus, goals, vault, config, router, gate, voice, registry, mailbox, attachments, reloadPacks, log = () => {} } = deps;
+  const architect = deps.architect ?? sdkArchitect;
   const token = process.env.AIOS_UI_TOKEN;
   const startedAt = Date.now();
   let sseClients = 0;
@@ -829,7 +834,7 @@ export function startWebServer(
           const body = JSON.parse(await readBody(req)) as { turns?: Turn[] };
           const turns = Array.isArray(body.turns) ? body.turns : [];
           try {
-            return json(res, 200, await growthTurn(turns, growthContext(), sdkArchitect, {
+            return json(res, 200, await growthTurn(turns, growthContext(), architect, {
               departments: new Set(registry.departments.keys()),
               agents: new Set(registry.agentOf.keys()),
             }));
@@ -849,7 +854,7 @@ export function startWebServer(
           if (!description) return json(res, 400, { error: "describe what the department is for" });
           try {
             return json(res, 200, {
-              proposal: await draftDepartment(description, growthContext(), sdkArchitect, {
+              proposal: await draftDepartment(description, growthContext(), architect, {
                 departments: new Set(registry.departments.keys()),
                 agents: new Set(registry.agentOf.keys()),
               }),

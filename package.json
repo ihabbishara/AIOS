@@ -1,6 +1,7 @@
 {
   "name": "aios",
   "version": "0.1.0",
+  "private": true,
   "description": "Local multi-agent AI-OS daemon",
   "main": "index.js",
   "scripts": {

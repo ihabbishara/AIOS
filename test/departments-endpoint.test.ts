@@ -1,9 +1,9 @@
 // test/departments-endpoint.test.ts — POST /api/departments (onboarding spec §4).
 //
-// No test in this suite drives src/web/server.ts over HTTP — it needs the whole booted world
-// (store, bus, vault, gate, registry, mailbox), which is why the routes are kept thin and the
-// logic they call is tested directly. What is new here and untestable with a fake registry is
-// the ROUND TRIP: that a rendered manifest is one the real loader accepts.
+// This one does not drive src/web/server.ts over HTTP: the route is thin and what is worth
+// pinning here is the ROUND TRIP — that a rendered manifest is one the real loader accepts.
+// (Routes CAN be driven over HTTP with a cast-down WebDeps where the wiring itself carries the
+// risk; org-growth-endpoints.test.ts and attention-view.test.ts do exactly that.)
 import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
