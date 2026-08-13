@@ -4,6 +4,15 @@
   "private": true,
   "description": "Local multi-agent AI-OS daemon",
   "main": "index.js",
+  "//files": "Allowlist, not a convenience: agents/ is the USER's org (and on this machine carries a client's agent + prompt), so it must never ship — the runtime creates it and seeds it from templates/. templates/_capabilities.yaml is product data seedCapabilities() throws without, so templates/ MUST ship. dist/src/ not dist/: tsconfig compiles test/ too, so dist/test/ holds client-named fixtures. NOTE: `files` OVERRIDES .gitignore, which is why gitignored dist/ ships at all.",
+  "files": [
+    "dist/src/",
+    "playbooks/",
+    "templates/",
+    "launchd/",
+    ".env.example",
+    "README.md"
+  ],
   "scripts": {
     "test": "vitest run",
     "build": "tsc",
