@@ -63,6 +63,20 @@ fi
 mkdir -p "$SANDBOX"/{agents,data,projects,workspace}
 
 cd "$SANDBOX"
+# AIOS_VAULT_PATH is deliberately NOT set here, and must not be added back.
+#
+# The wizard's workspace step records the user's choice in .sandbox/.env, and dotenv does not
+# override a variable that is already in the environment — so exporting it made every restart
+# silently point the daemon at a DIFFERENT vault than the one the wizard had confirmed on screen.
+# Observed 2026-08-13: a sandbox onboarded against ~/aios-temp-remove came back up writing to
+# .sandbox/workspace instead, with the folder the user had picked left untouched.
+#
+# It never bought the isolation it looked like it did, either: the "built-in folder" option
+# resolves to join(homedir(), "AIOS", "workspace") from the REAL home (workspace.ts resolveWorkspace)
+# and the step then WRITES that path over anything set here. Isolating that would mean moving HOME,
+# which also moves ~/.claude and fails as an SDK error that looks like anything but this.
+# So: pick a custom folder when walking the wizard — the banner below says so.
+#
 # -u on both credentials: an exported token would skip setup mode and boot a normal daemon
 # against an empty org, which is not the thing under test.
 env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY \
@@ -71,7 +85,6 @@ env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY \
   AIOS_TEMPLATES_DIR="$REPO/templates" \
   AIOS_UI_DIST="$REPO/ui2/dist" \
   AIOS_PROJECTS_ROOT="$SANDBOX/projects" \
-  AIOS_VAULT_PATH="$SANDBOX/workspace" \
   node "$REPO/dist/src/index.js" > "$SANDBOX/sandbox.log" 2>&1 &
 
 for _ in $(seq 1 40); do
@@ -95,9 +108,19 @@ cat <<EOF
   The auth step wants a subscription token: run \`claude setup-token\` and paste the result,
   or paste the one already in this repo's .env.
 
+  At the workspace step, CHOOSE YOUR OWN FOLDER and point it here:
+
+      $SANDBOX/workspace
+
+  The built-in option is not sandboxed — it resolves to ~/AIOS/workspace in your real home,
+  and a walkthrough would file its notes and reports in with your actual ones.
+
   state   $SANDBOX          (agents/ data/ workspace/ — inspect after provisioning)
   log     $SANDBOX/sandbox.log
   stop    ./scripts/onboarding-sandbox.sh stop
   fresh   ./scripts/onboarding-sandbox.sh reset && ./scripts/onboarding-sandbox.sh
+
+  Rebuilt src/ or ui2/ since starting this? Restart it — ui2/dist is shared with the live
+  daemon, so a cockpit build upgrades this sandbox's UI while its server stays old.
 
 EOF
