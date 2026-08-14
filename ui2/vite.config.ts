@@ -6,5 +6,6 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { proxy: { "/api": "http://localhost:4280" } },
-  test: { environment: "jsdom" },
+  // setupFiles: jsdom's Blob is missing text()/arrayBuffer() — see test/setup.ts.
+  test: { environment: "jsdom", setupFiles: ["./test/setup.ts"] },
 });
