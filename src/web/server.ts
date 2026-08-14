@@ -35,7 +35,7 @@ import { updateEnvFile } from "./env-file.js";
 // validators, same provisioner. Only the invariants differ, and those live in growthShape.
 import {
   buildArchitectContext, growthTurn, draftDepartment, renderExistingOrg, sdkArchitect,
-  type Architect, type Turn,
+  productCapabilities, type Architect, type Turn,
 } from "../onboarding/architect.js";
 import { listTemplates, loadTemplate } from "../onboarding/templates.js";
 import { provision } from "../onboarding/provision.js";
@@ -198,13 +198,19 @@ export function startWebServer(
   const startedAt = Date.now();
   let sseClients = 0;
 
+  /** The capability catalogue as choices. Client-scoped rows (labels: [client.*]) are one user's
+   *  integration, so every surface that OFFERS a capability filters them through
+   *  productCapabilities — the architect already did, the hire/department pickers did not. */
+  const capabilityChoices = () =>
+    [...registry.capabilities].map(([name, def]) => ({ name, labels: def.labels }));
+
   /** What the Org Architect is told before it drafts anything for a RUNNING org: the catalogues
    *  it may draw from, then the org as it stands. Rebuilt per request rather than captured — the
    *  roster changes under it every time someone hires, and a stale one is how the model proposes
    *  a name that is already taken. */
   const growthContext = (): string => [
     buildArchitectContext({
-      capabilities: [...registry.capabilities].map(([name, def]) => ({ name, labels: def.labels })),
+      capabilities: capabilityChoices(),
       skills: listSkills(skillsPluginRoot()),
       templates: listTemplates(config.templatesDir, log)
         .map((t) => loadTemplate(config.templatesDir, t.name))
@@ -287,7 +293,7 @@ export function startWebServer(
             ],
             playbooks: goals.listPlaybooks(),
             bindings: [...config.chatBindings.entries()].map(([chatKey, b]) => ({ chatKey, ...b })),
-            capabilities: [...registry.capabilities.keys()].sort(),
+            capabilities: productCapabilities(capabilityChoices()).sort(),
           });
         }
 
