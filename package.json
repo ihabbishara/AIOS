@@ -15,7 +15,8 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "build": "tsc",
+    "//build": "Clean first: tsc never prunes outputs whose source was deleted or renamed, so dist/ accumulated modules that no longer exist in src/ (packs/, finance/agent, engine/executor, engine/jobs) and npm pack shipped them as dead code. A renamed guard kept its old client-named file alive there too.",
+    "build": "rm -rf dist && tsc",
     "dev": "tsx src/index.ts --cli",
     "start": "node dist/src/index.js",
     "onboarding:sandbox": "bash scripts/onboarding-sandbox.sh"
