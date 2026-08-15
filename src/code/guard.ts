@@ -1,5 +1,5 @@
 // src/code/guard.ts
-import type { ToolCheck, GuardVerdict } from "../agents/guards/halalo-readonly.js";
+import type { ToolCheck, GuardVerdict } from "../agents/guards/types.js";
 import { isUnder, isSecretPath } from "./paths.js";
 
 const deny = (reason: string): GuardVerdict => ({ ok: false, reason });

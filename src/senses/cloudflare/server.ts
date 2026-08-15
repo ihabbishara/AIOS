@@ -2,8 +2,12 @@ import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { fetchVisitorStats, type VisitorStats } from "./analytics.js";
 
-/** Server + tool names → tool id is `mcp__halalo_analytics__cloudflare_analytics`. */
-export const CLOUDFLARE_TOOL = "mcp__halalo_analytics__cloudflare_analytics";
+/** Server + tool names → tool id is `mcp__cloudflare_analytics__cloudflare_analytics`. */
+export const CLOUDFLARE_TOOL = "mcp__cloudflare_analytics__cloudflare_analytics";
+
+/** Which zone this is, for the tool description and setup message. The zone itself is identified
+ *  by CLOUDFLARE_ZONE_ID; this is only the human name, and naming it is the operator's business. */
+const siteName = (): string => process.env.CLOUDFLARE_SITE ?? "the configured zone";
 
 const n = (x: number): string => x.toLocaleString();
 const pct = (num: number, den: number): string => (den > 0 ? `${((num / den) * 100).toFixed(0)}%` : "n/a");
@@ -50,7 +54,7 @@ function render(s: VisitorStats): string {
 export function buildCloudflareServer() {
   const analytics = tool(
     "cloudflare_analytics",
-    "Read TRUE visitor traffic for halalo.co.uk from Cloudflare's edge analytics (read-only). " +
+    `Read TRUE visitor traffic for ${siteName()} from Cloudflare's edge analytics (read-only). ` +
       "Use this as the source of truth for visitor/traffic numbers — NOT origin access logs, which " +
       "undercount because Cloudflare's CDN serves cached hits the origin never logs. Returns whole-zone " +
       "unique visitors (BOT-FILTERED), page views, requests, plus a UK-by-device breakdown (mobile/desktop/" +
@@ -74,7 +78,7 @@ export function buildCloudflareServer() {
             type: "text",
             text:
               "Cloudflare analytics not configured. The operator must set CLOUDFLARE_API_TOKEN " +
-              "(scope Analytics:Read, zone halalo.co.uk) and CLOUDFLARE_ZONE_ID in the daemon env (.env), " +
+              `(scope Analytics:Read, zone ${siteName()}) and CLOUDFLARE_ZONE_ID in the daemon env (.env), ` +
               "then restart. Until then, true edge traffic is unavailable — do not substitute log-derived " +
               "counts and call them traffic; label any log figure as a CDN-undercounted proxy.",
           }],
@@ -90,7 +94,7 @@ export function buildCloudflareServer() {
   );
 
   return createSdkMcpServer({
-    name: "halalo_analytics",
+    name: "cloudflare_analytics",
     version: "0.1.0",
     tools: [analytics],
   });

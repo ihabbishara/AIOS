@@ -7,7 +7,7 @@ import { agentSchema, departmentSchema, type AgentManifest, type DepartmentManif
 import { capabilitySchema, loadCapabilities, fqPackTool, toolsFromCaps, type CapabilityDef } from "./capabilities.js";
 import { VERDICT_SCHEMA, TEST_REPORT_SCHEMA, type RoleDef } from "../roles/index.js";
 import { NAMED_GUARDS } from "../guards/index.js";
-import type { ToolCheck } from "../guards/halalo-readonly.js";
+import type { ToolCheck } from "../guards/types.js";
 
 export type AgentKind = "coordinator" | "lead" | "worker" | "critic";
 

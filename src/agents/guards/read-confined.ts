@@ -1,5 +1,5 @@
 import { resolve, sep } from "node:path";
-import type { ToolCheck, GuardVerdict } from "./halalo-readonly.js";
+import type { ToolCheck, GuardVerdict } from "./types.js";
 
 const deny = (reason: string): GuardVerdict => ({ ok: false, reason });
 const allow: GuardVerdict = { ok: true };

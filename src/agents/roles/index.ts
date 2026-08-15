@@ -1,4 +1,4 @@
-import type { ToolCheck } from "../guards/halalo-readonly.js";
+import type { ToolCheck } from "../guards/types.js";
 
 export interface RoleDef {
   name: string;

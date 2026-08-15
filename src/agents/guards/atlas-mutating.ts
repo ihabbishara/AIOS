@@ -2,7 +2,7 @@
 // agent. Atlas's YAML prompt says "never terraform apply / kubectl apply /
 // git push"; this makes those rules code, not advice. Fallback stays "allow"
 // (atlas remains a useful generalist) — the denylist is the fence.
-import type { ToolCheck, GuardVerdict } from "./halalo-readonly.js";
+import type { ToolCheck, GuardVerdict } from "./types.js";
 
 const MUTATING: Array<{ re: RegExp; why: string }> = [
   { re: /\bterraform\s+(apply|destroy)\b/, why: "terraform apply/destroy changes live infra" },

@@ -45,8 +45,11 @@ lifeops:
   tools: [mcp__lifeops__add_task, mcp__lifeops__list_tasks, mcp__lifeops__update_task,
           mcp__lifeops__complete_task, mcp__lifeops__dismiss_task]
 
-# -- client systems ------------------------------------------------------------------
-halalo-aws:  { server: cloudflare, tools: [mcp__halalo_analytics__cloudflare_analytics], guard: halalo-readonly, labels: [client.halalo] }
+# -- attachments ----------------------------------------------------------------------
+# This file is PRODUCT data: seedCapabilities() copies it into every new install. A capability
+# scoped to one operator's client belongs in that operator's own agents/_capabilities.yaml, never
+# here — shipped, it offers a new user a capability whose guard needs an env var they have no
+# reason to own. Nothing with a `client.*` label may live in this file (publish-allowlist test).
 attach:      { tools: [mcp__aios_attachments__attach_file] }
 
 # -- guard-only modifiers ---------------------------------------------------------------

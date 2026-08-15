@@ -1,8 +1,8 @@
 /**
  * Cloudflare GraphQL Analytics client (read-only).
  *
- * Why this exists: the Halalo "visitors" number was derived from origin access
- * logs, but the site sits behind Cloudflare's CDN — the edge serves cached hits
+ * Why this exists: a site's "visitors" number is often derived from origin access
+ * logs, but a site behind Cloudflare's CDN — the edge serves cached hits
  * the origin never logs, so log-derived counts structurally UNDERCOUNT real
  * traffic. Cloudflare's edge `uniques` is the source of truth: it counts at the
  * CDN and is already bot-filtered by CF's visitor heuristic, which maps cleanly

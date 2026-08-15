@@ -17,7 +17,7 @@ describe("Markdown (chat bubbles)", () => {
   });
 
   it("groups numbered lines into an ordered list", () => {
-    render(<Markdown text={"1. halalo\n2. researcher\n3. architect"} />);
+    render(<Markdown text={"1. analyst\n2. researcher\n3. architect"} />);
     const ol = screen.getByRole("list");
     expect(ol.tagName).toBe("OL");
     expect(screen.getAllByRole("listitem")).toHaveLength(3);

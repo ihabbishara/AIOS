@@ -11,7 +11,14 @@ import { loadRegistry } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
+import { useClientFixtureDir } from "../test/fixtures/client-env.js";
 import type { ActionGate } from "../src/kernel/gate.js";
+
+// The client agent's surface depends on AIOS_CLIENT_AGENT/AIOS_CLIENT_DIR, and neither this
+// script nor vitest loads .env — so generating with an ambient shell produced a golden the suite
+// could not reproduce (or threw outright, since aws-readonly refuses to build without the dir).
+// Share ONE definition with the tests that read the fixture, so regeneration is deterministic.
+useClientFixtureDir();
 
 const config = loadConfig(process.cwd());
 const store = new Store(":memory:");

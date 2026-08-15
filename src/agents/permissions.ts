@@ -40,7 +40,7 @@ export function withEffectiveTools<T extends { allowedTools?: string[] }>(
  * - mcp__ tools are governed by allowedTools, not surfaced as denials.
  * - bypassPermissions roles are sandboxed write-roles with no concept of denial → no observer.
  * - The emit callback is wrapped in try/catch: a denial-hook failure can never break an agent run.
- * Append-merges so an existing guard PreToolUse hook (e.g. halalo's) is preserved.
+ * Append-merges so an existing guard PreToolUse hook (e.g. a client guard's) is preserved.
  */
 export function withDenialObserver<
   T extends { allowedTools?: string[]; permissionMode?: string; hooks?: { PreToolUse?: unknown[] } },

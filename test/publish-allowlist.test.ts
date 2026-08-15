@@ -6,7 +6,9 @@
 // changes the real payload.
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 
 const repoRoot = join(import.meta.dirname, "..");
 
@@ -42,9 +44,43 @@ describe("npm publish allowlist", () => {
     expect(files.filter((p) => p.startsWith("data/"))).toEqual([]);
   });
 
+  // dist/ is BUILD OUTPUT, and tsc never prunes: a renamed module keeps its old file alive there
+  // forever, so the tarball shipped a client-named guard that no longer existed in src/. The build
+  // script cleans first now; this is the assertion that notices if that ever regresses. Every
+  // shipped path must trace back to a real source file.
+  it("ships no build artefact whose source is gone", () => {
+    const orphans = files
+      .filter((p) => p.startsWith("dist/src/") && p.endsWith(".js"))
+      .filter((p) => !existsSync(join(repoRoot, p.replace(/^dist\//, "").replace(/\.js$/, ".ts"))));
+    expect(orphans).toEqual([]);
+  });
+
   // Product data the runtime cannot boot without: seedCapabilities() throws when it is missing.
   it("still ships the capability catalog and the runtime entrypoint", () => {
     expect(files).toContain("templates/_capabilities.yaml");
     expect(files).toContain("dist/src/index.js");
   });
 }, 60_000);
+
+// The catalogue SHIPS, and seedCapabilities() copies it into every new install — so a row here is
+// a row in a stranger's org. A client-scoped one offers them a capability whose guard demands an
+// env var for a client they have never heard of. The operator's own client rows belong in their
+// agents/_capabilities.yaml, which does not ship.
+describe("shipped capability catalogue", () => {
+  const catalogue = parseYaml(
+    readFileSync(join(repoRoot, "templates", "_capabilities.yaml"), "utf8"),
+  ) as Record<string, { labels?: string[] }>;
+
+  it("carries no client-scoped capability", () => {
+    const clientScoped = Object.entries(catalogue)
+      .filter(([, def]) => (def?.labels ?? []).some((l) => l.startsWith("client.")))
+      .map(([name]) => name);
+    expect(clientScoped).toEqual([]);
+  });
+
+  // Non-vacuity: proves the file parsed and the labels field is actually being read.
+  it("still defines product capabilities with labels", () => {
+    const labelled = Object.values(catalogue).filter((d) => (d?.labels ?? []).length > 0);
+    expect(labelled.length).toBeGreaterThan(0);
+  });
+});

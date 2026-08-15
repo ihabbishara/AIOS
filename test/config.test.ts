@@ -188,38 +188,56 @@ describe("de-personalized defaults", () => {
   });
 });
 
-describe("halalo env gating", () => {
-  it("buildExtras omits halalo when AIOS_HALALO_DIR is unset", async () => {
-    const prev = process.env.AIOS_HALALO_DIR;
-    delete process.env.AIOS_HALALO_DIR;
+// Both the dir AND the agent name are env: product source must not name one operator's client,
+// so there is nothing to fall back to. Half-configured is not a client — it yields no entry
+// rather than an entry keyed on a guess.
+describe("client env gating", () => {
+  const CLIENT_ENV = ["AIOS_CLIENT_DIR", "AIOS_CLIENT_AGENT"] as const;
+  const withClientEnv = async (
+    set: Partial<Record<(typeof CLIENT_ENV)[number], string>>,
+    body: (x: Record<string, { cwd?: string; contextFiles?: string[] } | undefined>) => void,
+  ) => {
+    const prev = Object.fromEntries(CLIENT_ENV.map((k) => [k, process.env[k]]));
+    for (const k of CLIENT_ENV) delete process.env[k];
+    Object.assign(process.env, set);
     try {
       const { buildExtras } = await import("../src/agents/registry/extras.js");
-      const x = buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "", financeMembers: [] });
-      expect(x.halalo).toBeUndefined();
-      expect(x.juno).toBeDefined();
+      body(buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "", financeMembers: [] }));
     } finally {
-      if (prev !== undefined) process.env.AIOS_HALALO_DIR = prev;
+      for (const k of CLIENT_ENV) {
+        if (prev[k] === undefined) delete process.env[k];
+        else process.env[k] = prev[k]!;
+      }
     }
+  };
+
+  it("buildExtras omits the client when nothing is configured", async () => {
+    await withClientEnv({}, (x) => {
+      expect(x.acme).toBeUndefined();
+      expect(x.juno).toBeDefined();   // the rest of the org is unaffected
+    });
   });
 
-  it("buildExtras builds halalo from AIOS_HALALO_DIR when set", async () => {
-    const prev = process.env.AIOS_HALALO_DIR;
-    process.env.AIOS_HALALO_DIR = "/tmp/halalo-fixture";
-    try {
-      const { buildExtras } = await import("../src/agents/registry/extras.js");
-      const x = buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "", financeMembers: [] });
-      expect(x.halalo?.cwd).toBe("/tmp/halalo-fixture");
-      expect(x.halalo?.contextFiles).toEqual(["/tmp/halalo-fixture/CLAUDE.md"]);
-    } finally {
-      if (prev === undefined) delete process.env.AIOS_HALALO_DIR;
-      else process.env.AIOS_HALALO_DIR = prev;
-    }
+  it("buildExtras omits the client when only half of it is configured", async () => {
+    await withClientEnv({ AIOS_CLIENT_DIR: "/tmp/client-fixture" }, (x) => {
+      expect(Object.keys(x)).not.toContain("acme");
+    });
+    await withClientEnv({ AIOS_CLIENT_AGENT: "acme" }, (x) => {
+      expect(x.acme).toBeUndefined();
+    });
   });
 
-  it("the halalo-readonly guard names the missing env var instead of silently confining to nothing", async () => {
+  it("buildExtras keys the entry on the configured agent name", async () => {
+    await withClientEnv({ AIOS_CLIENT_AGENT: "acme", AIOS_CLIENT_DIR: "/tmp/client-fixture" }, (x) => {
+      expect(x.acme?.cwd).toBe("/tmp/client-fixture");
+      expect(x.acme?.contextFiles).toEqual(["/tmp/client-fixture/CLAUDE.md"]);
+    });
+  });
+
+  it("the aws-readonly guard names the missing env var instead of silently confining to nothing", async () => {
     const { NAMED_GUARDS } = await import("../src/agents/guards/index.js");
-    expect(() => NAMED_GUARDS["halalo-readonly"]({ vaultPath: "/tmp/v", vaultSubdir: "AIOS" }))
-      .toThrow(/AIOS_HALALO_DIR/);
+    expect(() => NAMED_GUARDS["aws-readonly"]({ vaultPath: "/tmp/v", vaultSubdir: "AIOS" }))
+      .toThrow(/AIOS_CLIENT_DIR/);
   });
 });
 

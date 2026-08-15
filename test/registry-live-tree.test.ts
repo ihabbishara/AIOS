@@ -12,9 +12,9 @@ import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { capabilityTools } from "../src/agents/registry/loader.js";
 import { NAMED_GUARDS } from "../src/agents/guards/index.js";
-import { useHalaloFixtureDir } from "./fixtures/halalo-env.js";
+import { useClientFixtureDir } from "./fixtures/client-env.js";
 
-useHalaloFixtureDir();
+useClientFixtureDir();
 
 const reg = loadRegistry(
   join(process.cwd(), "agents"),
@@ -52,8 +52,8 @@ describe("live agents/ tree", () => {
   it("halalo carries the deterministic readonly guard via the halalo-aws capability", () => {
     const halalo = reg.agents.get("halalo")!;
     const guards = halalo.capabilities.map((c) => reg.capabilities.get(c)?.guard).filter(Boolean);
-    expect(guards).toContain("halalo-readonly");
-    const named = NAMED_GUARDS["halalo-readonly"]({ halaloDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
+    expect(guards).toContain("aws-readonly");
+    const named = NAMED_GUARDS["aws-readonly"]({ clientDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
     expect(named.fallback).toBe("deny");
     expect(named.checks.Bash).toBeDefined();
     expect(halalo.role.systemPrompt).toContain("Exports directory");

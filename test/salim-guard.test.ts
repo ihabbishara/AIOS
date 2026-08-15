@@ -11,7 +11,7 @@ describe("juno Read confinement (ledger-confine capability guard)", () => {
   const reg = testRegistry();
   const juno = reg.agents.get("juno")!;
   const guardName = juno.capabilities.map((c) => reg.capabilities.get(c)?.guard).find(Boolean)!;
-  const named = NAMED_GUARDS[guardName]({ halaloDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
+  const named = NAMED_GUARDS[guardName]({ clientDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
   const readCheck = named.checks.Read;
 
   it("wires a Read guard with the default 'allow' fallback (mirrors old FinanceAgent)", () => {

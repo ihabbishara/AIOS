@@ -26,7 +26,7 @@ import { buildMediaServer, type MediaServerDeps } from "../media/server.js";
 import { buildLifeopsServer } from "../lifeops/server.js";
 import { buildLedgerServer } from "../finance/server.js";
 import { buildCloudflareServer } from "../senses/cloudflare/server.js";
-import { halaloDir } from "./registry/extras.js";
+import { clientDir } from "./registry/extras.js";
 import type { MoneyServerDeps } from "../money/server.js";
 
 const AIOS_PACK = "aios-pack";
@@ -124,7 +124,7 @@ const SERVER_BUILDERS: Record<string, (c: ServerCtx) => Record<string, unknown>>
       { company: c.deps.config.financeCompany, members: c.deps.config.financeMembers },
     ),
   }),
-  cloudflare: () => ({ halalo_analytics: buildCloudflareServer() }),
+  cloudflare: () => ({ cloudflare_analytics: buildCloudflareServer() }),
 };
 
 /** AND-compose named guards: for a tool with several checks, the first deny wins;
@@ -154,7 +154,7 @@ function tierModel(kind: AgentKind, config: Config): string | undefined {
 
 export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
   const guardCfg: GuardConfig = {
-    halaloDir: halaloDir(),
+    clientDir: clientDir(),
     vaultPath: deps.config.vaultPath,
     vaultSubdir: deps.config.vaultSubdir,
   };

@@ -1,15 +1,16 @@
 import { join, resolve } from "node:path";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
-import { halaloToolChecks, type ToolCheck } from "./halalo-readonly.js";
+import { awsReadOnlyToolChecks } from "./aws-readonly.js";
+import type { ToolCheck } from "./types.js";
 import { ledgerReadCheck } from "./read-confined.js";
 import { atlasMutatingChecks } from "./atlas-mutating.js";
 import { webFetchPublicChecks } from "./web-fetch-public.js";
 
-export type { ToolCheck, GuardVerdict } from "./halalo-readonly.js";
+export type { ToolCheck, GuardVerdict } from "./types.js";
 
 export interface GuardConfig {
-  /** Unset when AIOS_HALALO_DIR is absent — only the halalo-readonly guard needs it. */
-  halaloDir?: string;
+  /** The client project dir. Unset when AIOS_CLIENT_DIR is absent — only aws-readonly needs it. */
+  clientDir?: string;
   vaultPath: string;
   vaultSubdir: string;
 }
@@ -23,10 +24,10 @@ export interface NamedGuard {
  *  Unknown names are a boot error (loader validates). Guards AND-compose: every guard must allow. */
 export const NAMED_GUARDS: Record<string, (cfg: GuardConfig) => NamedGuard> = {
   // Fails loud and named rather than confining to undefined: reaching here means an agent
-  // carries the halalo-aws capability on a machine that never configured the client dir.
-  "halalo-readonly": (cfg) => {
-    if (!cfg.halaloDir) throw new Error("halalo-readonly guard requires AIOS_HALALO_DIR");
-    return { checks: halaloToolChecks(cfg.halaloDir), fallback: "deny" };
+  // carries a client-scoped capability on a machine that never configured the client dir.
+  "aws-readonly": (cfg) => {
+    if (!cfg.clientDir) throw new Error("aws-readonly guard requires AIOS_CLIENT_DIR");
+    return { checks: awsReadOnlyToolChecks(cfg.clientDir), fallback: "deny" };
   },
   // Mirror of the extras.ts juno readRoots: finance evidence dirs + attachment staging.
   "ledger-read-confine": (cfg) => ({
@@ -67,7 +68,7 @@ export function guardOptions(
     if (toolName === "StructuredOutput") return { ok: true as const };
     // ToolSearch only loads deferred tool SCHEMAS — it has no side effect and grants no access
     // (using a loaded tool still goes through allowedTools + these same checks). A fallback-deny
-    // guard (halalo) must not veto it, or every deferred tool is unreachable: the agent runs
+    // guard (aws-readonly) must not veto it, or every deferred tool is unreachable: the agent runs
     // fully offline (observed live — odin's WebFetch deferred, schema-load denied).
     if (toolName === "ToolSearch") return { ok: true as const };
     // MCP tools (the role's own SDK tools) are governed by allowedTools.

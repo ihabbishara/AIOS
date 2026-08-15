@@ -1,4 +1,4 @@
-import type { ToolCheck } from "./halalo-readonly.js";
+import type { ToolCheck } from "./types.js";
 
 /** Block private/loopback/link-local hosts so a WebFetch can't be an SSRF pivot — notably the
  *  cloud metadata endpoint (169.254.169.254) and the daemon's own API (localhost:4280). Host

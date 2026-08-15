@@ -6,7 +6,7 @@ import { withDenialObserver } from "./permissions.js";
 import { buildAttachmentServer, ATTACH_TOOL, AIOS_TMP_PREFIX } from "./attachment-server.js";
 import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox } from "../mail/mailbox.js";
-import { HALALO_EXPORTS_DIR } from "./guards/halalo-readonly.js";
+import { EXPORTS_DIR } from "./guards/aws-readonly.js";
 import type { Attachment } from "./attachment.js";
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
@@ -105,14 +105,14 @@ export class DirectChats {
       const safeDirs = [
         resolve(def.cwd ?? this.deps.projectsRoot),
         resolve("data/downloads"),
-        HALALO_EXPORTS_DIR, // keep in sync with the halalo Write guard so generated exports are attachable
+        EXPORTS_DIR, // keep in sync with the aws-readonly Write guard so generated exports are attachable
         AIOS_TMP_PREFIX,    // realpath'd prefix — any /tmp/aios-* path is permitted (macOS /tmp → /private/tmp)
         ...(def.attachDirs ?? []),
       ];
       const attachmentServer = buildAttachmentServer(collected, safeDirs);
 
-      // (Cloudflare analytics for halalo now arrives inside resolved.options.mcpServers via
-      // the halalo-aws capability — the hardcoded roleServers wiring is gone.)
+      // (Cloudflare analytics now arrives inside resolved.options.mcpServers via
+      // a client capability — the hardcoded roleServers wiring is gone.)
 
       // Prefix the user text with sender identity when provided (group-chat attribution).
       // Attachment markers follow the sender prefix so the agent sees evidence before the text.

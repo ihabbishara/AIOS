@@ -90,7 +90,7 @@
       "WebSearch",
       "Write",
       "mcp__aios_attachments__attach_file",
-      "mcp__halalo_analytics__cloudflare_analytics"
+      "mcp__cloudflare_analytics__cloudflare_analytics"
     ],
     "permissionMode": "default",
     "maxTurns": 60,

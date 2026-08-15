@@ -34,8 +34,8 @@ export interface Config {
   criticModel?: string;
   /**
    * chatKey ("channel:chatId") -> binding. Bound chats bypass the moderator.
-   * "telegram:-100123=finance|halalo": first agent handles every message, rest via @role.
-   * "telegram:-100123=@finance|@halalo": mention-only — agents respond ONLY when
+   * "telegram:-100123=finance|research": first agent handles every message, rest via @role.
+   * "telegram:-100123=@finance|@research": mention-only — agents respond ONLY when
    * addressed (@finance ...); other messages are ignored silently. Attachments
    * still route to the first agent (receipt drops shouldn't need a caption).
    */

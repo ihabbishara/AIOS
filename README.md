@@ -13,7 +13,9 @@ persists everything as markdown in a local vault (`~/AIOS/workspace` — point
 
 ## The Staff
 
-15 named agents in 6 departments, loaded from YAML manifests in `agents/`:
+14 named agents in 5 departments, loaded from YAML manifests in `agents/`. Client-facing agents
+are not part of this roster — they are operator config (see `AIOS_CLIENT_AGENT` in `.env.example`),
+so an install grows its own:
 
 | Dept | Name | Title | Legacy alias |
 |---|---|---|---|
@@ -31,7 +33,6 @@ persists everything as markdown in a local vault (`~/AIOS/workspace` — point
 | Finance | **Midas** | CFO (private) | cfo, faris |
 | Finance | **Juno** | Bookkeeper (group) | finance, salim |
 | Life | **Jasmine** | Personal Ops | jasmine |
-| Clients | **Halalo** | Halalo Project Agent | halalo |
 
 Aliases: `@developer` → Vulcan, `@cfo` → Midas, `@finance` → Juno (old arabic names also still work).
 Private agents (Midas, Jasmine) refuse requests from group/shared chats.

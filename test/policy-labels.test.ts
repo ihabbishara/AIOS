@@ -6,7 +6,7 @@ describe("label derivation", () => {
   it("dept → confidentiality label", () => {
     expect(deptLabel("finance")).toBe("personal.finance");
     expect(deptLabel("life")).toBe("personal.tasks");
-    expect(deptLabel("clients")).toBe("client.halalo");
+    expect(deptLabel("clients")).toBe("client.external");
     expect(deptLabel("engineering")).toBe("org.internal");
     expect(deptLabel("research")).toBe("org.internal");
   });

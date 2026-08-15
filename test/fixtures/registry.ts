@@ -1,11 +1,11 @@
 import { join } from "node:path";
 import { loadRegistry } from "../../src/agents/registry/loader.js";
 import { buildExtras } from "../../src/agents/registry/extras.js";
-import { useHalaloFixtureDir } from "./halalo-env.js";
+import { useClientFixtureDir } from "./client-env.js";
 import type { RoleDef } from "../../src/agents/roles/index.js";
 
 export function testRegistry() {
-  useHalaloFixtureDir();
+  useClientFixtureDir();
   return loadRegistry(
     join(process.cwd(), "agents"),
     join(process.cwd(), "playbooks"),

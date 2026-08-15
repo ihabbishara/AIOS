@@ -40,13 +40,13 @@ describe("rawCheck — label × sink table (spec §5)", () => {
     expect(rawCheck({ labels: ["personal.calendar"], sink: "file-export" })).toBe("deny");
   });
 
-  it("client.halalo: halalo prompts + export dirs + brief/standup; still walled from recall + foreign prompts", () => {
-    expect(rawCheck({ labels: ["client.halalo"], sink: "prompt.system:halalo", agent: { labels: ["client.halalo"] } })).toBe("allow");
-    expect(rawCheck({ labels: ["client.halalo"], sink: "file-export" })).toBe("allow");
-    expect(rawCheck({ labels: ["client.halalo"], sink: "brief" })).toBe("allow");
-    expect(rawCheck({ labels: ["client.halalo"], sink: "standup" })).toBe("allow");
-    expect(rawCheck({ labels: ["client.halalo"], sink: "recall-index" })).toBe("deny");
-    expect(rawCheck({ labels: ["client.halalo"], sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
+  it("client.external: halalo prompts + export dirs + brief/standup; still walled from recall + foreign prompts", () => {
+    expect(rawCheck({ labels: ["client.external"], sink: "prompt.system:halalo", agent: { labels: ["client.external"] } })).toBe("allow");
+    expect(rawCheck({ labels: ["client.external"], sink: "file-export" })).toBe("allow");
+    expect(rawCheck({ labels: ["client.external"], sink: "brief" })).toBe("allow");
+    expect(rawCheck({ labels: ["client.external"], sink: "standup" })).toBe("allow");
+    expect(rawCheck({ labels: ["client.external"], sink: "recall-index" })).toBe("deny");
+    expect(rawCheck({ labels: ["client.external"], sink: "prompt.system:neo", agent: { labels: [] } })).toBe("deny");
   });
 
   it("org.internal: all sinks except file-export and non-primary chat", () => {
@@ -137,7 +137,7 @@ describe("Policy.wall — wall-replacement sites (wall-deletion spec)", () => {
   it("denies in enforce mode and reports", () => {
     const seen: Violation[] = [];
     const p = new Policy({ mode: "enforce", report: (v) => seen.push(v) });
-    expect(p.wall({ labels: ["client.halalo"], sink: "recall-index" }, "indexer:mail")).toBe("deny");
+    expect(p.wall({ labels: ["client.external"], sink: "recall-index" }, "indexer:mail")).toBe("deny");
     expect(seen).toHaveLength(1);
   });
   it("allows clean flows without reporting", () => {

@@ -1,37 +1,37 @@
 /**
- * Deterministic read-only gate for the Halalo agent's Bash access.
+ * Deterministic read-only gate for an agent's AWS + Bash access.
  *
  * Philosophy: prompts are advisory, this gate is enforcement. Every command is
  * parsed in code and must match an explicit read-only allowlist. `aws ssm
  * send-command` executes shell ON the EC2 instance, so its inner commands are
  * validated against their own allowlist (logs, status, SELECT-only mysql).
+ *
+ * Which AWS profiles and instances an agent may reach is DEPLOYMENT config, not product code —
+ * it names one operator's infrastructure. It comes from the env (see .env.example); unset means
+ * this guard denies every aws command rather than guessing, so a misconfiguration fails closed
+ * and says which variable is missing.
  */
 
 import { resolve, sep } from "node:path";
-
-export interface GuardVerdict {
-  ok: boolean;
-  reason?: string;
-}
-
-export type ToolCheck = (input: Record<string, unknown>) => GuardVerdict;
+import { allow, deny, type GuardVerdict, type ToolCheck } from "./types.js";
 
 /**
  * Outbound files (CSV/report exports) the agent generates land here. It is a real
  * project dir (no symlink) and already an attach_file safe dir (see direct.ts), so a
  * file written here can be uploaded to the chat. Confining Write here keeps the agent
  * read-only against the source repo and the live instances while still letting it
- * deliver files. Override with AIOS_HALALO_EXPORTS_DIR.
+ * deliver files. Override with AIOS_EXPORTS_DIR.
  */
-export const HALALO_EXPORTS_DIR = resolve(process.env.AIOS_HALALO_EXPORTS_DIR ?? "data/downloads");
+export const EXPORTS_DIR = resolve(process.env.AIOS_EXPORTS_DIR ?? "data/downloads");
 
-const ALLOWED_PROFILES = ["halalo", "halalo-staging-new"];
-const ALLOWED_INSTANCES = ["i-068ed793d8ce969b5", "i-0cb9ddd83061548cb"];
+/** Comma-separated env list → trimmed values. Read at call time so tests can set it late. */
+const envList = (name: string): string[] =>
+  (process.env[name] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+const allowedProfiles = () => envList("AIOS_AWS_READONLY_PROFILES");
+const allowedInstances = () => envList("AIOS_AWS_READONLY_INSTANCES");
 
 const SAFE_FILTERS = /^(jq|grep|egrep|head|tail|sort|uniq|wc|column|cut|tr|awk)\b/;
-
-const deny = (reason: string): GuardVerdict => ({ ok: false, reason });
-const allow: GuardVerdict = { ok: true };
 
 /**
  * Splits a command on unquoted pipes and rejects unquoted shell composition
@@ -113,9 +113,13 @@ function checkInnerCommand(inner: string): GuardVerdict {
 }
 
 function checkSsmSendCommand(main: string): GuardVerdict {
+  const instances = allowedInstances();
+  if (!instances.length) {
+    return deny("ssm send-command is unavailable — set AIOS_AWS_READONLY_INSTANCES to the instance ids this agent may reach");
+  }
   const instMatch = /--instance-ids[= ]+("?)(i-[0-9a-f]+)\1/.exec(main);
-  if (!instMatch || !ALLOWED_INSTANCES.includes(instMatch[2])) {
-    return deny(`ssm send-command must target a known Halalo instance (${ALLOWED_INSTANCES.join(", ")})`);
+  if (!instMatch || !instances.includes(instMatch[2])) {
+    return deny(`ssm send-command must target a known instance (${instances.join(", ")})`);
   }
   if (!/--document-name[= ]+["']?AWS-RunShellScript["']?/.test(main)) {
     return deny("ssm send-command must use the AWS-RunShellScript document");
@@ -137,7 +141,7 @@ function checkSsmSendCommand(main: string): GuardVerdict {
 }
 
 /** The main gate for the agent's local Bash tool. */
-export function checkHalaloBash(command: string): GuardVerdict {
+export function checkAwsReadOnlyBash(command: string): GuardVerdict {
   const split = splitTopLevel(command.trim());
   if ("error" in split) return deny(split.error);
   const [main, ...filters] = split.segments;
@@ -146,7 +150,7 @@ export function checkHalaloBash(command: string): GuardVerdict {
   }
   if (!main) return deny("empty command");
 
-  // Local git history of the halalo repo — read subcommands only.
+  // Local git history of the agent's project — read subcommands only.
   if (/^git (log|show|diff|status|blame|branch|tag|describe|rev-parse|shortlog|ls-files|grep|remote)\b/.test(main)) {
     return allow;
   }
@@ -155,9 +159,13 @@ export function checkHalaloBash(command: string): GuardVerdict {
     return deny("only aws CLI and read-only git commands are allowed");
   }
 
+  const profiles = allowedProfiles();
+  if (!profiles.length) {
+    return deny("no aws profile is permitted — set AIOS_AWS_READONLY_PROFILES to the profiles this agent may use");
+  }
   const profile = /--profile[= ]+(\S+)/.exec(main)?.[1]?.replace(/["']/g, "");
-  if (!profile || !ALLOWED_PROFILES.includes(profile)) {
-    return deny(`aws commands must use --profile ${ALLOWED_PROFILES.join(" or ")}`);
+  if (!profile || !profiles.includes(profile)) {
+    return deny(`aws commands must use --profile ${profiles.join(" or ")}`);
   }
 
   if (/^aws ssm start-session\b/.test(main)) {
@@ -181,24 +189,24 @@ export function checkHalaloBash(command: string): GuardVerdict {
   return deny(`aws action "${action ?? "?"}" is not read-only — this agent has read access only`);
 }
 
-/** Per-tool checks for the halalo role: Bash gated, repo reads confined, writes denied. */
-export function halaloToolChecks(repoDir: string): Record<string, ToolCheck> {
-  const inRepo = (p: unknown): boolean => typeof p !== "string" || p === "" || p.startsWith(repoDir);
+/** Per-tool checks for a read-only project role: Bash gated, project reads confined, writes denied. */
+export function awsReadOnlyToolChecks(projectDir: string): Record<string, ToolCheck> {
+  const inProject = (p: unknown): boolean => typeof p !== "string" || p === "" || p.startsWith(projectDir);
   return {
-    Bash: (input) => checkHalaloBash(String(input.command ?? "")),
+    Bash: (input) => checkAwsReadOnlyBash(String(input.command ?? "")),
     Read: (input) =>
-      inRepo(input.file_path) ? allow : deny(`reads are confined to ${repoDir}`),
-    Grep: (input) => (inRepo(input.path) ? allow : deny(`searches are confined to ${repoDir}`)),
-    Glob: (input) => (inRepo(input.path) ? allow : deny(`searches are confined to ${repoDir}`)),
+      inProject(input.file_path) ? allow : deny(`reads are confined to ${projectDir}`),
+    Grep: (input) => (inProject(input.path) ? allow : deny(`searches are confined to ${projectDir}`)),
+    Glob: (input) => (inProject(input.path) ? allow : deny(`searches are confined to ${projectDir}`)),
     // Write is confined to the exports dir so the agent can generate a CSV/report to attach,
     // without gaining write access to the source repo or the live instances. Absolute paths only.
     Write: (input) => {
       const p = input.file_path;
       if (typeof p !== "string" || !p) return deny("Write needs a file_path");
       const real = resolve(p);
-      return real === HALALO_EXPORTS_DIR || real.startsWith(HALALO_EXPORTS_DIR + sep)
+      return real === EXPORTS_DIR || real.startsWith(EXPORTS_DIR + sep)
         ? allow
-        : deny(`writes are confined to ${HALALO_EXPORTS_DIR} — generate exports there, then attach_file them`);
+        : deny(`writes are confined to ${EXPORTS_DIR} — generate exports there, then attach_file them`);
     },
     WebSearch: () => allow,
     WebFetch: () => allow,

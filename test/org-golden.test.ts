@@ -11,14 +11,14 @@ import { loadRegistry } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
-import { useHalaloFixtureDir } from "./fixtures/halalo-env.js";
+import { useClientFixtureDir } from "./fixtures/client-env.js";
 import type { ActionGate } from "../src/kernel/gate.js";
 
 const golden = JSON.parse(readFileSync("test/fixtures/org-golden.json", "utf8")) as
   Record<string, { tools: string[]; permissionMode: string; maxTurns: number; guarded: boolean }>;
 
 describe("org golden surface", () => {
-  useHalaloFixtureDir();
+  useClientFixtureDir();
   const config = loadConfig(process.cwd());
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "golden-")), "AIOS");

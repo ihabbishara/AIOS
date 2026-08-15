@@ -4,12 +4,12 @@ import type { Label } from "./policy.js";
 import type { MemorySource, Domain } from "../memory/recall.js";
 
 /** A department's confidentiality label. Private-money → personal.finance; life → personal.tasks;
- *  client work → client.halalo; everything else is internal org traffic. */
+ *  client work → client.external; everything else is internal org traffic. */
 export function deptLabel(dept: string): Label {
   switch (dept) {
     case "finance": return "personal.finance";
     case "life": return "personal.tasks";
-    case "clients": return "client.halalo";
+    case "clients": return "client.external";
     default: return "org.internal";
   }
 }

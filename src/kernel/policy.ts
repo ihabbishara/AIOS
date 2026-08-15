@@ -2,7 +2,7 @@
 // mode-aware wrapper. Sibling of the gate: governs information flow, not effects (spec §10).
 export type Label =
   | "personal.finance" | "personal.email" | "personal.tasks" | "personal.calendar"
-  | "client.halalo" | "org.internal" | "shared";
+  | "client.external" | "org.internal" | "shared";
 export type Origin = "trusted" | "untrusted";
 export type Sink = string; // prefixed: recall-index | vault | brief | standup | chat:<o> | mail:<r> | prompt.system:<a> | prompt.context:<a> | file-export
 export type PolicyMode = "audit" | "enforce";
@@ -42,7 +42,7 @@ const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => b
   "personal.finance": (sink, agent) =>
     isPrimaryChat(sink) || (!!promptAgent(sink) && agentCleared("personal.finance", agent)),
   "personal.email": (sink) => sink === "prompt.context:speculate-email",
-  // life/clients standups + halalo brief mail: the "money wall" was finance-only, so these two
+  // life/clients standups + client brief mail: the "money wall" was finance-only, so these two
   // labels ride the brief/standup sinks (parity with pre-wall-deletion; the digest is goal
   // metadata, never personal_* or email bodies). Only personal.finance stays fully walled there.
   "personal.tasks": (sink, agent) =>
@@ -51,9 +51,9 @@ const POLICY_TABLE: Record<Label, (sink: Sink, agent?: CheckInput["agent"]) => b
   "personal.calendar": (sink, agent) =>
     sink === "brief" || sink === "recall-index" ||
     (!!promptAgent(sink) && (agentCleared("personal.calendar", agent) || isCoordinatorSink(sink))),
-  "client.halalo": (sink, agent) =>
+  "client.external": (sink, agent) =>
     sink === "file-export" || sink === "brief" || sink === "standup" ||
-    (!!promptAgent(sink) && agentCleared("client.halalo", agent)),
+    (!!promptAgent(sink) && agentCleared("client.external", agent)),
   "org.internal": (sink) => sink !== "file-export" && !(isChat(sink) && !isPrimaryChat(sink)),
 };
 

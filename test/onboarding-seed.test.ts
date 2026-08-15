@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { seedCapabilities } from "../src/onboarding/seed.js";
 
 let agentsDir: string;
@@ -43,14 +44,33 @@ describe("seedCapabilities", () => {
   });
 });
 
-// The catalog is tracked in BOTH places for now: templates/ is the product copy the seeder
-// plants into new installs, and agents/ is the one this repo's own org loads from. That
-// duplication exists only until agents/ becomes user data — at which point the agents/ copy
-// is deleted and this test goes with it. Until then they must not drift: editing one and
-// not the other silently changes what existing installs get versus what new ones are seeded.
+// The catalog is tracked in BOTH places: templates/ is the PRODUCT copy the seeder plants into
+// new installs, and agents/ is the one this repo's own org loads from. They were byte-identical
+// until a client-scoped row proved that wrong — a capability naming one operator's client is not
+// product data, and shipping it offered a stranger a capability whose guard wants an env var they
+// have no reason to own. So the operator's copy is now a SUPERSET: identical product rows, plus
+// whatever client rows this machine happens to run. Drift in the product rows is still a bug —
+// editing one and not the other silently changes what existing installs get versus new ones.
 describe("the two tracked catalogs", () => {
-  it("are byte-identical", () => {
-    expect(readFileSync("agents/_capabilities.yaml", "utf8"))
-      .toBe(readFileSync("templates/_capabilities.yaml", "utf8"));
+  const parse = (p: string) => parseYaml(readFileSync(p, "utf8")) as Record<string, { labels?: string[] }>;
+  const product = parse("templates/_capabilities.yaml");
+  const operator = parse("agents/_capabilities.yaml");
+  const isClientScoped = (d?: { labels?: string[] }) => (d?.labels ?? []).some((l) => l.startsWith("client."));
+
+  it("agree on every product capability", () => {
+    for (const [name, def] of Object.entries(product)) {
+      expect(operator[name], `${name} missing from agents/`).toBeDefined();
+      expect(operator[name], `${name} drifted between the two catalogs`).toEqual(def);
+    }
+  });
+
+  it("differ only by client-scoped rows", () => {
+    const extra = Object.keys(operator).filter((k) => !(k in product));
+    expect(extra.filter((k) => !isClientScoped(operator[k]))).toEqual([]);
+  });
+
+  // Non-vacuity: the product copy must never be the one carrying a client row.
+  it("keep client rows out of the product copy", () => {
+    expect(Object.entries(product).filter(([, d]) => isClientScoped(d)).map(([k]) => k)).toEqual([]);
   });
 });
