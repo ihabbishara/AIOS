@@ -40,7 +40,7 @@ import {
 import { listTemplates, loadTemplate } from "../onboarding/templates.js";
 import { provision } from "../onboarding/provision.js";
 import type { OrgProposal } from "../onboarding/proposal.js";
-import { loadRegistry } from "../agents/registry/loader.js";
+import { loadRegistry, isGuarded } from "../agents/registry/loader.js";
 import { listSkills } from "./skills-view.js";
 
 const MIME: Record<string, string> = {
@@ -288,7 +288,7 @@ export function startWebServer(
                   name: a.manifest.name, kind: "specialist",
                   title: a.manifest.title, description: a.role.description,
                   tools: a.role.allowedTools, permissionMode: a.role.permissionMode,
-                  skills: a.role.skills ?? [], guarded: !!a.role.toolChecks, cwd: a.role.cwd,
+                  skills: a.role.skills ?? [], guarded: isGuarded(registry, a.manifest.name), cwd: a.role.cwd,
                 })),
             ],
             playbooks: goals.listPlaybooks(),

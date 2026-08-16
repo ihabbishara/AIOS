@@ -241,6 +241,20 @@ export function capabilityTools(reg: LoadedRegistry, canonical: string): string[
   )];
 }
 
+/**
+ * Does a deterministic guard apply to this agent? Guards reach an agent by TWO routes and
+ * resolveAgent honours both: role.toolChecks (the extras shim) or any capability carrying a
+ * `guard:`. Asking only the first is how /api/state came to report every capability-guarded
+ * agent as unguarded — on this org that is all four of them, since nothing sets toolChecks.
+ * One helper so the cockpit and the golden generator cannot answer this differently.
+ */
+export function isGuarded(reg: LoadedRegistry, canonical: string): boolean {
+  const def = reg.agents.get(canonical);
+  if (!def) return false;
+  return !!def.role.toolChecks
+    || def.capabilities.some((c) => reg.capabilities.get(c)?.guard !== undefined);
+}
+
 /** Gate action-ceiling union for a department (dept defaults ∪ every member's capabilities). */
 export function departmentActions(reg: LoadedRegistry, deptName: string): string[] {
   const dept = reg.departments.get(deptName);

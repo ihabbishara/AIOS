@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
-import { loadRegistry } from "../src/agents/registry/loader.js";
+import { loadRegistry, isGuarded } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
@@ -37,7 +37,7 @@ for (const name of [...registry.agents.keys()].sort()) {
     tools: [...(r.options.allowedTools ?? [])].sort(),
     permissionMode: def.role.permissionMode,
     maxTurns: def.role.maxTurns,
-    guarded: def.capabilities.some((c) => registry.capabilities.get(c)?.guard !== undefined),
+    guarded: isGuarded(registry, name),
   };
 }
 

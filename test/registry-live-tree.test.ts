@@ -10,7 +10,7 @@ import { ActionGate } from "../src/kernel/gate.js";
 import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
-import { capabilityTools } from "../src/agents/registry/loader.js";
+import { capabilityTools, isGuarded } from "../src/agents/registry/loader.js";
 import { NAMED_GUARDS } from "../src/agents/guards/index.js";
 import { useClientFixtureDir } from "./fixtures/client-env.js";
 
@@ -57,6 +57,18 @@ describe("live agents/ tree", () => {
     expect(named.fallback).toBe("deny");
     expect(named.checks.Bash).toBeDefined();
     expect(halalo.role.systemPrompt).toContain("Exports directory");
+  });
+
+  // The cockpit asked `!!role.toolChecks`, which is false for EVERY agent on this org — guards
+  // arrive by capability here — so /api/state reported all four guarded agents as unguarded.
+  // isGuarded honours both routes, the way resolveAgent does.
+  it("isGuarded sees capability guards, not just the role-level shim", () => {
+    const guarded = [...reg.agents.keys()].filter((n) => isGuarded(reg, n)).sort();
+    expect(guarded).toEqual(["atlas", "halalo", "juno", "minos"]);
+    // The bug in one line: none of them carry role.toolChecks, so the old test was always false.
+    expect(guarded.every((n) => !reg.agents.get(n)!.role.toolChecks)).toBe(true);
+    expect(isGuarded(reg, "vulcan")).toBe(false);
+    expect(isGuarded(reg, "nobody")).toBe(false);
   });
 
   it("jasmine prompt names every lifeops tool", () => {
