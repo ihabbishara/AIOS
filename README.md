@@ -146,7 +146,8 @@ Create an app at api.slack.com → enable **Socket Mode** → app-level token wi
 ```bash
 npm run dev          # local REPL channel (plus any configured bots)
 npm test             # engine + playbook unit tests
-npx tsx scripts/smoke.ts "hello"   # one-shot smoke test
+npx tsx scripts/smoke.ts "hello"   # one-shot smoke test against a RUNNING daemon
+npx tsx scripts/smoke.ts --target athena "who are you?"   # address one agent
 ```
 
 ### Run as a daemon (launchd)
