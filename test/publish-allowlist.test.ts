@@ -56,8 +56,15 @@ describe("npm publish allowlist", () => {
   });
 
   // Product data the runtime cannot boot without: seedCapabilities() throws when it is missing.
-  it("still ships the capability catalog and the runtime entrypoint", () => {
+  // Unconditional — this one ships straight from the source tree.
+  it("still ships the capability catalog", () => {
     expect(files).toContain("templates/_capabilities.yaml");
+  });
+
+  // dist/ is build output, so a fresh clone legitimately has none and npm pack cannot include
+  // what is not there. Asserting it unconditionally made the suite fail on any unbuilt checkout
+  // — caught by running this suite inside a clone, where it is the only thing that failed.
+  it.skipIf(!existsSync(join(repoRoot, "dist")))("ships the runtime entrypoint once built", () => {
     expect(files).toContain("dist/src/index.js");
   });
 }, 60_000);

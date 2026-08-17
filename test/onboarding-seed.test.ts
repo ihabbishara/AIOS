@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { seedCapabilities } from "../src/onboarding/seed.js";
+import { FIXTURE_AGENTS_DIR } from "./fixtures/org.js";
 
 let agentsDir: string;
 let templatesDir: string;
@@ -44,17 +45,16 @@ describe("seedCapabilities", () => {
   });
 });
 
-// The catalog is tracked in BOTH places: templates/ is the PRODUCT copy the seeder plants into
-// new installs, and agents/ is the one this repo's own org loads from. They were byte-identical
-// until a client-scoped row proved that wrong — a capability naming one operator's client is not
-// product data, and shipping it offered a stranger a capability whose guard wants an env var they
-// have no reason to own. So the operator's copy is now a SUPERSET: identical product rows, plus
-// whatever client rows this machine happens to run. Drift in the product rows is still a bug —
-// editing one and not the other silently changes what existing installs get versus new ones.
+// templates/ is the PRODUCT catalogue the seeder plants into new installs. It used to be
+// byte-compared against agents/_capabilities.yaml, but agents/ is user data now and absent from a
+// fresh clone — that comparison failed the moment it was cloned. The tracked pair is now the
+// product copy and the SUITE's fixture copy, and the drift risk is the same one: editing the
+// product catalogue without the fixture changes what new installs get versus what the tests
+// assert, silently. Client-scoped rows still belong in neither.
 describe("the two tracked catalogs", () => {
   const parse = (p: string) => parseYaml(readFileSync(p, "utf8")) as Record<string, { labels?: string[] }>;
   const product = parse("templates/_capabilities.yaml");
-  const operator = parse("agents/_capabilities.yaml");
+  const operator = parse(join(FIXTURE_AGENTS_DIR, "_capabilities.yaml"));
   const isClientScoped = (d?: { labels?: string[] }) => (d?.labels ?? []).some((l) => l.startsWith("client."));
 
   it("agree on every product capability", () => {
