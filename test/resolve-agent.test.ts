@@ -9,19 +9,18 @@ import { loadRegistry } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
-import { useClientFixtureDir } from "./fixtures/client-env.js";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "./fixtures/org.js";
 import type { ActionGate } from "../src/kernel/gate.js";
 
 const golden = JSON.parse(readFileSync("test/fixtures/org-golden.json", "utf8")) as
   Record<string, { tools: string[] }>;
 
 function setup() {
-  useClientFixtureDir();
   const config = loadConfig(process.cwd());
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ra-")), "AIOS");
   const gate = { propose: async () => ({}) } as unknown as ActionGate;
-  const registry = loadRegistry("agents", "playbooks", buildExtras(config), () => {});
+  const registry = loadRegistry(FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR, buildExtras(config), () => {});
   return { registry, store, config,
     resolve: makeResolveAgent({ registry, store, vault, gate, config, categorize: async () => "other" as const }) };
 }
@@ -107,11 +106,13 @@ describe("resolveAgent", () => {
     expect(after).not.toContain(victim);
   });
 
-  it("guards survive resolveAgent: halalo keeps its readonly guard, vulcan sandbox confines", () => {
+  it("guards survive resolveAgent: a capability-guarded agent keeps its guard, vulcan sandbox confines", () => {
     const { resolve } = setup();
-    const halalo = resolve("halalo", origin)!;
-    expect(halalo.options.canUseTool).toBeTruthy();
-    expect(halalo.options.hooks?.PreToolUse?.length).toBeGreaterThan(0);
+    // atlas carries ops-guardrail; the client agent that used to stand here is no longer in the
+    // fixture org, but the property under test is "a capability guard survives resolution".
+    const atlas = resolve("atlas", origin)!;
+    expect(atlas.options.canUseTool).toBeTruthy();
+    expect(atlas.options.hooks?.PreToolUse?.length).toBeGreaterThan(0);
     // sandbox dept without a workspace → advisory confinement (permissionMode default)
     const vulcan = resolve("vulcan", origin)!;
     expect(vulcan.options.permissionMode).toBe("default");

@@ -1,5 +1,6 @@
 // test/code-integration.test.ts
 import { describe, it, expect, vi } from "vitest";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "./fixtures/org.js";
 import { mkdtempSync, mkdirSync, readdirSync, writeFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -33,7 +34,7 @@ describe("code-analyze end-to-end (stubbed model)", () => {
     const store = new Store(":memory:");
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "vault-")), "AIOS");
     vault.init();
-    const reg = loadRegistry(join(process.cwd(), "agents"), join(process.cwd(), "playbooks"));
+    const reg = loadRegistry(FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR);
 
     const bus = new EventBus(store);
     const registry = new ExecutorRegistry();

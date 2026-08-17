@@ -1,5 +1,6 @@
 // test/agents-admin.test.ts — hire/fire builders + loader archive-skip (spec 2026-07-20).
 import { describe, it, expect } from "vitest";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "./fixtures/org.js";
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ import { parse as parseYaml } from "yaml";
 import { agentSchema } from "../src/agents/registry/types.js";
 import { validateHire, validateProposalAgent, renderAgentYaml, retireBlockers, listRetired, validateRehire } from "../src/web/agents-admin.js";
 
-const reg = loadRegistry("agents", "playbooks", extras(), () => {});
+const reg = loadRegistry(FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR, extras(), () => {});
 const good = {
   name: "test-scout", department: "research", kind: "worker" as const, title: "Scout",
   charter: "Scouts things.", persona: "Terse and curious.", prompt: "You are a scout. Report findings.",
@@ -98,7 +99,7 @@ describe("retireBlockers", () => {
 describe("loader skips _-prefixed dirs (the _retired/ archive)", () => {
   it("a manifest inside agents/_retired/ is not registered", () => {
     const tmp = mkdtempSync(join(tmpdir(), "agents-"));
-    cpSync("agents", tmp, { recursive: true });
+    cpSync(FIXTURE_AGENTS_DIR, tmp, { recursive: true });
     mkdirSync(join(tmp, "_retired"), { recursive: true });
     writeFileSync(join(tmp, "_retired", "zz-ghost.yaml"), [
       "name: zz-ghost", "title: Ghost", "department: engineering",
@@ -146,7 +147,7 @@ describe("listRetired / validateRehire", () => {
     expect(rows.find((r) => r.name === "broken")?.error).toBeTruthy();
   });
   it("validateRehire: absent archive file → 404", () => {
-    expect(validateRehire("ghost", archive, "agents", reg)).toMatchObject({ ok: false, status: 404 });
+    expect(validateRehire("ghost", archive, FIXTURE_AGENTS_DIR, reg)).toMatchObject({ ok: false, status: 404 });
   });
   it("validateRehire: name collision with an active agent → 400", () => {
     writeFileSync(join(archive, "athena.yaml"), renderAgentYaml({ ...good, name: "athena", department: "engineering" }));

@@ -1,5 +1,6 @@
 // test/capabilities.test.ts
 import { describe, it, expect } from "vitest";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "./fixtures/org.js";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -132,14 +133,14 @@ memoDomain: general
     expect([...reg.capabilities.keys()].some((k) => k.startsWith("__legacy"))).toBe(false);
   });
 
-  it("live tree is fully v2: no __legacy shims, neo coordinates, critics inferred right", () => {
-    const reg = loadRegistry("agents", "playbooks", {}, () => {});
+  it("fixture org is fully v2: no __legacy shims, neo coordinates, critics inferred right", () => {
+    const reg = loadRegistry(FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR, {}, () => {});
     expect([...reg.capabilities.keys()].filter((k) => k.startsWith("__legacy"))).toEqual([]);
     expect(reg.coordinator).toBe("neo");
     expect(reg.agents.get("argus")!.kind).toBe("critic");
     expect(reg.agents.get("minos")!.kind).toBe("critic");
     expect(reg.agents.get("athena")!.kind).toBe("lead");
-    expect(reg.agents.get("halalo")!.kind).toBe("lead");
+    expect(reg.agents.get("clio")!.kind).toBe("lead");
     expect(reg.agents.get("vulcan")!.kind).toBe("worker");
   });
 

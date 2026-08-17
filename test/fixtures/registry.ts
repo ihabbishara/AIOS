@@ -1,14 +1,12 @@
-import { join } from "node:path";
 import { loadRegistry } from "../../src/agents/registry/loader.js";
 import { buildExtras } from "../../src/agents/registry/extras.js";
-import { useClientFixtureDir } from "./client-env.js";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "./org.js";
 import type { RoleDef } from "../../src/agents/roles/index.js";
 
 export function testRegistry() {
-  useClientFixtureDir();
   return loadRegistry(
-    join(process.cwd(), "agents"),
-    join(process.cwd(), "playbooks"),
+    FIXTURE_AGENTS_DIR,
+    FIXTURE_PLAYBOOKS_DIR,
     buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "IDAMA", financeMembers: [{ name: "Ihab" }] }),
   );
 }

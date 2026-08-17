@@ -2,6 +2,17 @@ node_modules/
 dist/
 data/
 .env
+
+# The user's org — created by the setup wizard, then edited by hiring and by the Org Architect.
+# It was tracked, which meant a fresh clone inherited the author's 17 agents; bootMode counts
+# manifests to detect a first run, so a cloner with a token booted straight into someone else's
+# staff and never saw the wizard. The org the SUITE asserts against is committed separately at
+# test/fixtures/org/, and templates/_capabilities.yaml is the product catalogue seeded in here
+# on first run (src/onboarding/seed.ts).
+#
+# Leading slash matters: a bare `agents/` matches at ANY depth and silently swallowed
+# test/fixtures/org/agents/ — the committed fixture the whole suite now reads.
+/agents/
 *.log
 .DS_Store
 ui/node_modules/

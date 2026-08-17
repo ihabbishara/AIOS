@@ -11,20 +11,19 @@ import { loadRegistry, isGuarded } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
-import { useClientFixtureDir } from "../test/fixtures/client-env.js";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "../test/fixtures/org.js";
 import type { ActionGate } from "../src/kernel/gate.js";
 
 // The client agent's surface depends on AIOS_CLIENT_AGENT/AIOS_CLIENT_DIR, and neither this
 // script nor vitest loads .env — so generating with an ambient shell produced a golden the suite
 // could not reproduce (or threw outright, since aws-readonly refuses to build without the dir).
 // Share ONE definition with the tests that read the fixture, so regeneration is deterministic.
-useClientFixtureDir();
 
 const config = loadConfig(process.cwd());
 const store = new Store(":memory:");
 const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "golden-")), "AIOS");
 const gate = { propose: async () => ({}) } as unknown as ActionGate;
-const registry = loadRegistry("agents", "playbooks", buildExtras(config), () => {});
+const registry = loadRegistry(FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR, buildExtras(config), () => {});
 const resolve = makeResolveAgent({ registry, store, vault, gate, config, categorize: async () => "other" as const });
 
 const origin = { channel: "web", chatId: "ui" };

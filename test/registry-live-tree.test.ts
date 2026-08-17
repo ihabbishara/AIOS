@@ -11,27 +11,22 @@ import { ExecutorRegistry } from "../src/kernel/actions.js";
 import { EventBus } from "../src/events.js";
 import { DEFAULT_POLICY } from "../src/kernel/trust.js";
 import { capabilityTools, isGuarded } from "../src/agents/registry/loader.js";
-import { NAMED_GUARDS } from "../src/agents/guards/index.js";
-import { useClientFixtureDir } from "./fixtures/client-env.js";
-
-useClientFixtureDir();
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR, FIXTURE_AGENT_COUNT, FIXTURE_DEPARTMENTS } from "./fixtures/org.js";
 
 const reg = loadRegistry(
-  join(process.cwd(), "agents"),
-  join(process.cwd(), "playbooks"),
+  FIXTURE_AGENTS_DIR,
+  FIXTURE_PLAYBOOKS_DIR,
   buildExtras({ vaultPath: "/tmp/v", vaultSubdir: "AIOS", financeCompany: "IDAMA", financeMembers: [{ name: "Ihab" }] }),
 );
 
 
-describe("live agents/ tree", () => {
-  // 17 since 2026-08-12: loom and weave were added to engineering through /api/org/grow — the
-  // first agents on this install the Org Architect wrote rather than a human. Bump deliberately,
-  // the way org-golden.json is regenerated: this count is here to catch an org that changed by
-  // accident, so it is only ever moved alongside a change that was meant.
-  it("loads 6 departments and 17 agents", () => {
-    expect([...reg.departments.keys()].sort()).toEqual(
-      ["clients", "engineering", "finance", "life", "operations", "research"]);
-    expect(reg.agents.size).toBe(17);
+describe("fixture org", () => {
+  // Pinned against test/fixtures/org/, not the operator's live tree — so this count moves only
+  // when someone edits the fixture, never because a human hired an agent on one machine. That
+  // coupling is why this used to carry a note explaining why the number was 17 *that week*.
+  it("loads the fixture's departments and agents", () => {
+    expect([...reg.departments.keys()].sort()).toEqual(FIXTURE_DEPARTMENTS);
+    expect(reg.agents.size).toBe(FIXTURE_AGENT_COUNT);
   });
 
   it("legacy @role aliases resolve to mythic canonical names", () => {
@@ -49,22 +44,14 @@ describe("live agents/ tree", () => {
     })) expect(reg.agentOf.get(alias), alias).toBe(name);
   });
 
-  it("halalo carries the deterministic readonly guard via the halalo-aws capability", () => {
-    const halalo = reg.agents.get("halalo")!;
-    const guards = halalo.capabilities.map((c) => reg.capabilities.get(c)?.guard).filter(Boolean);
-    expect(guards).toContain("aws-readonly");
-    const named = NAMED_GUARDS["aws-readonly"]({ clientDir: "/tmp/h", vaultPath: "/tmp/v", vaultSubdir: "AIOS" });
-    expect(named.fallback).toBe("deny");
-    expect(named.checks.Bash).toBeDefined();
-    expect(halalo.role.systemPrompt).toContain("Exports directory");
-  });
-
-  // The cockpit asked `!!role.toolChecks`, which is false for EVERY agent on this org — guards
-  // arrive by capability here — so /api/state reported all four guarded agents as unguarded.
-  // isGuarded honours both routes, the way resolveAgent does.
+  // The cockpit asked `!!role.toolChecks`, which is false for EVERY agent here — guards arrive by
+  // capability — so /api/state reported every guarded agent as unguarded. isGuarded honours both
+  // routes, the way resolveAgent does. (The client agent that used to appear here carried the
+  // fourth guard, aws-readonly; its verdicts are covered directly in aws-readonly-guard.test.ts
+  // and its unconfigured throw in config.test.ts, so nothing lost coverage when it left.)
   it("isGuarded sees capability guards, not just the role-level shim", () => {
     const guarded = [...reg.agents.keys()].filter((n) => isGuarded(reg, n)).sort();
-    expect(guarded).toEqual(["atlas", "halalo", "juno", "minos"]);
+    expect(guarded).toEqual(["atlas", "juno", "minos"]);
     // The bug in one line: none of them carry role.toolChecks, so the old test was always false.
     expect(guarded.every((n) => !reg.agents.get(n)!.role.toolChecks)).toBe(true);
     expect(isGuarded(reg, "vulcan")).toBe(false);

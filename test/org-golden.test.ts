@@ -11,19 +11,18 @@ import { loadRegistry } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
 import { loadConfig } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
-import { useClientFixtureDir } from "./fixtures/client-env.js";
+import { FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR } from "./fixtures/org.js";
 import type { ActionGate } from "../src/kernel/gate.js";
 
 const golden = JSON.parse(readFileSync("test/fixtures/org-golden.json", "utf8")) as
   Record<string, { tools: string[]; permissionMode: string; maxTurns: number; guarded: boolean }>;
 
 describe("org golden surface", () => {
-  useClientFixtureDir();
   const config = loadConfig(process.cwd());
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "golden-")), "AIOS");
   const gate = { propose: async () => ({}) } as unknown as ActionGate;
-  const registry = loadRegistry("agents", "playbooks", buildExtras(config), () => {});
+  const registry = loadRegistry(FIXTURE_AGENTS_DIR, FIXTURE_PLAYBOOKS_DIR, buildExtras(config), () => {});
   const resolve = makeResolveAgent({ registry, store, vault, gate, config, categorize: async () => "other" as const });
   const origin = { channel: "web", chatId: "ui" };
 

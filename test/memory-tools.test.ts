@@ -14,7 +14,7 @@ describe("teachingDomain routing", () => {
 
 describe("memory tools registration", () => {
   it("the coordination capability includes recall/remember/forget", () => {
-    const src = readFileSync(new URL("../agents/_capabilities.yaml", import.meta.url), "utf8");
+    const src = readFileSync(new URL("../templates/_capabilities.yaml", import.meta.url), "utf8");
     expect(src).toContain("mcp__aios__recall");
     expect(src).toContain("mcp__aios__remember");
     expect(src).toContain("mcp__aios__forget");
