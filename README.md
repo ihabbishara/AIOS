@@ -13,9 +13,10 @@ persists everything as markdown in a local vault (`~/AIOS/workspace` — point
 
 ## The Staff
 
-14 named agents in 5 departments, loaded from YAML manifests in `agents/`. Client-facing agents
-are not part of this roster — they are operator config (see `AIOS_CLIENT_AGENT` in `.env.example`),
-so an install grows its own:
+Agents are YAML manifests in `agents/`, and that directory is **yours** — the setup wizard writes
+it on first run and nothing ships with it. So the table below is not what you receive; it is one
+worked example, the reference org the test suite runs against, to show the shape a staff takes.
+Your own comes out of the Org Architect interview and will have different names and departments:
 
 | Dept | Name | Title | Legacy alias |
 |---|---|---|---|
@@ -103,17 +104,39 @@ labels all go through the approval gate and earn autonomy like everything else.
 Polling: `AIOS_GMAIL_POLL_SECONDS` (120), `AIOS_CALENDAR_POLL_SECONDS` (300),
 `AIOS_MEETING_PING_MINUTES` (15), `AIOS_GMAIL_SKIP_CATEGORIES` (promotions,social).
 
-## Setup
+## Install
+
+Published as [`@ihabbishara/aios`](https://www.npmjs.com/package/@ihabbishara/aios). It is a
+daemon with its own database, vault and org, so give it a directory of its own rather than adding
+it to an existing project:
 
 ```bash
+mkdir my-aios && cd my-aios
+npm init -y && npm install @ihabbishara/aios
+cp node_modules/@ihabbishara/aios/.env.example .env
+npx aios
+```
+
+### Or from source
+
+```bash
+git clone <this repo> && cd AIOS
 npm install
 cd ui2 && npm install && npm run build && cd ..   # the browser UI, wizard included
 cp .env.example .env
+npm run dev
 ```
 
-A fresh install (no token, or no agents in `agents/`) boots into a browser setup wizard at
-`http://localhost:4280` — token first, org onboarding next (those steps land in the next
-phase). Run `npm run dev` and open it, or do the same by hand below.
+Either way, a fresh install boots into a browser setup wizard at `http://localhost:4280` — token
+first, then the Org Architect interviews you and provisions your own staff. You do not inherit
+anyone else's: `agents/` is your data, created on first run, and is not part of the package.
+
+Releasing a new version is documented in [docs/RELEASING.md](docs/RELEASING.md).
+
+## Configure
+
+The wizard walks you through the first two of these. Do them by hand instead if you prefer, or
+come back for Slack later — it is optional.
 
 ### 1. Claude subscription auth (no API key)
 
@@ -212,8 +235,9 @@ stages:
     maxRounds: 2
 ```
 
-Roles live in `src/agents/roles/index.ts` (system prompt + tool allowlist + permission
-mode per role).
+Roles are compiled from the agent manifests in `agents/<department>/<name>.yaml` — charter,
+persona, prompt, `kind`, and the `capabilities` that resolve into a tool allowlist and permission
+mode. `src/agents/roles/index.ts` holds only the `RoleDef` type they compile into.
 
 ## Skills
 
@@ -222,8 +246,8 @@ in `skills-plugin/skills/<name>/` with a `SKILL.md` (frontmatter `name` + `descr
 body = the playbook). The description sits in the agent's context; the full file loads
 only when relevant.
 
-To add one: create the folder + `SKILL.md`, then list its name in the role's `skills`
-array in `src/agents/roles/index.ts`. Shipped examples: `market-sizing`
+To add one: create the folder + `SKILL.md`, then list its name in the `skills:` array of the
+agent's own manifest (`agents/<department>/<name>.yaml`). Shipped examples: `market-sizing`
 (market-researcher), `design-tokens` (ui-ux-designer). Write-capable roles (developer, tester) run with bypassed permissions but
 are confined to the job's project directory under `~/projects`.
 

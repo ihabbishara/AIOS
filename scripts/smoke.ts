@@ -1,7 +1,7 @@
 /**
  * One-shot smoke test against the RUNNING daemon. Usage:
  *   npx tsx scripts/smoke.ts "your message"
- *   npx tsx scripts/smoke.ts --target halalo "run one read-only check"
+ *   npx tsx scripts/smoke.ts --target athena "who are you?"
  *
  * It used to boot the whole stack itself, but that wiring rotted: it built a JobManager from
  * src/engine/jobs.ts, which no longer exists, so the script had been unrunnable since the goal
