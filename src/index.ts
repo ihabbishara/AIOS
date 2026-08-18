@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // src/index.ts — mode branch only. The normal-mode boot lives in boot.ts so the
 // onboarding wizard can call it in-process after provisioning an org.
 import { loadConfig } from "./config.js";

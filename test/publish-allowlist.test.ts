@@ -13,7 +13,10 @@ import { parse as parseYaml } from "yaml";
 const repoRoot = join(import.meta.dirname, "..");
 
 const packedPaths = (): string[] => {
-  const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+  // --ignore-scripts: prepack builds the app, and vite writes its banner to STDOUT, which corrupts
+  // the JSON being parsed here. This asserts which files the allowlist SELECTS; rebuilding the
+  // world on every run is both wrong for that question and slow.
+  const out = execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],

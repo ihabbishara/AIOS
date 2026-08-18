@@ -1,12 +1,13 @@
 {
-  "name": "aios",
+  "name": "@ihabbishara/aios",
   "version": "0.1.0",
-  "private": true,
   "description": "Local multi-agent AI-OS daemon",
-  "main": "index.js",
-  "//files": "Allowlist, not a convenience: agents/ is the USER's org (and on this machine carries a client's agent + prompt), so it must never ship — the runtime creates it and seeds it from templates/. templates/_capabilities.yaml is product data seedCapabilities() throws without, so templates/ MUST ship. dist/src/ not dist/: tsconfig compiles test/ too, so dist/test/ holds client-named fixtures. NOTE: `files` OVERRIDES .gitignore, which is why gitignored dist/ ships at all.",
+  "main": "dist/src/index.js",
+  "bin": { "aios": "dist/src/index.js" },
+  "//files": "Allowlist, not a convenience. agents/ is the USER's org and is not even tracked any more — the runtime creates it on first run and seeds it from templates/, which is what makes a fresh install reach the setup wizard. templates/_capabilities.yaml is product data seedCapabilities() throws without, so templates/ MUST ship. dist/src/ not dist/: tsconfig compiles test/ too, so dist/test/ holds client-named fixtures. ui2/dist/ is the cockpit AND the setup wizard — both servers resolve assets from it, so without it a fresh install 404s on the very first screen. NOTE: `files` OVERRIDES .gitignore, which is why gitignored dist/ ships at all.",
   "files": [
     "dist/src/",
+    "ui2/dist/",
     "playbooks/",
     "templates/",
     "launchd/",
@@ -17,6 +18,8 @@
     "test": "vitest run",
     "//build": "Clean first: tsc never prunes outputs whose source was deleted or renamed, so dist/ accumulated modules that no longer exist in src/ (packs/, finance/agent, engine/executor, engine/jobs) and npm pack shipped them as dead code. A renamed guard kept its old client-named file alive there too.",
     "build": "rm -rf dist && tsc",
+    "//prepack": "npm pack ships whatever is on disk. Both build outputs are gitignored, so publishing without this produces a tarball that is stale or has no code at all — and looks successful.",
+    "prepack": "npm run build && npm --prefix ui2 run build",
     "dev": "tsx src/index.ts --cli",
     "start": "node dist/src/index.js",
     "onboarding:sandbox": "bash scripts/onboarding-sandbox.sh"
@@ -25,6 +28,9 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": { "node": ">=22.5.0" },
+  "repository": { "type": "git", "url": "git+https://github.com/ihabbishara/AIOS.git" },
+  "publishConfig": { "access": "public" },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.3",
