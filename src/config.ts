@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import "dotenv/config";
@@ -205,6 +206,29 @@ export function parseBindings(raw: string | undefined): Map<string, ChatBinding>
   return map;
 }
 
+// The installed package's own directory: nearest ancestor holding a package.json. Covers both
+// layouts -- dist/src/config.js once published, src/config.ts under vitest.
+function packageRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return dir;
+}
+
+// Assets that SHIP with the package (ui2/dist, templates, playbooks) live next to the code, not
+// in the consumer's cwd. A working-tree copy still wins so clones and dev builds are unchanged;
+// the fallback is what keeps `npm i @ihabbishara/aios` from 503ing on the setup wizard.
+function packageAsset(root: string, ...segments: string[]): string {
+  const local = join(root, ...segments);
+  if (existsSync(local)) return local;
+  const shipped = join(packageRoot(), ...segments);
+  return existsSync(shipped) ? shipped : local;
+}
+
 export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process.cwd()): Config {
   const home = homedir();
   const dataDir = process.env.AIOS_DATA_DIR ?? join(root, "data");
@@ -214,9 +238,9 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     vaultSubdir: process.env.AIOS_VAULT_SUBDIR ?? "AIOS",
     dataDir,
     dbPath: join(dataDir, "aios.sqlite"),
-    playbooksDir: process.env.AIOS_PLAYBOOKS_DIR ?? join(root, "playbooks"),
+    playbooksDir: process.env.AIOS_PLAYBOOKS_DIR ?? packageAsset(root, "playbooks"),
     agentsDir: env.AIOS_AGENTS_DIR ?? join(root, "agents"),
-    templatesDir: process.env.AIOS_TEMPLATES_DIR ?? join(root, "templates"),
+    templatesDir: process.env.AIOS_TEMPLATES_DIR ?? packageAsset(root, "templates"),
     projectsRoot,
     workspaceRoot: env.AIOS_WORKSPACE_ROOT ?? join(home, "projects", "AIOS-Workspace"),
     codeReadRoots: (env.AIOS_CODE_READ_ROOTS ?? projectsRoot)
@@ -239,7 +263,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     uiPort: Number(process.env.AIOS_UI_PORT ?? 4280),
     envPath: join(root, ".env"),
     // AIOS_UI_DIST overrides the served bundle path (relative to root, or absolute).
-    uiDist: process.env.AIOS_UI_DIST ? resolve(root, process.env.AIOS_UI_DIST) : join(root, "ui2", "dist"),
+    uiDist: process.env.AIOS_UI_DIST ? resolve(root, process.env.AIOS_UI_DIST) : packageAsset(root, "ui2", "dist"),
     actionExpiryMs: Number(process.env.AIOS_ACTION_EXPIRY_MS ?? 24 * 60 * 60 * 1000),
     trustPolicy: {
       graduationStreak: Number(process.env.AIOS_GRADUATION_STREAK ?? 10),
