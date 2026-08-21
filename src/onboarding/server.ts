@@ -875,7 +875,12 @@ export function startSetupServer(deps: SetupDeps): Server {
         }
         // Read before writeHead: a failed read after the head is sent cannot be answered.
         const body = readFileSync(target);
-        res.writeHead(200, { "Content-Type": MIME[extname(target)] ?? "text/html" });
+        // Same caching contract as the cockpit server: hashed assets immutable, the rest
+        // revalidates — a stale index.html after a rebuild would resurrect wizard bugs.
+        res.writeHead(200, {
+          "Content-Type": MIME[extname(target)] ?? "text/html",
+          "Cache-Control": target.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+        });
         res.end(body);
       } catch (err) {
         oops(err);

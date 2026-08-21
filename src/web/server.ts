@@ -1068,7 +1068,16 @@ export function startWebServer(
         return res.end("UI not built yet — run: cd ui2 && npm install && npm run build");
       }
       const data = readFileSync(filePath);
-      res.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream" });
+      // A ui2 build is a deploy — but only if the browser actually refetches. Without headers,
+      // heuristic caching kept serving a stale index.html (and so the OLD hashed bundle) after
+      // deploys. Hashed /assets/* are immutable by construction; everything else revalidates.
+      const cache = safe.startsWith("/assets/")
+        ? "public, max-age=31536000, immutable"
+        : "no-cache";
+      res.writeHead(200, {
+        "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream",
+        "Cache-Control": cache,
+      });
       return res.end(data);
     } catch (err) {
       log(`web error ${path}: ${(err as Error).message}`);
