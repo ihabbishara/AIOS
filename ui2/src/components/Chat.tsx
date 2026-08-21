@@ -88,7 +88,10 @@ function VoiceOrb({ recording, level, busy, secs, onClick }: {
   );
 }
 
-export function Chat({ state, events, target, setTarget, seed }: {
+export function Chat({ open, state, events, target, setTarget, seed }: {
+  /** Drawer visibility. The log mounts once at app boot behind a closed drawer, so
+   *  scroll-to-bottom has to key off this — there is no remount on open. */
+  open?: boolean;
   state: StateInfo | undefined;
   events: StoredEvent[];
   target: string;
@@ -134,6 +137,23 @@ export function Chat({ state, events, target, setTarget, seed }: {
   }, [log]);
   const [busy, setBusy] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
+
+  // Land on the newest message. Instant on open (smooth would animate past the whole
+  // backlog); smooth on appends while open, unless the OS asks for reduced motion.
+  // Also covers SSE-pushed messages, which previously never scrolled at all.
+  useEffect(() => {
+    const el = scroller.current;
+    const justOpened = open === true && !wasOpen.current;
+    wasOpen.current = open === true;
+    if (open !== true || !el) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    if (!justOpened && !reduced && typeof el.scrollTo === "function") {
+      try { el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); return; } catch { /* jsdom */ }
+    }
+    el.scrollTop = el.scrollHeight;
+  }, [open, log.length]);
 
   // Recording clock for the orb.
   useEffect(() => {
@@ -267,7 +287,7 @@ export function Chat({ state, events, target, setTarget, seed }: {
         ))}
       </div>
 
-      <div className="panel flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-3.5">
+      <div ref={scroller} data-testid="chat-scroller" className="panel flex-1 min-h-0 overflow-auto p-4 flex flex-col gap-3.5">
         {log.length === 0 && (
           <div className="text-dim text-[12px] m-auto text-center flex flex-col gap-1.5 items-center">
             <Avatar name={target} tone="agent" />
