@@ -84,7 +84,7 @@ export function App() {
         onPalette={() => setPaletteSignal((n) => n + 1)} onChat={() => setChatOpen((v) => !v)}
       />
       <div className={show("home")}><Home events={events} attention={attention} connected={connected} onOpenChat={openChat} /></div>
-      <div className={show("goals")}><Goals events={events} route={route} onOpenChat={openChat} /></div>
+      <div className={show("goals")}><Goals events={events} route={route} onOpenChat={openChat} connected={connected /* WS4 */} /></div>
       <div className={show("staff")}><Staff events={events} route={route} onOpenChat={openChat} /></div>
       <div className={show("mail")}><Mail events={events} route={route} /></div>
       <div className={show("schedule")}><Schedule /></div>

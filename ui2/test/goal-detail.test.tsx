@@ -1,4 +1,4 @@
-// ui2/test/goal-detail.test.tsx — detail view: thread, inspector, ask box.
+// ui2/test/goal-detail.test.tsx — detail view: map, inspector, ask box.
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { Goals } from "../src/views/Goals.js";
@@ -25,13 +25,13 @@ const DETAIL = {
 const route = { section: "goals" as const, parts: ["deck"], query: new URLSearchParams() };
 
 describe("Goal detail", () => {
-  it("renders the thread and the inspector for the node", async () => {
+  it("renders the map and the inspector for the node", async () => {
     stubApi({ "/api/goals/deck": DETAIL });
     render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
     expect(await screen.findByText("Render the deck")).toBeTruthy();
-    expect(screen.getAllByTestId("thread-row")).toHaveLength(1);
+    expect(screen.getAllByTestId("map-node")).toHaveLength(1);
     expect(screen.getByText("Build it")).toBeTruthy();   // inspector brief
-    expect(screen.getByText("22m")).toBeTruthy();        // thread elapsed
+    expect(screen.getByText("22m")).toBeTruthy();        // card elapsed
   });
 
   it("surfaces the question when a goal is awaiting the user", async () => {
@@ -50,12 +50,14 @@ describe("Goal detail", () => {
       nodes: [{ ...NODE, status: "failed", error: "ENOENT vault/notes" }],
     } });
     render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
-    expect(await screen.findByText("ENOENT vault/notes")).toBeTruthy();
+    // Twice over: the card carries the first line so the failure is visible
+    // without a click, and the inspector carries the whole thing.
+    expect(await screen.findAllByText("ENOENT vault/notes")).toHaveLength(2);
   });
 
   it("renders goal and node status on the clock axis, not Command Deck tone", async () => {
     // Distinct goal vs. node statuses, and neither equal to "done", so the
-    // header's status text can never collide with the inspector's/thread's —
+    // header's status text can never collide with the inspector's/card's —
     // each assertion below targets an unambiguous element.
     stubApi({ "/api/goals/deck": {
       ...DETAIL, status: "running",
@@ -66,7 +68,7 @@ describe("Goal detail", () => {
     const goalStatusEl = await screen.findByText("running");
     expect(goalStatusEl.className).toContain(CLOCK_TEXT[statusClock("running")]);
 
-    // "needs-review" renders twice (thread row + inspector); both must carry
+    // "needs-review" renders twice (map card + inspector); both must carry
     // the clock class — a reverted inspector would leave one without it.
     const nodeStatusEls = screen.getAllByText("needs-review");
     expect(nodeStatusEls.length).toBeGreaterThan(0);

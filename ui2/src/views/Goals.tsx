@@ -10,16 +10,17 @@ import { statusClock, CLOCK_TOKEN, CLOCK_TEXT, isMuted } from "../lib/goal-clock
 import { Button, Empty, PageHeader, SectionLabel } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
-import { Thread } from "./Thread.js";
+import { GoalMap } from "./goal/GoalMap.js";
 
-export function Goals({ events, route, onOpenChat }: {
+export function Goals({ events, route, onOpenChat, connected }: {
   events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void;
+  connected?: boolean;
 }) {
   const slug = route.section === "goals" ? route.parts[0] : undefined;
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="page">
-        {slug ? <GoalDetailView slug={slug} events={events} onOpenChat={onOpenChat} /> : <GoalList events={events} />}
+        {slug ? <GoalDetailView slug={slug} events={events} onOpenChat={onOpenChat} connected={connected} /> : <GoalList events={events} />}
       </div>
     </div>
   );
@@ -108,8 +109,9 @@ function GoalRow({ g }: { g: GoalView }) {
   );
 }
 
-function GoalDetailView({ slug, events, onOpenChat }: {
+function GoalDetailView({ slug, events, onOpenChat, connected }: {
   slug: string; events: StoredEvent[]; onOpenChat: (t: string, s?: string) => void;
+  connected?: boolean;
 }) {
   const { data: goal, error } = useLiveQuery(() => api.goal(slug), events, T.goals, [slug]);
   const [nodeKey, setNodeKey] = useState<string | null>(null);
@@ -198,7 +200,10 @@ function GoalDetailView({ slug, events, onOpenChat }: {
 
       <div className="flex gap-6 flex-col lg:flex-row">
         <div className="min-w-0">
-          <Thread nodes={goal.nodes} failedKey={failedKey} onSelect={setNodeKey} />
+          <GoalMap
+            nodes={goal.nodes} failedKey={failedKey} selectedKey={nodeKey}
+            onSelect={setNodeKey} live={connected}
+          />
         </div>
         {node && (
           <div className="panel lg:w-96 shrink-0 p-4 h-fit">
