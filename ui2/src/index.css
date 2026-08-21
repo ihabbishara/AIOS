@@ -89,16 +89,33 @@ kbd { @apply font-mono text-[10px] text-dim border border-line rounded px-1 py-p
 .breath { animation: breathe 2.4s ease-in-out infinite; }
 .approach { animation: breathe 2.6s ease-in-out infinite; }
 
-/* Deferred: `travel` (one mail.sent crossing between two agents, spec §5). The
-   cluster grid has no agent-to-agent geometry to draw a wire along yet, so the
-   CSS is NOT shipped — an animation nothing fires is the dead weight the
-   allowlist exists to catch. Re-add here and in the doctrine allowlist together. */
+/* Rest-pulse — the SSE link is alive while the org rests. Fires ONLY at the low
+   tide, where a still field would otherwise be indistinguishable from a dead one.
+   Opacity and scale, never offset: a dot never moves (lib/field.ts). Staggered per
+   dot in reading order, so the field ripples instead of blinking in unison. */
+@keyframes rest-pulse {
+  0%, 12%, 100% { opacity: 1; transform: none; }
+  6% { opacity: 0.45; transform: scale(1.35); }
+}
+.rest-pulse { animation: rest-pulse 12s ease-in-out infinite; }
+
+/* Travel — one mail.sent crossing between two agents (spec §5). Was deferred while
+   the cluster grid had no agent-to-agent geometry; Field now measures the dot
+   centres, so the mote rides a real arc between two real dots or is not drawn. */
+@keyframes travel {
+  from { offset-distance: 0%; opacity: 0.9; }
+  to { offset-distance: 100%; opacity: 0; }
+}
+.travel { animation: travel 2.8s ease-in-out 1 forwards; }
 
 /* Tide — the field/clock re-proportion. A transition, not a keyframe, so it
    cannot run on its own. */
 .tide { transition: height 1400ms cubic-bezier(0.4, 0, 0.2, 1); }
 
 @media (prefers-reduced-motion: reduce) {
-  .breathe, .breath, .approach, .arrive, .shimmer, .tick, .orb-ring { animation: none !important; }
+  .breathe, .breath, .approach, .arrive, .shimmer, .tick, .orb-ring, .rest-pulse, .travel { animation: none !important; }
   * { transition-duration: 0s !important; }
+  /* The mote IS its animation — frozen at 0% it is just a stray dot on the field,
+     so it goes away entirely rather than sitting on top of its sender. */
+  .travel { display: none !important; }
 }

@@ -58,3 +58,12 @@ export function fieldLayout(depts: OrgDepartmentView[]): Cluster[] {
 export function workingCount(depts: OrgDepartmentView[]): number {
   return depts.reduce((n, d) => n + d.agents.filter((a) => a.status === "working").length, 0);
 }
+
+/** Reading order of every dot on the field, for staggering an ambient animation so the
+ *  org ripples instead of blinking in unison. Derived FROM a layout rather than taking
+ *  the tide or any state — a stagger index cannot become a second way to move a dot. */
+export function dotOrdinals(clusters: Cluster[]): Map<string, number> {
+  const order = new Map<string, number>();
+  for (const c of clusters) for (const d of c.dots) order.set(d.name, order.size);
+  return order;
+}

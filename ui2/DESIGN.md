@@ -97,10 +97,21 @@ progress), `PageHeader`, `SectionLabel`, `Empty`, plus `TwoStepButton` and `Shee
 - **Motion is real or it doesn't exist.** Every animation on screen is bound to a fact:
   `breath` (an agent is mid-turn), `approach` (the single nearest upcoming anchor),
   `arrive` (a row newly entered), `shimmer` (a node is executing), `tick` (a count
-  changed), `orb-ring` (the mic is recording). Nothing animates for mood — an animation
-  with nothing to fire it gets deleted, not kept warm. At rest with an empty schedule, nothing on screen
-  moves. `prefers-reduced-motion` kills all of it, so every state must ALSO be legible in
+  changed), `orb-ring` (the mic is recording), `rest-pulse` (the SSE link is alive while
+  the org rests — low tide only, staggered per dot, opacity and scale so the "a dot never
+  moves" law still holds), `travel` (one `mail.sent` crossing between two agents, drawn
+  only when both dots have been measured). Nothing animates for mood — an animation
+  with nothing to fire it gets deleted, not kept warm. Every one of them is gated on the
+  live SSE flag: a moving screen on stale data is a lie, so a dead stream is a still one.
+  `prefers-reduced-motion` kills all of it, so every state must ALSO be legible in
   hue alone. New keyframes require amending the allowlist in `test/design-doctrine.test.ts`.
+- **Rest is a state, not an absence.** At the low tide the field keeps 32% of the height
+  (not 14%), keeps its department labels and agent names, and `--t-rest` sits at #323c58
+  rather than #28314a — a resting dot at 1.51:1 on the field simply vanished, which said
+  the org was switched off rather than standing by. The clock axis order still holds
+  (now > next > past > rest, pinned by test). The space the busy captions use is where
+  the rest offers render: what an idle agent could pick up, never a copy of what the Dock
+  already shows.
 
 ## 7. Data honesty
 

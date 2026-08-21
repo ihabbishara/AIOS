@@ -35,7 +35,11 @@
   --t-now: #7fd7a4;
   --t-past: #38624e;
   --t-next: #8fb4ff;
-  --t-rest: #28314a;
+  /* Rest is where the org spends most of its life, so it has to read as standing by
+     rather than as switched off. At #28314a a resting dot sat at 1.51:1 on the field
+     and vanished; this holds the axis (still quieter than --t-past) while staying
+     visible at the low tide, where these dots are most of what is on screen. */
+  --t-rest: #323c58;
 }
 :root[data-theme="light"] {
   --t-bg: #f4f4f2;

@@ -9,15 +9,20 @@ import { useLiveQuery, useFetch } from "../hooks.js";
 import { T } from "../lib/topics.js";
 import { usd } from "../lib/format.js";
 import { fieldLayout, workingCount } from "../lib/field.js";
+import { buildOffers, type Offer } from "../lib/offers.js";
 import { clockMarks } from "../lib/clock.js";
+import { navigate } from "../lib/router.js";
 import { useTide } from "../lib/tide.js";
 import { Field } from "./home/Field.js";
 import { Clock } from "./home/Clock.js";
 import { Dock } from "./home/Dock.js";
 import { QueueSheet } from "./home/QueueSheet.js";
 
-/** Field / clock split per tide level (spec §6). The two always sum to 80. */
-const SPLIT = { high: [68, 12], mid: [50, 30], low: [14, 66] } as const;
+/** Field / clock split per tide level (spec §6). The two always sum to 80.
+ *  Low used to be [14, 66], which squeezed the org into a strip and handed two thirds
+ *  of the screen to an empty day. Rest is a state the org spends most of its time in,
+ *  so it gets a body worth looking at — and room for what an idle agent could do. */
+const SPLIT = { high: [68, 12], mid: [50, 30], low: [32, 48] } as const;
 
 const COUNT = ["Nothing", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 const spell = (n: number) => COUNT[n] ?? String(n);
@@ -47,6 +52,10 @@ export function Home({ events, attention, connected, onOpenChat }: {
   const { data: schedule } = useLiveQuery(() => api.schedule(), events, T.schedule);
   const { data: budget } = useLiveQuery(() => api.budget(), events, T.budget);
   const { data: mine } = useLiveQuery(() => api.mailMine(), events, T.agentMail);
+  // Both feed the rest offers only. Undefined (in flight, or the read failed) makes an
+  // agent offer nothing rather than claim it has nothing to pick up.
+  const { data: goals } = useLiveQuery(() => api.goals(), events, T.goals);
+  const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
   // Uptime only ever grows, so no event invalidates it — it rides the 30s tick.
   const { data: health } = useFetch(() => api.health(), [Math.floor(now.getTime() / 30_000)]);
 
@@ -65,6 +74,14 @@ export function Home({ events, attention, connected, onOpenChat }: {
   const marks = useMemo(() => (schedule ? clockMarks(schedule, now) : []), [schedule, now]);
   const level = useTide(working);
   const [fieldPct, clockPct] = SPLIT[level];
+  const offers = useMemo(() => buildOffers({
+    org: org ?? [],
+    goals,
+    unreadByAgent: unread?.byAgent,
+    attention: attention ?? [],
+    today: now.toISOString().slice(0, 10),
+    now: now.getTime(),
+  }), [org, goals, unread, attention, now]);
 
   // A fresh /api/attention read is the truth — drop optimistic tombstones it no longer lists.
   useEffect(() => {
@@ -98,6 +115,14 @@ export function Home({ events, attention, connected, onOpenChat }: {
     } finally {
       mark(setBusy, item.id, false);
     }
+  };
+
+  // An offer is a sentence an agent said, so taking it up goes where that sentence
+  // points: at the artifact it named, or at the agent itself with the work already
+  // typed. Never a silent mutation — nothing here is blocking anyone.
+  const takeOffer = (o: Offer) => {
+    if ("nav" in o.action) navigate(o.action.nav);
+    else onOpenChat(o.action.chat.target, o.action.chat.seed);
   };
 
   // The brief opens in the canvas, which now lives inside the sheet — so opening
@@ -175,9 +200,18 @@ export function Home({ events, attention, connected, onOpenChat }: {
         </div>
       </div>
 
-      {/* min-h floors the low tide: 14% of a short viewport clips the compressed grid. */}
-      <div className="tide overflow-hidden min-h-[92px]" style={{ height: `${fieldPct}%` }}>
-        <Field clusters={clusters} level={level} live={connected} />
+      {/* min-h floors the low tide: a percentage of a short viewport clips the grid.
+          Raised with the rest state — the low tide now carries labels, names and the
+          offers strip, none of which fitted in 92px. */}
+      <div className="tide overflow-hidden min-h-[150px]" style={{ height: `${fieldPct}%` }}>
+        <Field
+          clusters={clusters}
+          level={level}
+          live={connected}
+          offers={offers}
+          onOffer={takeOffer}
+          events={events}
+        />
       </div>
       <div className="tide overflow-hidden" style={{ height: `${clockPct}%` }}>
         <Clock marks={marks} nowMinutes={now.getHours() * 60 + now.getMinutes()} live={connected} />

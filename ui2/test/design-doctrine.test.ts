@@ -42,6 +42,8 @@ describe("design doctrine (DESIGN.md)", () => {
       "shimmer",    // a node is executing
       "tick",       // a count changed
       "orb-pulse",  // the mic is recording
+      "rest-pulse", // the SSE link is alive while the org rests (low tide only)
+      "travel",     // one mail.sent crossing between two agents
     ]);
     const css = readFileSync(join(SRC, "index.css"), "utf8");
     const found = [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]);

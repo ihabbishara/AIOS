@@ -38,10 +38,44 @@ describe("Field", () => {
     expect(container.querySelectorAll(".bg-rest")).toHaveLength(1);
   });
 
-  it("hides labels at the low tide but keeps every dot mounted", () => {
+  it("keeps every label legible at the low tide — at rest the names ARE the content", () => {
+    // These used to collapse to opacity-0 h-0, which left the low tide as a field of
+    // anonymous dots: a chart OF a company rather than the company.
     const { container } = render(<Field clusters={clusters} level="low" live={true} />);
     expect(container.querySelectorAll("[data-dot]")).toHaveLength(2);
-    expect(container.querySelector("[data-labels]")?.className).toContain("opacity-0");
+    expect(container.querySelector("[data-labels]")?.className).not.toContain("opacity-0");
+    expect(screen.getByText("engineering")).toBeTruthy();
+    expect(screen.getByText("vulcan")).toBeTruthy();
+  });
+
+  it("pulses the resting dots only at the low tide, and only while the stream is live", () => {
+    const low = render(<Field clusters={clusters} level="low" live={true} />);
+    // One of the two rests; the working dot breathes instead.
+    expect(low.container.querySelectorAll(".rest-pulse")).toHaveLength(1);
+    cleanup();
+
+    const dead = render(<Field clusters={clusters} level="low" live={false} />);
+    expect(dead.container.querySelectorAll(".rest-pulse")).toHaveLength(0);
+    cleanup();
+
+    // At high tide the dots are not the whole screen, and an ambient pulse there
+    // competes with the one animation that means something: an agent mid-turn.
+    const high = render(<Field clusters={clusters} level="high" live={true} />);
+    expect(high.container.querySelectorAll(".rest-pulse")).toHaveLength(0);
+  });
+
+  it("staggers the pulse in fieldLayout order, so the field ripples rather than blinks", () => {
+    const resting = fieldLayout([
+      dept("engineering", [card("atlas", "idle"), card("vulcan", "idle")]),
+      dept("research", [card("clio", "idle")]),
+    ]);
+    const { container } = render(<Field clusters={resting} level="low" live={true} />);
+    const delays = [...container.querySelectorAll<HTMLElement>(".rest-pulse")]
+      .map((el) => parseFloat(el.style.animationDelay));
+    expect(delays).toHaveLength(3);
+    for (let i = 1; i < delays.length; i++) {
+      expect(delays[i], `dot ${i} must lag dot ${i - 1}`).toBeGreaterThan(delays[i - 1]);
+    }
   });
 
   it("shows a private agent — the owner's own body is not partial", () => {
