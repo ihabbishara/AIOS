@@ -104,22 +104,50 @@ twice that.
 `npm publish --dry-run` validates the tarball but stops short of the `PUT`, so it never exercises
 the 2FA gate. It cannot tell you the credential works.
 
-What it also cannot tell you is whether the package *runs*. Do this instead — it is the check that
-would have caught the missing UI:
+What it also cannot tell you is whether the package *runs*. And there is a wrong way to check that,
+which 0.1.0 shipped through: extracting the tarball and booting **inside** it.
+
+```bash
+cd /tmp/pkgtest/package && node dist/src/index.js     # DON'T -- proves nothing
+```
+
+`buildConfig` resolves paths against `process.cwd()`. Booting from inside the package makes cwd the
+package root, which is the one layout where a cwd-relative asset path resolves by accident. Every
+shipped asset appears to work and then does not for a single real user. 0.1.0 passed this check and
+still answered `503 UI not built yet` on the first screen of onboarding, because a real install puts
+cwd in the *consumer's* project, where `ui2/dist` does not exist.
+
+Install it the way a stranger would instead — a scratch project, cwd outside the package:
 
 ```bash
 npm pack --pack-destination /tmp
-mkdir -p /tmp/pkgtest && tar -xzf /tmp/*.tgz -C /tmp/pkgtest
-ln -s "$PWD/node_modules" /tmp/pkgtest/package/node_modules
-cd /tmp/pkgtest/package
+mkdir -p /tmp/pkgtest && cd /tmp/pkgtest && npm init -y >/dev/null
+npm install /tmp/ihabbishara-aios-<version>.tgz          # resolves deps for real
 env -u CLAUDE_CODE_OAUTH_TOKEN AIOS_UI_PORT=4392 \
     AIOS_DATA_DIR=/tmp/pkgtest/data AIOS_VAULT_PATH=/tmp/pkgtest/vault \
-    node dist/src/index.js
+    node node_modules/.bin/aios
 ```
 
 Expect `setup mode: open http://localhost:4392 to begin onboarding`, and expect `/`, the JS bundle
 and the CSS bundle to all return 200. The isolated port, data dir and vault matter — without them
 you will collide with the running daemon or write into your real workspace.
+
+Then confirm the split that the accidental-resolution bug hides, because a 200 alone does not prove
+the paths are right — only that they happened to resolve:
+
+```bash
+node --input-type=module -e "
+import { loadConfig } from '@ihabbishara/aios/dist/src/config.js';
+const c = loadConfig(process.cwd());
+console.log(c.uiDist, c.templatesDir, c.playbooksDir);   // -> node_modules/@ihabbishara/aios/...
+console.log(c.agentsDir, c.dataDir, c.envPath);          // -> the consumer's cwd
+"
+```
+
+Shipped assets must resolve **into the package**; user data must resolve **into the cwd**. Anything
+added to the `files` allowlist has to go through `packageAsset()` in `src/config.ts` or it will
+repeat the 0.1.0 failure. `test/config-ui-dist.test.ts` pins both halves — note that its original
+version asserted the *broken* cwd-relative behaviour, which is part of why the bug survived review.
 
 ## Publishing
 
