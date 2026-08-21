@@ -54,4 +54,15 @@ describe("Reader", () => {
     render(<Reader file="r.md" content={MD} path="/vault/goals/g1/r.md" onClose={() => {}} />);
     expect(screen.getByTitle("/vault/goals/g1/r.md")).toBeTruthy();
   });
+
+  it("frontmatter never becomes a heading — it folds into a collapsed metadata strip", () => {
+    const doc = `---\ncreated: "2026-08-19"\nrole: "clio"\nobjections: "A very long critic paragraph."\n---\n\nDone. The deliverable is written.\n\n## What happened\n`;
+    render(<Reader file="report.md" content={doc} onClose={() => {}} />);
+    // the ONLY h2 is the document's own — the shipped bug rendered the whole block as one
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["What happened"]);
+    expect(screen.queryByText(/A very long critic paragraph/)).toBeNull(); // collapsed
+    fireEvent.click(screen.getByText(/document metadata · 3 fields/));
+    expect(screen.getByText("A very long critic paragraph.")).toBeTruthy();
+    expect(screen.getByText("clio")).toBeTruthy();
+  });
 });

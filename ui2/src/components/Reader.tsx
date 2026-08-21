@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { splitFrontmatter } from "../lib/frontmatter.js";
 
 const WIDTHS = ["max-w-2xl", "max-w-4xl", "max-w-none"] as const;
 const WIDTH_LABEL = ["narrow", "wide", "full"];
@@ -34,6 +35,9 @@ export function Reader({ file, content, path, onClose }: {
   }, [onClose]);
 
   const markdown = /\.(md|markdown)$/i.test(file);
+  // Vault artifacts open with YAML frontmatter; rendered raw, its closing --- turns the whole
+  // block into a giant setext heading. The body is the document; provenance folds away.
+  const { meta, body } = markdown ? splitFrontmatter(content) : { meta: null, body: content };
   const copyPath = () => {
     if (!path) return;
     void navigator.clipboard?.writeText(path).then(() => {
@@ -69,11 +73,37 @@ export function Reader({ file, content, path, onClose }: {
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className={`mx-auto px-6 py-8 ${WIDTHS[prefs.width]} ${SIZES[prefs.size]}`}>
+          {meta && <MetaStrip meta={meta} />}
           {markdown
-            ? <div className="reader-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>
-            : <pre className="font-mono text-[0.85em] whitespace-pre-wrap">{content}</pre>}
+            ? <div className="reader-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown></div>
+            : <pre className="font-mono text-[0.85em] whitespace-pre-wrap">{body}</pre>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Frontmatter as a quiet, collapsed provenance strip — who wrote this, for which node, with
+ *  what reservations — instead of a screenful of bold heading. Closed by default: the reader
+ *  came for the document. */
+function MetaStrip({ meta }: { meta: Array<{ key: string; value: string }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-6 border border-line rounded-md" data-testid="meta-strip">
+      <button onClick={() => setOpen((v) => !v)}
+        className="label hover:text-fg px-3 py-2 w-full text-left">
+        {open ? "▾" : "▸"} document metadata · {meta.length} field{meta.length === 1 ? "" : "s"}
+      </button>
+      {open && (
+        <dl className="px-3 pb-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+          {meta.map((m) => (
+            <div key={m.key} className="contents">
+              <dt className="font-mono text-[10.5px] text-dim pt-0.5">{m.key}</dt>
+              <dd className="text-[12px] text-fg whitespace-pre-wrap break-words min-w-0">{m.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
