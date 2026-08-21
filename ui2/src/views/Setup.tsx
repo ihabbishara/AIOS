@@ -3,13 +3,14 @@
 // every transition comes back from the daemon. The last one is also the port handover, which is
 // why this shell, and not the screen that triggers it, is where the UI token is stored.
 import { useEffect, useRef, useState } from "react";
-import { api, setToken, type AdvanceResult, type FirstJobStatus, type OrgProposalView } from "../api.js";
+import { api, setToken, type AdvanceResult, type ConnectStatus, type FirstJobStatus, type OrgProposalView } from "../api.js";
 import { Button } from "../components/ui.js";
 import { Thread } from "./Thread.js";
+import { ImageCard, SlackCard, TelegramCard } from "./ConnectCards.js";
 
-const STEPS = ["welcome", "auth", "workspace", "interview", "review", "provision", "first-job", "done"];
+const STEPS = ["welcome", "auth", "workspace", "connect", "interview", "review", "provision", "first-job", "done"];
 const LABELS: Record<string, string> = {
-  welcome: "Welcome", auth: "Claude account", workspace: "Workspace", interview: "Interview",
+  welcome: "Welcome", auth: "Claude account", workspace: "Workspace", connect: "Connect", interview: "Interview",
   review: "Review org", provision: "Provision", "first-job": "First job", done: "Done",
 };
 
@@ -39,6 +40,7 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
       {step === "welcome" && <Welcome onNext={onStepChange} />}
       {step === "auth" && <Auth onNext={onStepChange} />}
       {step === "workspace" && <Workspace onNext={onStepChange} />}
+      {step === "connect" && <Connect onNext={onStepChange} />}
       {step === "interview" && <Interview onNext={onStepChange} />}
       {step === "review" && <Review onNext={onStepChange} />}
       {step === "first-job" && <FirstJob onDone={finish} />}
@@ -57,7 +59,7 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
   );
 }
 
-/** Where you are in the eight steps — dim ahead, plain behind, bright here. */
+/** Where you are in the nine steps — dim ahead, plain behind, bright here. */
 function Rail({ step }: { step: string }) {
   const at = STEPS.indexOf(step);
   return (
@@ -274,6 +276,56 @@ function Gallery({ onNext }: { onNext: (s: string) => void }) {
           </button>
         ))}
         {rows.length === 0 && !error && <div className="text-dim text-[12px]">Loading templates…</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Connect step — every card optional, none advances; "Connect later" and "Continue" are the
+ *  same generic advance. Placed before the interview so proposal creation can see a Gemini key
+ *  (the media-gen grant shows up on the review chips) and before provision so the hot boot
+ *  reads the tokens from process.env. */
+function Connect({ onNext }: { onNext: (s: string) => void }) {
+  const [status, setStatus] = useState<ConnectStatus | null>(null);
+  const [error, setError] = useState("");
+  const load = () => {
+    api.connectStatus().then(setStatus).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  useEffect(load, []);
+  const advance = () => {
+    setError("");
+    api.onboardingAdvance("connect")
+      .then((r) => onNext(r.step))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  const back = () => {
+    setError("");
+    api.onboardingBack("workspace")
+      .then((r) => onNext(r.step))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  const any = !!status && (status.telegram.connected || status.slack.connected || status.image.connected);
+  return (
+    <div className="w-full max-w-md flex flex-col gap-3">
+      <div className="text-strong text-[15px] text-center">Connect your channels</div>
+      <p className="text-[12px] text-dim leading-relaxed text-center">
+        This is how AIOS reaches you — briefs, questions, results. All optional; everything here
+        is editable later in System → Config.
+      </p>
+      {!status && !error && <div className="text-dim text-[12px] text-center">Loading…</div>}
+      {status && (
+        <>
+          <TelegramCard status={status.telegram} onSaved={load} />
+          <SlackCard status={status.slack} onSaved={load} />
+          <ImageCard status={status.image} onSaved={load} />
+        </>
+      )}
+      {error && <div className="text-[12px] text-err text-center">{error}</div>}
+      <div className="flex items-center gap-2">
+        <Button onClick={back}>Back</Button>
+        <Button variant={any ? "primary" : undefined} className="ml-auto" onClick={advance}>
+          {any ? "Continue" : "Connect later"}
+        </Button>
       </div>
     </div>
   );

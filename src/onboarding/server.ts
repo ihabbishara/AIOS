@@ -9,8 +9,12 @@ import { Wizard, STEPS, type Step, type KvLike } from "./wizard.js";
 import { resolveWorkspace, type WorkspaceChoice } from "./workspace.js";
 import { verifyToken, sdkPing, type Ping } from "./auth.js";
 import { updateEnvFile } from "../web/env-file.js";
+import {
+  captureTelegramChat, parseAllowedUserIds, singleLine, verifyGemini, verifySlack, verifyTelegram,
+  type FetchFn,
+} from "./connect.js";
 import { listTemplates, loadTemplate } from "./templates.js";
-import { templateToProposal, type OrgProposal } from "./proposal.js";
+import { grantMediaGen, templateToProposal, type OrgProposal } from "./proposal.js";
 import { provision, type ProvisionResult } from "./provision.js";
 import { loadRegistry } from "../agents/registry/loader.js";
 import {
@@ -44,6 +48,8 @@ export interface SetupDeps {
   orgExists?: () => boolean;
   /** Injected in tests so the interview never touches the network. */
   architect?: Architect;
+  /** Injected in tests so channel verification never touches the network. */
+  connectFetch?: FetchFn;
   /** Brings the real daemon up in-process once an org exists. Injected so tests never boot. */
   boot?: () => Promise<BootedWorld>;
   log?: (line: string) => void;
@@ -119,6 +125,47 @@ export function startSetupServer(deps: SetupDeps): Server {
     }
     return booting.catch(() => null);
   };
+
+  // Connect step: one 409-guard flag for all channel POSTs (the wizard has one user; the
+  // Telegram long-poll can hold a request ~25s and must not pile up), the in-memory getUpdates
+  // offset, and a kv key for non-secret card metadata so a refresh rehydrates the step.
+  let connecting = false;
+  let tgOffset = 0;
+  const connectFetch = deps.connectFetch ?? fetch;
+  const CONNECT_KEY = "onboarding.connect";
+
+  /** Channel keys must reach BOTH stores: .env is the record that survives a restart, and
+   *  process.env is what the hot in-process boot actually reads (the workspace step's
+   *  precedent — bootNormal calls loadConfig() over process.env). */
+  const writeEnv = (key: string, value: string): void => {
+    updateEnvFile(deps.envPath, key, value);
+    process.env[key] = value;
+  };
+
+  type ConnectMeta = { telegram?: { botUsername: string }; slack?: { team: string; botUser: string }; image?: { model?: string } };
+  const connectMeta = (): ConnectMeta => {
+    try { return JSON.parse(deps.store.kvGet(CONNECT_KEY) ?? "{}") as ConnectMeta; } catch { return {}; }
+  };
+  const saveConnectMeta = (patch: ConnectMeta): void => {
+    deps.store.kvSet(CONNECT_KEY, JSON.stringify({ ...connectMeta(), ...patch }));
+  };
+  /** Card state, derived from env presence + kv metadata. Never returns a token. */
+  const connectStatus = () => {
+    const meta = connectMeta();
+    return {
+      telegram: {
+        connected: !!process.env.TELEGRAM_BOT_TOKEN,
+        ...(meta.telegram ? { botUsername: meta.telegram.botUsername } : {}),
+        ...(process.env.TELEGRAM_ALLOWED_USER_IDS ? { allowedUserIds: process.env.TELEGRAM_ALLOWED_USER_IDS } : {}),
+        ...(process.env.AIOS_PRIMARY_CHAT ? { primaryChat: process.env.AIOS_PRIMARY_CHAT } : {}),
+      },
+      slack: { connected: !!(process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN), ...(meta.slack ?? {}) },
+      image: { connected: !!process.env.GEMINI_API_KEY, model: process.env.AIOS_GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image" },
+    };
+  };
+  /** A Gemini key makes image generation real — surface media-gen on the proposal the review
+   *  screen shows, where the user can still strip it per agent. */
+  const withGrants = (p: OrgProposal): OrgProposal => (process.env.GEMINI_API_KEY ? grantMediaGen(p) : p);
 
   const PROPOSAL_KEY = "onboarding.proposal";
   const TRANSCRIPT_KEY = "onboarding.transcript";
@@ -393,6 +440,97 @@ export function startSetupServer(deps: SetupDeps): Server {
             verifying = false;
           }
         }
+        // ---- Connect step: channels + image generation (all optional, none advance) ----
+
+        if (path === "/api/onboarding/connect" && req.method === "GET") {
+          // Read-only and secret-free, so not step-gated — same posture as /templates.
+          return json(res, 200, connectStatus());
+        }
+
+        if (path.startsWith("/api/onboarding/connect/") && req.method === "POST") {
+          const at = wizard.current();
+          if (at !== "connect") return json(res, 400, { error: `channels are connected at the connect step, not ${at}` });
+          if (connecting) return json(res, 409, { error: "a channel operation is already in flight" });
+          connecting = true;
+          try {
+            if (path === "/api/onboarding/connect/telegram") {
+              const body = await readJson<{ token?: unknown; allowedUserIds?: unknown }>(req);
+              if (!body) return json(res, 400, { error: "body must be JSON" });
+              const token = typeof body.token === "string" ? body.token.trim() : "";
+              if (!singleLine(token)) return json(res, 400, { error: "token must be a single non-empty line" });
+              let allowed: string | null = null;
+              if (typeof body.allowedUserIds === "string" && body.allowedUserIds.trim()) {
+                allowed = parseAllowedUserIds(body.allowedUserIds);
+                if (allowed === null) return json(res, 400, { error: "allowed user ids must be comma-separated numbers" });
+              }
+              const v = await verifyTelegram(token, connectFetch);
+              if (!v.ok) return json(res, 400, { error: v.error });
+              writeEnv("TELEGRAM_BOT_TOKEN", token);
+              if (allowed) writeEnv("TELEGRAM_ALLOWED_USER_IDS", allowed);
+              saveConnectMeta({ telegram: { botUsername: v.botUsername } });
+              tgOffset = 0;
+              return json(res, 200, connectStatus());
+            }
+
+            if (path === "/api/onboarding/connect/telegram/capture") {
+              if (!process.env.TELEGRAM_BOT_TOKEN) return json(res, 400, { error: "connect the bot token first" });
+              const r = await captureTelegramChat(process.env.TELEGRAM_BOT_TOKEN, tgOffset, connectFetch);
+              if (!r.ok) return json(res, r.conflict ? 409 : 400, { error: r.error });
+              tgOffset = r.offset;
+              return json(res, 200, { captured: r.captured });
+            }
+
+            if (path === "/api/onboarding/connect/telegram/primary") {
+              const body = await readJson<{ chatId?: unknown; userId?: unknown }>(req);
+              if (!body) return json(res, 400, { error: "body must be JSON" });
+              const chatId = typeof body.chatId === "string" ? body.chatId.trim() : "";
+              if (!/^-?\d+$/.test(chatId)) return json(res, 400, { error: "chat id must be a number (groups are negative)" });
+              writeEnv("AIOS_PRIMARY_CHAT", `telegram:${chatId}`);
+              const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+              if (/^\d+$/.test(userId)) {
+                const cur = (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+                if (!cur.includes(userId)) writeEnv("TELEGRAM_ALLOWED_USER_IDS", [...cur, userId].join(","));
+              }
+              return json(res, 200, connectStatus());
+            }
+
+            if (path === "/api/onboarding/connect/slack") {
+              const body = await readJson<{ botToken?: unknown; appToken?: unknown }>(req);
+              if (!body) return json(res, 400, { error: "body must be JSON" });
+              const bot = typeof body.botToken === "string" ? body.botToken.trim() : "";
+              const app = typeof body.appToken === "string" ? body.appToken.trim() : "";
+              if (!singleLine(bot) || !singleLine(app)) {
+                return json(res, 400, { error: "Slack needs both tokens — AIOS skips Slack when only one is set" });
+              }
+              const v = await verifySlack(bot, app, connectFetch);
+              if (!v.ok) return json(res, 400, { error: v.error });
+              writeEnv("SLACK_BOT_TOKEN", bot);
+              writeEnv("SLACK_APP_TOKEN", app);
+              saveConnectMeta({ slack: { team: v.team, botUser: v.botUser } });
+              return json(res, 200, connectStatus());
+            }
+
+            if (path === "/api/onboarding/connect/image") {
+              const body = await readJson<{ apiKey?: unknown; model?: unknown }>(req);
+              if (!body) return json(res, 400, { error: "body must be JSON" });
+              const key = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+              if (!singleLine(key)) return json(res, 400, { error: "API key must be a single non-empty line" });
+              const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : "gemini-2.5-flash-image";
+              const v = await verifyGemini(key, model, connectFetch);
+              if (!v.ok) return json(res, 400, { error: v.error });
+              writeEnv("GEMINI_API_KEY", key);
+              // Only pin the model when the user chose one; the config default stays authoritative.
+              if (typeof body.model === "string" && body.model.trim()) writeEnv("AIOS_GEMINI_IMAGE_MODEL", model);
+              saveConnectMeta({ image: { ...(typeof body.model === "string" && body.model.trim() ? { model } : {}) } });
+              return json(res, 200, connectStatus());
+            }
+
+            return json(res, 404, { error: "unknown connect endpoint" });
+          } finally {
+            connecting = false;
+          }
+        }
+
         if (path === "/api/onboarding/templates" && req.method === "GET") {
           return json(res, 200, { templates: listTemplates(deps.templatesDir, log) });
         }
@@ -460,7 +598,7 @@ export function startSetupServer(deps: SetupDeps): Server {
           }
           if (!template) return json(res, 400, { error: `unknown template "${name}"` });
           // Stored, not written: nothing touches disk until the user approves on the review screen.
-          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(templateToProposal(template)));
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(withGrants(templateToProposal(template))));
           return transition(res, path, () => wizard.advance("interview"));
         }
 
@@ -561,7 +699,7 @@ export function startSetupServer(deps: SetupDeps): Server {
             return json(res, 200, { done: false, question: turn.question });
           }
           deps.store.kvSet(TRANSCRIPT_KEY, JSON.stringify(turns));
-          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(withGrants(turn.proposal)));
           return transition(res, path, () => wizard.advance("interview"));
         }
 
@@ -600,8 +738,8 @@ export function startSetupServer(deps: SetupDeps): Server {
           // mind about being finished — the user is on the review screen and has nowhere to put
           // a question, so treat it as a failed regenerate rather than reopening the interview.
           if (!turn.done) return json(res, 400, { error: "the Architect asked another question instead of redrafting" });
-          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(turn.proposal));
-          return json(res, 200, { proposal: turn.proposal });
+          deps.store.kvSet(PROPOSAL_KEY, JSON.stringify(withGrants(turn.proposal)));
+          return json(res, 200, { proposal: withGrants(turn.proposal) });
         }
 
         if (path === "/api/onboarding/provision" && req.method === "POST") {

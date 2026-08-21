@@ -2,7 +2,7 @@
 // The browser is a thin renderer; every transition is validated here and persisted
 // in the existing kv table so refresh/crash resumes in place.
 
-export const STEPS = ["welcome", "auth", "workspace", "interview", "review", "provision", "first-job", "done"] as const;
+export const STEPS = ["welcome", "auth", "workspace", "connect", "interview", "review", "provision", "first-job", "done"] as const;
 export type Step = (typeof STEPS)[number];
 
 export interface KvLike {

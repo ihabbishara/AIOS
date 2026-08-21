@@ -135,8 +135,10 @@ Releasing a new version is documented in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Configure
 
-The wizard walks you through the first two of these. Do them by hand instead if you prefer, or
-come back for Slack later — it is optional.
+The wizard walks you through all of these: Claude auth, workspace, then a **Connect** step for
+Telegram (with automatic chat-id capture — message your bot once and the wizard picks up the
+id), Slack, and image generation. Every channel is optional there, and everything can also be
+done by hand below or later from Mission Control → System → Config.
 
 ### 1. Claude subscription auth (no API key)
 
@@ -154,8 +156,12 @@ Log in with your normal Claude account. Paste the resulting token into `.env` as
 
 1. Message [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token into
    `TELEGRAM_BOT_TOKEN`.
-2. Get your numeric user id (message [@userinfobot](https://t.me/userinfobot)) and set
-   `TELEGRAM_ALLOWED_USER_IDS=<your id>` so only you can use the bot.
+2. The wizard captures your chat id automatically: message your new bot once and confirm the
+   prompt — it fills `AIOS_PRIMARY_CHAT` and adds you to `TELEGRAM_ALLOWED_USER_IDS`. Doing it
+   by hand instead: message [@userinfobot](https://t.me/userinfobot) for your numeric id, set
+   `TELEGRAM_ALLOWED_USER_IDS=<your id>` and `AIOS_PRIMARY_CHAT=telegram:<your id>`.
+3. Adding the bot to a group? Send `/setprivacy` to @BotFather and choose **Disable**, or the
+   bot cannot see group messages.
 
 ### 3. Slack (optional)
 
@@ -163,6 +169,13 @@ Create an app at api.slack.com → enable **Socket Mode** → app-level token wi
 `connections:write` (`SLACK_APP_TOKEN`) → bot token with `chat:write`,
 `app_mentions:read`, `im:history`, `channels:history` (`SLACK_BOT_TOKEN`) → subscribe to
 `message.im` / `message.channels` events → install to workspace.
+
+### 4. Image generation — Nano Banana (optional)
+
+Set `GEMINI_API_KEY` (aistudio.google.com → API keys) and agents with the `media-gen`
+capability can call `generate_image` (~$0.04 per image). When the key is present during
+onboarding, the wizard proposes `media-gen` on your worker and lead agents — visible and
+removable on the review screen.
 
 ## Run
 

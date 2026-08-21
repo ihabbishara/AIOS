@@ -196,7 +196,7 @@ describe("POST /api/onboarding/workspace", () => {
     const { base, dir } = await boot();
     const r = await post(base, { mode: "builtin" });
     expect(r.status).toBe(200);
-    expect(await r.json()).toStrictEqual({ step: "interview" });
+    expect(await r.json()).toStrictEqual({ step: "connect" });
     // config.ts already defaults to this path, so the write looks redundant — it is not; see
     // the back-navigation test below, where not writing it strands the daemon on a rejected
     // folder. Nothing is probed or created here: that path belongs to the daemon, and a probe
@@ -235,7 +235,7 @@ describe("POST /api/onboarding/workspace", () => {
     const target = pjoin(dir, "my vault");
     const r = await post(base, { mode: "custom", path: target, subdir: "Brain" });
     expect(r.status).toBe(200);
-    expect(await r.json()).toStrictEqual({ step: "interview" }); // no warning key on a plain path
+    expect(await r.json()).toStrictEqual({ step: "connect" }); // no warning key on a plain path
     expect(existsSync(target)).toBe(true);
     const env = readFileSync(pjoin(dir, ".env"), "utf8");
     expect(env).toContain(`AIOS_VAULT_PATH=${target}`);
@@ -261,7 +261,7 @@ describe("POST /api/onboarding/workspace", () => {
     const r = await post(base, { mode: "custom", path: pjoin(dir, "Dropbox", "Vault") });
     expect(r.status).toBe(200);
     const body = await r.json();
-    expect(body.step).toBe("interview");
+    expect(body.step).toBe("connect");
     expect(body.warning).toMatch(/sync/i); // advisory: it advanced anyway
   });
 
@@ -332,6 +332,6 @@ describe("POST /api/onboarding/workspace", () => {
     await post(base, { mode: "builtin" });
     const r = await post(base, { mode: "builtin" });
     expect(r.status).toBe(400);
-    expect((await r.json()).error).toMatch(/not interview/);
+    expect((await r.json()).error).toMatch(/not connect/);
   });
 });

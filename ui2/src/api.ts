@@ -90,6 +90,15 @@ export interface OrgGrowthProposal {
  *  the step, and it is the only chance to read it: by the time the browser could ask again, the
  *  setup server has handed the port to mission control and every route is behind the token gate.
  *  `workspace` is already resolved to a single folder — the daemon's vault root, not a pair. */
+export interface ConnectStatus {
+  telegram: { connected: boolean; botUsername?: string; allowedUserIds?: string; primaryChat?: string };
+  slack: { connected: boolean; team?: string; botUser?: string };
+  image: { connected: boolean; model: string };
+}
+export interface CapturedChat {
+  chatId: string; chatType: string; from: string; fromId: string; text: string;
+}
+
 export interface AdvanceResult {
   step: string;
   uiToken?: string;
@@ -126,6 +135,27 @@ export const api = {
     request<{ templates: Array<{ name: string; title: string; summary: string }> }>("/api/onboarding/templates"),
   onboardingPickTemplate: (name: string) =>
     request<{ step: string }>("/api/onboarding/template", { method: "POST", body: JSON.stringify({ name }) }),
+  connectStatus: () => request<ConnectStatus>("/api/onboarding/connect"),
+  connectTelegram: (token: string, allowedUserIds?: string) =>
+    request<ConnectStatus>("/api/onboarding/connect/telegram", {
+      method: "POST", body: JSON.stringify({ token, ...(allowedUserIds ? { allowedUserIds } : {}) }),
+    }),
+  telegramCapture: () =>
+    request<{ captured: CapturedChat | null }>("/api/onboarding/connect/telegram/capture", {
+      method: "POST", body: JSON.stringify({}),
+    }),
+  telegramPrimary: (chatId: string, userId?: string) =>
+    request<ConnectStatus>("/api/onboarding/connect/telegram/primary", {
+      method: "POST", body: JSON.stringify({ chatId, ...(userId ? { userId } : {}) }),
+    }),
+  connectSlack: (botToken: string, appToken: string) =>
+    request<ConnectStatus>("/api/onboarding/connect/slack", {
+      method: "POST", body: JSON.stringify({ botToken, appToken }),
+    }),
+  connectImage: (apiKey: string, model?: string) =>
+    request<ConnectStatus>("/api/onboarding/connect/image", {
+      method: "POST", body: JSON.stringify({ apiKey, ...(model ? { model } : {}) }),
+    }),
   onboardingProposal: () => request<{ proposal: OrgProposalView }>("/api/onboarding/proposal"),
   interviewTurns: () =>
     request<{ turns: Array<{ role: "user" | "architect"; text: string }> }>("/api/onboarding/interview"),

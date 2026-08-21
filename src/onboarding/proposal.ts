@@ -23,6 +23,22 @@ export interface OrgProposal {
   firstJob: string;
 }
 
+/** Connect step follow-through: when a Gemini key is present, image generation should be
+ *  usable out of the box — no shipped org template grants media-gen, so a key alone would
+ *  unlock nothing. Workers and leads produce deliverables; critics review and the
+ *  coordinator delegates, so those keep their surface. Applied at proposal CREATION so the
+ *  grant is visible (and strippable) on the review screen's capability chips. */
+export function grantMediaGen(p: OrgProposal): OrgProposal {
+  return {
+    ...p,
+    agents: p.agents.map((a) =>
+      (a.kind === "worker" || a.kind === "lead") && !a.capabilities.includes("media-gen")
+        ? { ...a, capabilities: [...a.capabilities, "media-gen"] }
+        : a,
+    ),
+  };
+}
+
 export function templateToProposal(t: OrgTemplate): OrgProposal {
   return {
     source: { kind: "template", template: t.name },

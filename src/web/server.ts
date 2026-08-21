@@ -82,6 +82,10 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
   { key: "AIOS_GMAIL_SKIP_CATEGORIES", secret: false },
   // Full-autonomy mode: unguarded, non-sandbox agents run bypassPermissions. Restart applies.
   { key: "AIOS_FULL_AUTONOMY", secret: false },
+  // Channels & media — the wizard's Connect step writes these; editable here afterwards.
+  { key: "AIOS_PRIMARY_CHAT", secret: false },
+  { key: "GEMINI_API_KEY", secret: true },
+  { key: "AIOS_GEMINI_IMAGE_MODEL", secret: false },
 ];
 
 /**

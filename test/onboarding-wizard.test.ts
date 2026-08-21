@@ -54,6 +54,6 @@ describe("Wizard", () => {
   });
 
   it("step list matches the spec exactly", () => {
-    expect([...STEPS]).toEqual(["welcome", "auth", "workspace", "interview", "review", "provision", "first-job", "done"]);
+    expect([...STEPS]).toEqual(["welcome", "auth", "workspace", "connect", "interview", "review", "provision", "first-job", "done"]);
   });
 });
