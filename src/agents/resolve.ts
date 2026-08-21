@@ -12,6 +12,7 @@ import { deptLabel } from "../kernel/labels.js";
 import type { Embedder } from "../memory/embeddings.js";
 import type { Config } from "../config.js";
 import type { AgentDef, AgentKind, LoadedRegistry, LoadedDepartment } from "./registry/loader.js";
+import { isGuarded } from "./registry/loader.js";
 import { AIOS_PACK_BARE, fqPackTool, type CapabilityDef } from "./registry/capabilities.js";
 import { roleQueryOptions } from "./runner.js";
 import { withEffectiveTools } from "./permissions.js";
@@ -250,6 +251,17 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
         // observed live 2026-07-18). allowedTools still bounds what exists at all.
         guards.push({ checks: advisoryGuard() });
       }
+    } else if (deps.config.fullAutonomy && !isGuarded(deps.registry, canonical)) {
+      // Full autonomy (AIOS_FULL_AUTONOMY=1): unguarded agents run with the SDK's full
+      // built-in surface — bypassPermissions skips the permission flow AND the denial
+      // observer (permissions.ts early-returns on it). allowedTools/mcpServers stay
+      // untouched: the capability union remains the truthful granted surface; only
+      // enforcement lifts. Guarded agents (isGuarded — the loader is the single source
+      // of truth, same answer the cockpit and golden generator get) and sandbox agents
+      // (the branch above, which must keep Read/Write/Bash inside the workspace jail)
+      // are exempt.
+      options.permissionMode = "bypassPermissions";
+      (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions = true;
     }
 
     if (guards.length > 0) {

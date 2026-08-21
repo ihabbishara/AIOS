@@ -31,6 +31,9 @@ export interface StateInfo {
   bootError?: string;
   uptimeMs: number;
   voice: boolean;
+  /** AIOS_FULL_AUTONOMY=1 — unguarded, non-sandbox agents run bypassPermissions. Absent on
+   *  older servers and in setup mode; the UI treats undefined as off. */
+  fullAutonomy?: boolean;
   agents: AgentInfo[];
   playbooks: Array<{ name: string; description: string }>;
   bindings: Array<{ chatKey: string; agents: string[]; mentionOnly: boolean }>;

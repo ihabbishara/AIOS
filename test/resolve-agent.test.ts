@@ -16,7 +16,10 @@ const golden = JSON.parse(readFileSync("test/fixtures/org-golden.json", "utf8"))
   Record<string, { tools: string[] }>;
 
 function setup() {
-  const config = loadConfig(process.cwd());
+  // fullAutonomy pinned off: this file pins GRANULAR-mode wiring; flag-on behavior lives in
+  // test/full-autonomy.test.ts. Without the pin a dev machine running AIOS_FULL_AUTONOMY=1
+  // would leak the mode in here.
+  const config = { ...loadConfig(process.cwd()), fullAutonomy: false };
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "ra-")), "AIOS");
   const gate = { propose: async () => ({}) } as unknown as ActionGate;
@@ -43,6 +46,10 @@ describe("resolveAgent", () => {
     if (unpinned.length) console.warn(`golden: unpinned agents (regen to pin): ${unpinned.join(", ")}`);
   });
 
+  // Pins the LIST: allowedTools never exceeds the capability union in any mode. In granular
+  // mode the list is also enforced (SDK dontAsk + denial observer); under AIOS_FULL_AUTONOMY=1
+  // enforcement lifts for unguarded agents (bypassPermissions) while this list remains the
+  // truthful granted surface — see test/full-autonomy.test.ts.
   it("clamp invariant: no agent ever gains a tool outside its capability union", () => {
     const { resolve, registry } = setup();
     for (const name of [...registry.agents.keys()]) {

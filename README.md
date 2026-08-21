@@ -299,6 +299,40 @@ Then open `https://<your-mac-name>.<tailnet>.ts.net` from any of your devices.
 Optional extra lock: set `AIOS_UI_TOKEN=<random string>` in `.env` — the UI will
 ask for it once per browser.
 
+## Full autonomy mode
+
+By default agents run **granular**: each agent can use only the tools its capabilities grant,
+and a request for anything else is denied, parked for review, and turned into a
+`permission.grant` you approve by hand. That is the safe default — and it is also why a job
+can stall for hours on a missing tool.
+
+`AIOS_FULL_AUTONOMY=1` (System → Config → Security, then restart) flips the trade. While it
+is on, every **unguarded, non-sandboxed** agent runs with the SDK's full built-in surface —
+shell, file access, network — with no allowlist enforcement, so the deny → review → grant →
+retry loop never happens for them. A persistent **FULL AUTONOMY** badge shows in the top bar
+while the mode is active.
+
+What it does **not** change:
+
+- **Guarded agents are exempt, bit for bit.** Any agent with a guard capability (`aws-readonly`,
+  `ledger-confine`, `ops-guardrail`, …) keeps its guards, its clamped tool list, and its
+  permission mode. That is the lever: if an agent touches client infrastructure or money,
+  give it a guard and full autonomy will never widen it.
+- **The code sandbox is exempt.** Sandboxed agents keep their workspace jail — full autonomy
+  never lets file tools escape a goal workspace.
+- **Domain tools do not spread.** Money and ledger tools stay physically attached to the
+  agents whose capabilities grant them.
+- **Approvals still work.** The action gate, trust tiers, and always-supervised actions
+  (`permission.grant`, `trust.promote`) are untouched, and agents still ask you questions
+  mid-job (Telegram ping, dashboard Queue, `@agent` replies).
+
+Honest costs while the mode is on: unguarded agents can run arbitrary commands on this
+machine as your user, so prompt-injected content (a hostile email, a poisoned web page) is a
+real risk — keep guards on anything sensitive; per-role tool revokes from Mission Control
+stop binding for unguarded agents; and denial telemetry goes quiet for them (nothing is
+denied, so nothing is logged). Flipping the flag also resets stored chat sessions once —
+agents start their next conversation fresh.
+
 ## Safety notes
 
 - The moderator refuses `project_dir` outside `AIOS_PROJECTS_ROOT` (default `~/projects`).

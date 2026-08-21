@@ -5,9 +5,9 @@ import { SECTIONS, href } from "../lib/router.js";
 import { usd } from "../lib/format.js";
 import { currentTheme, toggleTheme, subscribeTheme } from "../lib/theme.js";
 
-export function TopBar({ section, budget, connected, needsYou, mailForYou = 0, onPalette, onChat }: {
+export function TopBar({ section, budget, connected, needsYou, mailForYou = 0, fullAutonomy = false, onPalette, onChat }: {
   section: string; budget: BudgetInfo | undefined; connected: boolean;
-  needsYou: number; mailForYou?: number; onPalette: () => void; onChat: () => void;
+  needsYou: number; mailForYou?: number; fullAutonomy?: boolean; onPalette: () => void; onChat: () => void;
 }) {
   const [theme, setThemeState] = useState(currentTheme());
   // Subscribe so a toggle from ANY entry point (this button, the ⌘K palette) keeps the glyph in
@@ -36,6 +36,14 @@ export function TopBar({ section, budget, connected, needsYou, mailForYou = 0, o
         ))}
       </nav>
       <div className="ml-auto flex items-center gap-4">
+        {/* The owner must SEE the mode: unguarded agents are running without allowlist
+            enforcement (AIOS_FULL_AUTONOMY=1). Small, persistent, honest. */}
+        {fullAutonomy && (
+          <span title="Unguarded agents run with full tool access — AIOS_FULL_AUTONOMY=1 (System → Config)"
+            className="text-[10px] tracking-wide text-accent border border-accent/40 rounded px-1.5 py-0.5 select-none">
+            FULL AUTONOMY
+          </span>
+        )}
         <button
           onClick={onChat}
           className="hidden md:flex items-center gap-1.5 border border-line rounded-md px-2.5 py-1 text-[11.5px] text-fg hover:text-strong hover:border-dim transition-colors"

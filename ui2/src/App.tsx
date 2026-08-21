@@ -80,7 +80,7 @@ export function App() {
     <div className="h-full flex flex-col">
       <TopBar
         section={route.section} budget={budget} connected={connected}
-        needsYou={attention?.length ?? 0} mailForYou={unread?.userInbox ?? 0}
+        needsYou={attention?.length ?? 0} mailForYou={unread?.userInbox ?? 0} fullAutonomy={state?.fullAutonomy === true}
         onPalette={() => setPaletteSignal((n) => n + 1)} onChat={() => setChatOpen((v) => !v)}
       />
       <div className={show("home")}><Home events={events} attention={attention} connected={connected} onOpenChat={openChat} /></div>

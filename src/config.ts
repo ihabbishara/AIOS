@@ -19,6 +19,11 @@ export interface Config {
   workspaceRoot: string;
   codeReadRoots: string[];
   codeDisabled: boolean;
+  /** Full-autonomy mode (AIOS_FULL_AUTONOMY=1): unguarded, non-sandbox agents run
+   *  bypassPermissions — the SDK auto-approves built-in tools and the denial observer
+   *  self-disables. Guards and sandbox confinement still apply; allowedTools stays the
+   *  truthful granted surface. */
+  fullAutonomy: boolean;
   telegramToken?: string;
   slackBotToken?: string;
   slackAppToken?: string;
@@ -246,6 +251,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     codeReadRoots: (env.AIOS_CODE_READ_ROOTS ?? projectsRoot)
       .split(",").map((s) => s.trim()).filter(Boolean),
     codeDisabled: env.AIOS_CODE_DISABLED === "1",
+    fullAutonomy: env.AIOS_FULL_AUTONOMY === "1",
     telegramToken: process.env.TELEGRAM_BOT_TOKEN,
     slackBotToken: process.env.SLACK_BOT_TOKEN,
     slackAppToken: process.env.SLACK_APP_TOKEN,

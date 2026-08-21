@@ -18,7 +18,7 @@ const golden = JSON.parse(readFileSync("test/fixtures/org-golden.json", "utf8"))
   Record<string, { tools: string[]; permissionMode: string; maxTurns: number; guarded: boolean }>;
 
 describe("org golden surface", () => {
-  const config = loadConfig(process.cwd());
+  const config = { ...loadConfig(process.cwd()), fullAutonomy: false }; // golden pins granular mode
   const store = new Store(":memory:");
   const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "golden-")), "AIOS");
   const gate = { propose: async () => ({}) } as unknown as ActionGate;

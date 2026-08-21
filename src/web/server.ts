@@ -80,6 +80,8 @@ const CONFIG_KEYS: Array<{ key: string; secret: boolean }> = [
   { key: "AIOS_CALENDAR_POLL_SECONDS", secret: false },
   { key: "AIOS_MEETING_PING_MINUTES", secret: false },
   { key: "AIOS_GMAIL_SKIP_CATEGORIES", secret: false },
+  // Full-autonomy mode: unguarded, non-sandbox agents run bypassPermissions. Restart applies.
+  { key: "AIOS_FULL_AUTONOMY", secret: false },
 ];
 
 /**
@@ -276,6 +278,7 @@ export function startWebServer(
             mode: "normal",
             uptimeMs: Date.now() - startedAt,
             voice: deps.voice.available(),
+            fullAutonomy: config.fullAutonomy,
             agents: [
               {
                 name: "neo", kind: "moderator",
