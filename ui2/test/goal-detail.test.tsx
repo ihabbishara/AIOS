@@ -1,6 +1,6 @@
 // ui2/test/goal-detail.test.tsx — detail view: map, inspector, ask box.
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { Goals } from "../src/views/Goals.js";
 import { stubApi } from "./stubs.js";
 import { CLOCK_TEXT, statusClock } from "../src/lib/goal-clock.js";
@@ -76,4 +76,22 @@ describe("Goal detail", () => {
       expect(el.className).toContain(CLOCK_TEXT[statusClock("needs-review")]);
     }
   });
+  it("an artifact opens in the Reader from its card, with the on-disk path", async () => {
+    stubApi({ "/api/goals/deck": DETAIL });
+    render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
+    const card = (await screen.findAllByTestId("artifact-card"))[0];
+    fireEvent.click(card);
+    const reader = await screen.findByTestId("reader");
+    expect(reader.textContent).toContain("deck.html");
+    expect(screen.getByTitle("/g/deck.html")).toBeTruthy(); // where it lives, in the header
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("reader")).toBeNull();
+  });
+
+  it("the goal dir is named in the detail — where the files live, copyable", async () => {
+    stubApi({ "/api/goals/deck": DETAIL });
+    render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
+    expect((await screen.findByTestId("goal-dir")).textContent).toContain("/g");
+  });
 });
+

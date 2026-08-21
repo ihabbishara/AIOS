@@ -15,6 +15,7 @@ import { resolveReal } from "./code/paths.js";
 import { randomUUID } from "node:crypto";
 import { localParts } from "./heartbeat/clock.js";
 import { GoalEngine, MAIL_PREFIX, type GoalOutcome } from "./engine/goals.js";
+import { artifactFooter } from "./engine/artifact-footer.js";
 import { SpendGuard, attachBudgetLedger } from "./engine/budget.js";
 import { makePlanner } from "./engine/plan.js";
 import type { GoalRow } from "./store/db.js";
@@ -353,7 +354,11 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
     const notice = outcome.ok
       ? `[GOAL-COMPLETE] Goal "${goal.title}" (${goal.id}) finished. Artifacts in vault under goals/${outcome.goalDirName}/: ${outcome.artifactFiles.join(", ")}. Read the key artifacts with vault_read and report the outcome to the user.${branchLine}`
       : `[GOAL-FAILED] Goal "${goal.title}" (${goal.id}) failed: ${outcome.error}. Partial artifacts under goals/${outcome.goalDirName}/. Tell the user what happened and suggest next steps.${branchLine}${skippedLine}`;
-    const { text: report, attachments } = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
+    const { text: report0, attachments } = await moderator.handle(goal.origin_channel, goal.origin_chat_id, notice);
+    // Deterministic whereabouts: the moderator is ASKED to mention artifact locations, but a
+    // generated sentence is hope — the footer is composed from the outcome, so the user always
+    // learns exactly where the files landed and how to open them.
+    const report = report0 + artifactFooter(outcome, { vaultRoot: vault.root, uiPort: config.uiPort });
     await channel?.send(goal.origin_chat_id, report);
     // A real push channel (telegram) gets media via sendVoice/sendFile; web has no ChannelAdapter,
     // so its media rides the chat.out event as capability-token descriptors (rendered by ui2).
@@ -368,7 +373,7 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
       type: "chat.out",
       channel: goal.origin_channel,
       chatId: goal.origin_chat_id,
-      text: report.slice(0, 300),
+      text: report.slice(0, 1500), // web-origin goals are DELIVERED via this event; 300 clipped real reports
       pushed: true, // server-initiated — ui2 folds this into the web chat (router echoes are not pushed)
       ...(descriptors.length ? { attachments: descriptors } : {}),
     });

@@ -119,3 +119,38 @@ kbd { @apply font-mono text-[10px] text-dim border border-line rounded px-1 py-p
      so it goes away entirely rather than sitting on top of its sender. */
   .travel { display: none !important; }
 }
+
+/* Reader typography — goal artifacts rendered as documents, not dumps. Sized in em so the
+   Reader's A−/A+ control scales everything; colors are tokens only (doctrine §2). */
+.reader-prose { color: var(--color-fg); line-height: 1.65; }
+.reader-prose h1, .reader-prose h2, .reader-prose h3, .reader-prose h4 {
+  color: var(--color-strong); font-weight: 600; line-height: 1.25;
+  margin: 1.6em 0 0.6em; }
+.reader-prose h1 { font-size: 1.55em; margin-top: 0.2em; }
+.reader-prose h2 { font-size: 1.3em; border-bottom: 1px solid var(--color-line); padding-bottom: 0.25em; }
+.reader-prose h3 { font-size: 1.12em; }
+.reader-prose h4 { font-size: 1em; }
+.reader-prose p { margin: 0.75em 0; }
+.reader-prose ul, .reader-prose ol { margin: 0.75em 0; padding-left: 1.5em; }
+.reader-prose ul { list-style: disc; }
+.reader-prose ol { list-style: decimal; }
+.reader-prose li { margin: 0.3em 0; }
+.reader-prose li > ul, .reader-prose li > ol { margin: 0.2em 0; }
+.reader-prose a { color: var(--color-info); text-decoration: underline; text-underline-offset: 2px; }
+.reader-prose strong { color: var(--color-strong); font-weight: 600; }
+.reader-prose blockquote {
+  border-left: 3px solid var(--color-line); color: var(--color-dim);
+  margin: 0.9em 0; padding: 0.1em 0 0.1em 1em; }
+.reader-prose code {
+  font-family: var(--font-mono); font-size: 0.85em;
+  background: var(--color-raised); border: 1px solid var(--color-line);
+  border-radius: 4px; padding: 0.1em 0.35em; }
+.reader-prose pre {
+  background: var(--color-raised); border: 1px solid var(--color-line);
+  border-radius: 8px; padding: 0.9em 1.1em; margin: 0.9em 0; overflow-x: auto; }
+.reader-prose pre code { background: none; border: none; padding: 0; font-size: 0.82em; }
+.reader-prose table { border-collapse: collapse; margin: 0.9em 0; width: 100%; display: block; overflow-x: auto; }
+.reader-prose th, .reader-prose td { border: 1px solid var(--color-line); padding: 0.4em 0.7em; text-align: left; }
+.reader-prose th { color: var(--color-strong); background: var(--color-raised); font-weight: 600; }
+.reader-prose hr { border: none; border-top: 1px solid var(--color-line); margin: 1.6em 0; }
+.reader-prose img { max-width: 100%; border-radius: 8px; }

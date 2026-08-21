@@ -27,7 +27,8 @@ function setup() {
   const registry = testRegistry();
   const resolve = makeResolveAgent({
     registry, store, vault, gate,
-    config: loadConfig(process.cwd()), categorize: async () => "other" as const,
+    config: { ...loadConfig(process.cwd()), fullAutonomy: false }, // pin: granular-mode wiring (flag-on lives in full-autonomy.test.ts)
+    categorize: async () => "other" as const,
   });
   return { root, store, vault, registry, resolve };
 }

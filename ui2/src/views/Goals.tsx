@@ -11,6 +11,7 @@ import { Button, Empty, PageHeader, SectionLabel } from "../components/ui.js";
 import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
 import { GoalMap } from "./goal/GoalMap.js";
+import { Reader } from "../components/Reader.js";
 
 export function Goals({ events, route, onOpenChat, connected }: {
   events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void;
@@ -182,7 +183,15 @@ function GoalDetailView({ slug, events, onOpenChat, connected }: {
             className="flex-1 bg-bg border border-line rounded-md px-3 py-2 outline-none focus:border-dim text-[12px]" />
         </div>
       )}
-      <div className="text-[12px] text-dim mb-4">{goal.planSummary}</div>
+      <div className="text-[12px] text-dim mb-1">{goal.planSummary}</div>
+      {/* "Where do the files live?" answered in place — the same path the completion footer names. */}
+      {goal.goalDir && (
+        <button title="Copy path" data-testid="goal-dir"
+          onClick={() => void navigator.clipboard?.writeText(goal.goalDir!)}
+          className="font-mono text-[10.5px] text-dim hover:text-fg mb-4 block truncate max-w-full text-left">
+          📁 {goal.goalDir}
+        </button>
+      )}
 
       {goal.awaitingUserAsk && (
         <div className="panel !border-accent/40 p-4 mb-4 max-w-2xl">
@@ -218,7 +227,7 @@ function GoalDetailView({ slug, events, onOpenChat, connected }: {
             </div>
             <div className="text-[12px] text-dim whitespace-pre-wrap mb-3">{node.brief}</div>
             {node.error && <pre className="text-[11px] text-err whitespace-pre-wrap mb-3">{node.error}</pre>}
-            {node.artifact && <ArtifactPreview goalArtifacts={goal.artifacts} file={node.artifact} />}
+            {node.artifact && <ArtifactCard goalArtifacts={goal.artifacts} file={node.artifact} goalDir={goal.goalDir ?? ""} />}
             <Button onClick={() => onOpenChat(node.agent, `About node "${node.key}" of goal "${goal.title}": `)}>Discuss ⌘J</Button>
           </div>
         )}
@@ -227,27 +236,35 @@ function GoalDetailView({ slug, events, onOpenChat, connected }: {
       {goal.artifacts.length > 0 && (
         <div className="mt-6 max-w-3xl">
           <SectionLabel>Artifacts · {goal.artifacts.length}</SectionLabel>
-          {goal.artifacts.map((a) => (
-            <ArtifactPreview key={a.file} goalArtifacts={goal.artifacts} file={a.file} />
-          ))}
+          <div className="flex flex-wrap gap-2">
+            {goal.artifacts.map((a) => (
+              <ArtifactCard key={a.file} goalArtifacts={goal.artifacts} file={a.file} goalDir={goal.goalDir ?? ""} />
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function ArtifactPreview({ goalArtifacts, file }: {
-  goalArtifacts: Array<{ file: string; content: string }>; file: string;
+/** An artifact is a document — the card names it, the Reader renders it (markdown, adjustable
+ *  measure), replacing the old inline <pre> dump that drew everything hard-left and unstyled. */
+function ArtifactCard({ goalArtifacts, file, goalDir }: {
+  goalArtifacts: Array<{ file: string; content: string }>; file: string; goalDir: string;
 }) {
   const [open, setOpen] = useState(false);
   const art = goalArtifacts.find((a) => a.file === file);
   if (!art) return null;
+  const kb = Math.max(1, Math.round(art.content.length / 1024));
   return (
-    <div className="mb-3">
-      <button onClick={() => setOpen((v) => !v)} className="label hover:text-fg">
-        {open ? "▾" : "▸"} {file}
+    <>
+      <button onClick={() => setOpen(true)} data-testid="artifact-card"
+        className="panel px-3 py-2 flex items-center gap-2 text-left hover:border-dim transition-colors">
+        <span className="text-[13px]">📄</span>
+        <span className="text-[12px] text-fg">{file}</span>
+        <span className="text-[10.5px] text-dim">{kb} KB · open ↗</span>
       </button>
-      {open && <pre className="font-mono text-[11px] whitespace-pre-wrap mt-2 max-h-80 overflow-y-auto border border-line rounded-md p-3 bg-bg">{art.content}</pre>}
-    </div>
+      {open && <Reader file={file} content={art.content} path={goalDir ? `${goalDir}/${file}` : undefined} onClose={() => setOpen(false)} />}
+    </>
   );
 }
