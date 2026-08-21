@@ -371,3 +371,32 @@ export interface LibrarySearchHit {
   /** True when the hit is under `wiki/` — the reading room, as opposed to the record. */
   wiki: boolean;
 }
+
+/** One deliverable file on the shelf. `path` is vault-relative — /api/library/file serves it. */
+export interface ShelfFile { name: string; path: string; size: number; mtime: string }
+
+/** One finished goal and what it left behind. `files` is the goal folder with the engine's
+ *  working residue (round drafts, review notes, denied attempts) already filtered out. */
+export interface ShelfWork {
+  id: string; slug: string; title: string; department: string; lead: string;
+  /** done | failed | abandoned — running goals belong to the Goals view, not the shelf. */
+  status: string;
+  finishedAt: string;
+  /** The terminal node's artifact — the file the goal existed to produce — when it survives
+   *  on disk; null means the UI falls back to the newest file. */
+  headline: string | null;
+  files: ShelfFile[];
+}
+
+/** A standalone document the org wrote outside any goal (reports/, research/, notes/…). */
+export interface ShelfDoc {
+  /** Top-level vault folder the doc lives in — the shelf's kind tag. */
+  folder: string;
+  name: string; path: string;
+  /** First `# ` heading, falling back to the file name. */
+  title: string;
+  size: number; mtime: string;
+}
+
+/** The Library's front door: what the org has produced, newest first. */
+export interface ShelfView { works: ShelfWork[]; docs: ShelfDoc[] }

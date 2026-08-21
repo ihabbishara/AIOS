@@ -1,14 +1,13 @@
-// ui2/test/library-render.test.tsx — the Library: a wiki reading room with the record kept as
-// an archive. Every file it shows was written by an agent from model output, so "never becomes
-// markup" is still the rule the whole view is built around and the thing these tests pin.
-//
-// Markdown now renders through lib/markdown.tsx instead of a <pre>. That is a presentation
-// change, NOT a safety change: the shared renderer builds React nodes and never touches
-// innerHTML, so agent-authored angle brackets stay literal either way. The injection tests
-// below are the proof and must never be relaxed.
+// ui2/test/library-render.test.tsx — the Library as the shelf: what the org produced, newest
+// first. The wiki taxonomy and the raw archive tree are gone from the front door; what these
+// tests pin instead is (1) the shelf's boundary — deliverables and standalone docs, engine
+// residue already filtered server-side, (2) the reading path staying injection-safe: every file
+// here was written by an agent from model output, so "never becomes markup" is still the rule,
+// and (3) the deploy seam — dist goes live before the daemon restarts, so a missing shelf
+// endpoint must say "restart", never render as an empty library.
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
-import { Library, resolveRel } from "../src/views/Library.js";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
+import { Library } from "../src/views/Library.js";
 import { App } from "../src/App.js";
 import { BottomTabs } from "../src/components/BottomTabs.js";
 import { SECTIONS } from "../src/lib/router.js";
@@ -16,84 +15,62 @@ import { stubApi, STATE_STUB } from "./stubs.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.location.hash = ""; });
 
-const TREE = [
-  {
-    name: "goals", path: "goals", dir: true, size: 0, mtime: "2026-08-01T00:00:00.000Z",
-    children: [{ name: "report.md", path: "goals/report.md", dir: false, size: 12, mtime: "2026-08-01T00:00:00.000Z" }],
-  },
-  { name: "diagram.svg", path: "diagram.svg", dir: false, size: 40, mtime: "2026-08-01T00:00:00.000Z" },
-];
-
-const page = (section: string, name: string, over: Record<string, unknown> = {}) => ({
-  name, path: `wiki/${section}/${name}.md`, section,
-  title: name, type: section.replace(/s$/, ""), updated: "2026-08-09T00:00:00.000Z",
-  outbound: [], backlinks: [], ...over,
+const file = (name: string, over: Record<string, unknown> = {}) => ({
+  name, path: `goals/2026-08-19-hotel-tv/${name}`, size: 12000,
+  mtime: "2026-08-19T09:00:00.000Z", ...over,
 });
 
-const WIKI = {
-  sections: [
-    { name: "topics", pages: [page("topics", "Couscous", { outbound: ["Algeria"], title: "Couscous export economics" })] },
-    { name: "entities", pages: [page("entities", "Algeria", { backlinks: ["Couscous"] })] },
-    { name: "analyses", pages: [] },
-  ],
-  index: "index.md", log: "log.md",
-  totals: { pages: 2, links: 1, orphans: 1, deadEnds: 1 },
-  broken: [],
+const WORK = {
+  id: "g1", slug: "hotel-tv", title: "Hotel TV systems report", department: "research",
+  lead: "clio", status: "done", finishedAt: "2026-08-19T10:00:00.000Z",
+  headline: "final-report.md",
+  files: [file("angle-1.md"), file("final-report.md", { mtime: "2026-08-19T10:00:00.000Z" })],
 };
 
+const DOC = {
+  folder: "reports", name: "ui-bugs.md", path: "reports/ui-bugs.md",
+  title: "Two UI bugs diagnosed", size: 8000, mtime: "2026-07-25T12:00:00.000Z",
+};
+
+const SHELF = { works: [WORK], docs: [DOC] };
+
 /** file: string → served as that file's bytes; object → served as a JSON refusal with a status. */
-function stubLibrary(file: string | { status: number; error: string }, wiki: unknown = WIKI) {
+function stubLibrary(fileBody: string | { status: number; error: string }, shelf: unknown = SHELF) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: TREE }), { status: 200 });
-    if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(wiki), { status: 200 });
+    if (url.startsWith("/api/library/shelf")) return new Response(JSON.stringify(shelf), { status: 200 });
     if (url.startsWith("/api/library/search")) return new Response(JSON.stringify({ q: "", hits: [] }), { status: 200 });
     if (url.startsWith("/api/library/file")) {
-      return typeof file === "string"
-        ? new Response(file, { status: 200 })
-        : new Response(JSON.stringify({ error: file.error }), { status: file.status });
+      return typeof fileBody === "string"
+        ? new Response(fileBody, { status: 200 })
+        : new Response(JSON.stringify({ error: fileBody.error }), { status: fileBody.status });
     }
     return new Response(JSON.stringify({ error: `no stub for ${url}` }), { status: 404 });
   }));
 }
 
-/** The archive tree is only fetched once the archive tab is opened, so every record-file test
- *  has to get there first. */
-async function openArchive() {
-  fireEvent.click(await screen.findByText("archive"));
+async function openHeadline() {
+  fireEvent.click(await screen.findByText("final-report.md"));
 }
 
 describe("Library — safety (agent output is never markup)", () => {
-  // A renderer feeding dangerouslySetInnerHTML would make any agent-written note a
-  // script-injection path into the cockpit. This holds on BOTH render paths.
-  it("never injects markup — HTML inside a record file stays literal", async () => {
+  // A renderer feeding dangerouslySetInnerHTML would make any agent-written deliverable a
+  // script-injection path into the cockpit.
+  it("never injects markup — HTML inside a deliverable becomes no element", async () => {
     stubLibrary('# Notes\n\n<img src=x onerror=alert(1)>\n<script>alert(document.cookie)</script>');
     const { container } = render(<Library />);
-    await openArchive();
-    fireEvent.click(await screen.findByText("report.md"));
+    await openHeadline();
     await screen.findByText(/Notes/);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
-    expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
   });
 
-  it("never injects markup on the WIKI path either", async () => {
-    stubLibrary('# Page\n\n<img src=x onerror=alert(1)>\n<script>alert(1)</script>');
-    const { container } = render(<Library />);
-    fireEvent.click(await screen.findByText("Couscous"));
-    await screen.findByText(/Page/);
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.querySelector("script")).toBeNull();
-    expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
-  });
-
-  // The server echoes the caller's own path back in its refusals, so the error slot is attacker-
-  // influenced text and must be rendered as text.
+  // The server echoes the caller's own path back in its refusals, so the error slot is
+  // attacker-influenced text and must be rendered as text.
   it("shows a refusal as text, not as markup", async () => {
     stubLibrary({ status: 404, error: "path escapes the workspace: <img src=x onerror=alert(1)>" });
     const { container } = render(<Library />);
-    await openArchive();
-    fireEvent.click(await screen.findByText("report.md"));
+    await openHeadline();
     await screen.findByText(/path escapes the workspace/);
     expect(container.querySelector("img")).toBeNull();
   });
@@ -102,9 +79,9 @@ describe("Library — safety (agent output is never markup)", () => {
     vi.stubGlobal("URL", Object.assign(Object.create(URL), {
       createObjectURL: () => "blob:stub", revokeObjectURL: () => {},
     }));
-    stubLibrary('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    const work = { ...WORK, headline: null, files: [file("diagram.svg")] };
+    stubLibrary('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { works: [work], docs: [] });
     const { container } = render(<Library />);
-    await openArchive();
     fireEvent.click(await screen.findByText("diagram.svg"));
     const link = (await screen.findByText("Download")) as HTMLAnchorElement;
     expect(link.tagName).toBe("A");
@@ -120,16 +97,9 @@ describe("Library — safety (agent output is never markup)", () => {
     }));
     // The real 57-byte stub a failed render left in the vault. Its %PDF header is enough for
     // the server to type it application/pdf, so it used to reach an <embed>.
-    stubLibrary("%PDF-1.7 binary payload — cannot be represented as text");
-    const tree = [{ name: "deck.pdf", path: "deck.pdf", dir: false, size: 57, mtime: "2026-08-01T00:00:00.000Z" }];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: tree }), { status: 200 });
-      if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(WIKI), { status: 200 });
-      return new Response("%PDF-1.7 binary payload — cannot be represented as text", { status: 200 });
-    }));
+    const work = { ...WORK, headline: null, files: [file("deck.pdf", { size: 57 })] };
+    stubLibrary("%PDF-1.7 binary payload — cannot be represented as text", { works: [work], docs: [] });
     const { container } = render(<Library />);
-    await openArchive();
     fireEvent.click(await screen.findByText("deck.pdf"));
     expect(await screen.findByText(/no PDF end marker/)).toBeTruthy();
     expect(container.querySelector("embed")).toBeNull();
@@ -141,138 +111,93 @@ describe("Library — safety (agent output is never markup)", () => {
     vi.stubGlobal("URL", Object.assign(Object.create(URL), {
       createObjectURL: () => "blob:stub", revokeObjectURL: () => {},
     }));
-    const tree = [{ name: "real.pdf", path: "real.pdf", dir: false, size: 400, mtime: "2026-08-01T00:00:00.000Z" }];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: tree }), { status: 200 });
-      if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(WIKI), { status: 200 });
-      return new Response("%PDF-1.7\n...body...\ntrailer\n%%EOF\n", { status: 200 });
-    }));
+    const work = { ...WORK, headline: null, files: [file("real.pdf")] };
+    stubLibrary("%PDF-1.7\n...body...\ntrailer\n%%EOF\n", { works: [work], docs: [] });
     const { container } = render(<Library />);
-    await openArchive();
     fireEvent.click(await screen.findByText("real.pdf"));
     await waitFor(() => expect(container.querySelector("embed")).toBeTruthy());
   });
-
-  it("a non-markdown text file keeps its exact bytes in a <pre>", async () => {
-    stubLibrary('{"a": 1}');
-    render(<Library />);
-    await openArchive();
-    // Only .md goes through the prose renderer; everything else stays verbatim.
-    const tree = [{ name: "data.json", path: "data.json", dir: false, size: 8, mtime: "2026-08-01T00:00:00.000Z" }];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: tree }), { status: 200 });
-      if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(WIKI), { status: 200 });
-      return new Response('{"a": 1}', { status: 200 });
-    }));
-    cleanup();
-    render(<Library />);
-    await openArchive();
-    fireEvent.click(await screen.findByText("data.json"));
-    const pre = await screen.findByText(/"a": 1/);
-    expect(pre.tagName).toBe("PRE");
-  });
 });
 
-describe("Library — the reading room", () => {
-  it("opens on the wiki with its sections and counts, not on the file tree", async () => {
-    stubLibrary("# Couscous export economics");
+describe("Library — the shelf", () => {
+  it("shows finished work and standalone docs in one month-grouped timeline", async () => {
+    stubLibrary("# body");
     render(<Library />);
-    expect(await screen.findByText("topics")).toBeTruthy();
-    expect(screen.getByText("entities")).toBeTruthy();
-    // An empty section stays visible so its emptiness is a fact rather than an absence.
-    expect(screen.getByText("analyses")).toBeTruthy();
-    expect(screen.getByText("none yet")).toBeTruthy();
-    // The header states the graph, which is the wiki's health at a glance.
-    expect(screen.getByText(/2 pages · 1 links/)).toBeTruthy();
+    // The work card: title, department, its deliverables.
+    expect(await screen.findByText("Hotel TV systems report")).toBeTruthy();
+    expect(screen.getByText("research")).toBeTruthy();
+    expect(screen.getByText("final-report.md")).toBeTruthy();
+    // The doc row: folder tag + the doc's own title, not its slug.
+    expect(screen.getByText("reports")).toBeTruthy();
+    expect(screen.getByText("Two UI bugs diagnosed")).toBeTruthy();
+    // Month groups place work in time; both months exist because the items are a month apart.
+    expect(screen.getByText("August 2026")).toBeTruthy();
+    expect(screen.getByText("July 2026")).toBeTruthy();
+    // The header states what the shelf holds.
+    expect(screen.getByText(/1 finished goal · 1 documents/)).toBeTruthy();
   });
 
-  it("shows a page's type, freshness and link counts above the prose", async () => {
-    stubLibrary("# Couscous export economics\n\nbody");
+  it("leads with the headline — the file the goal existed to produce", async () => {
+    stubLibrary("# body");
     render(<Library />);
-    fireEvent.click(await screen.findByText("Couscous"));
-    await screen.findByText(/body/);
-    expect(screen.getByText("topic")).toBeTruthy();
-    expect(screen.getByText("updated 2026-08-09")).toBeTruthy();
-    expect(screen.getByText("1 out · 0 in")).toBeTruthy();
+    const card = (await screen.findByTestId("shelf-work"));
+    const chips = within(card).getAllByTestId("shelf-file");
+    // Server order is newest-first with angle-1 written earlier; headline must still lead.
+    expect(chips[0].textContent).toContain("final-report.md");
   });
 
-  it("a [[wikilink]] in the prose navigates to that page", async () => {
-    stubLibrary("# Couscous\n\nGrown in [[Algeria]] mostly.");
+  it("folds a long file tail instead of burying the goals beneath it", async () => {
+    const many = Array.from({ length: 9 }, (_, i) => file(`part-${i}.md`));
+    stubLibrary("# body", { works: [{ ...WORK, headline: null, files: many }], docs: [] });
     render(<Library />);
-    fireEvent.click(await screen.findByText("Couscous"));
-    const link = await screen.findByRole("button", { name: "Algeria" });
-    await act(async () => { fireEvent.click(link); });
-    // The reader switched pages: Algeria's own backlink panel is what proves it.
-    await waitFor(() => expect(screen.getByText("Linked from")).toBeTruthy());
+    await screen.findByTestId("shelf-work");
+    expect(screen.getAllByTestId("shelf-file")).toHaveLength(6);
+    fireEvent.click(screen.getByText("+3 more"));
+    expect(screen.getAllByTestId("shelf-file")).toHaveLength(9);
   });
 
-  it("renders [[Page|alias]] as the alias, and leaves [[#anchor]] literal", async () => {
-    stubLibrary("# Couscous\n\nSee [[Algeria|the country]] and [[#Resolution]].");
+  it("filters to goals or docs on the segmented control", async () => {
+    stubLibrary("# body");
     render(<Library />);
-    fireEvent.click(await screen.findByText("Couscous"));
-    expect(await screen.findByRole("button", { name: "the country" })).toBeTruthy();
-    // An intra-page anchor is not a page — it must not become a dead button.
-    expect(screen.queryByRole("button", { name: "#Resolution" })).toBeNull();
-    await waitFor(() => expect(screen.getByText(/\[\[#Resolution\]\]/)).toBeTruthy());
+    await screen.findByTestId("shelf-work");
+    fireEvent.click(screen.getByText("docs"));
+    expect(screen.queryByTestId("shelf-work")).toBeNull();
+    expect(screen.getByTestId("shelf-doc")).toBeTruthy();
+    fireEvent.click(screen.getByText("goals"));
+    expect(screen.getByTestId("shelf-work")).toBeTruthy();
+    expect(screen.queryByTestId("shelf-doc")).toBeNull();
   });
 
-  it("names an orphan as a bug rather than showing an empty panel", async () => {
-    stubLibrary("# Couscous\n\nbody");
+  it("links each work to its goal — the how behind the what", async () => {
+    stubLibrary("# body");
     render(<Library />);
-    fireEvent.click(await screen.findByText("Couscous")); // backlinks: []
-    expect(await screen.findByText(/this page is an orphan/)).toBeTruthy();
+    const link = (await screen.findByText("how it was made ↗")) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("#/goals/hotel-tv");
   });
 
-  it("resolveRel turns a page-relative link into a vault path", () => {
-    // The form all 22 live source pages use.
-    expect(resolveRel("wiki/sources/Marseille.md", "../../knowledge/marseille.md"))
-      .toBe("knowledge/marseille.md");
-    expect(resolveRel("wiki/topics/A.md", "./B.md")).toBe("wiki/topics/B.md");
-    // Climbing past the vault root resolves to nothing rather than a request certain to 404.
-    expect(resolveRel("wiki/sources/X.md", "../../../../etc/passwd")).toBe(null);
+  it("a failed goal wears its status; a done one stays quiet", async () => {
+    stubLibrary("# body", { works: [WORK, { ...WORK, id: "g2", slug: "b", title: "Broken run", status: "failed" }], docs: [] });
+    render(<Library />);
+    await screen.findByText("Broken run");
+    expect(screen.getByText("failed")).toBeTruthy();
+    // "done" appears nowhere: on a shelf of finished work it would be pure noise.
+    expect(screen.queryByText("done")).toBeNull();
   });
 
-  it("a [record](../..) link jumps to the archive with that file open", async () => {
-    stubLibrary("# Couscous\n\n[record](../../goals/report.md) — researched 2026-07-16.");
+  it("an empty shelf explains itself", async () => {
+    stubLibrary("# body", { works: [], docs: [] });
     render(<Library />);
-    fireEvent.click(await screen.findByText("Couscous"));
-    const link = await screen.findByRole("button", { name: "record" });
-    await act(async () => { fireEvent.click(link); });
-    // Landing in the archive is the point: record files live there, not in the wiki nav.
-    await waitFor(() => expect(screen.getByText("the record — read-only")).toBeTruthy());
+    expect(await screen.findByText(/Nothing on the shelf yet/)).toBeTruthy();
   });
 
-  it("the wiki totals never sit over the archive claiming to describe it", async () => {
-    stubLibrary("# x");
+  // dist deploys the instant it builds, while the daemon serves /api/library/shelf only after
+  // a restart — the seam ui2-build-is-a-deploy exists to cover.
+  it("a daemon without the endpoint reads as 'restart', never as an empty library", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ error: "not found" }), { status: 404 })));
     render(<Library />);
-    expect(await screen.findByText(/2 pages · 1 links/)).toBeTruthy();
-    await openArchive();
-    expect(screen.getByText("the record — read-only")).toBeTruthy();
-    expect(screen.queryByText(/2 pages · 1 links/)).toBeNull();
-  });
-
-  it("offers a way back to the index on phones, where the index is hidden", async () => {
-    stubLibrary("# Couscous\n\nbody");
-    render(<Library />);
-    // Nothing picked: no back control, because the index is what is showing.
-    expect(screen.queryByText(/← All pages/)).toBeNull();
-    fireEvent.click(await screen.findByText("Couscous"));
-    const back = await screen.findByText("← All pages");
-    await act(async () => { fireEvent.click(back); });
-    await waitFor(() => expect(screen.getByText("Pick a page.")).toBeTruthy());
-  });
-
-  it("lists backlinks and follows one", async () => {
-    stubLibrary("# Algeria\n\nbody");
-    render(<Library />);
-    fireEvent.click(await screen.findByText("Algeria"));
-    await screen.findByText("Linked from");
-    // Scoped to the panel: the sidebar carries a "Couscous" button too.
-    const back = within(screen.getByTestId("backlinks")).getByRole("button", { name: "Couscous" });
-    await act(async () => { fireEvent.click(back); });
-    await waitFor(() => expect(screen.getByText(/this page is an orphan/)).toBeTruthy());
+    expect(await screen.findByText(/restart the daemon/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing on the shelf yet/)).toBeNull();
   });
 });
 
@@ -280,45 +205,45 @@ describe("Library — search", () => {
   function stubSearch(hits: unknown[]) {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith("/api/library/wiki")) return new Response(JSON.stringify(WIKI), { status: 200 });
+      if (url.startsWith("/api/library/shelf")) return new Response(JSON.stringify(SHELF), { status: 200 });
       if (url.startsWith("/api/library/search")) return new Response(JSON.stringify({ q: "x", hits }), { status: 200 });
-      if (url.startsWith("/api/library/tree")) return new Response(JSON.stringify({ nodes: TREE }), { status: 200 });
       return new Response("# body", { status: 200 });
     }));
   }
 
-  it("labels every hit by layer so wiki and record are never confused", async () => {
+  it("labels every hit by where in the record it lives", async () => {
     stubSearch([
       { path: "wiki/topics/Couscous.md", title: "Couscous", snippet: "semolina", score: 9, ts: "2026-08-09T00:00:00.000Z", wiki: true },
-      { path: "goals/x/report.md", title: "report", snippet: "shipping", score: 4, ts: "2026-08-01T00:00:00.000Z", wiki: false },
+      { path: "knowledge/marseille.md", title: "marseille", snippet: "airport", score: 4, ts: "2026-08-01T00:00:00.000Z", wiki: false },
     ]);
     render(<Library />);
-    await screen.findByText("topics");
-    fireEvent.change(screen.getByLabelText("Search the vault"), { target: { value: "semolina" } });
-    // Gate on the count, never on the "wiki" tag — the segmented control has a tab of the same
-    // name, so getByText("wiki") resolves instantly against it and the assertion runs too early.
+    await screen.findByTestId("shelf-work");
+    fireEvent.change(screen.getByLabelText("Search everything"), { target: { value: "semolina" } });
     await waitFor(() => expect(screen.getByText(/2 results for/)).toBeTruthy());
-    expect(screen.getByText("wiki/topics/Couscous.md")).toBeTruthy();
-    expect(screen.getByText("goals/x/report.md")).toBeTruthy();
-    expect(screen.getByText("record")).toBeTruthy();
+    expect(screen.getByText("wiki")).toBeTruthy();
+    expect(screen.getByText("knowledge")).toBeTruthy();
   });
 
-  it("an empty result set says what to do next", async () => {
-    stubSearch([]);
+  it("a hit opens straight into the reader — no tabs to land in first", async () => {
+    stubSearch([
+      { path: "knowledge/marseille.md", title: "marseille", snippet: "airport", score: 4, ts: "2026-08-01T00:00:00.000Z", wiki: false },
+    ]);
     render(<Library />);
-    await screen.findByText("topics");
-    fireEvent.change(screen.getByLabelText("Search the vault"), { target: { value: "zzz" } });
-    await waitFor(() => expect(screen.getByText(/Nothing matched/)).toBeTruthy());
+    await screen.findByTestId("shelf-work");
+    fireEvent.change(screen.getByLabelText("Search everything"), { target: { value: "airport" } });
+    await waitFor(() => expect(screen.getByText(/1 result for/)).toBeTruthy());
+    fireEvent.click(screen.getByText("marseille"));
+    await waitFor(() => expect(screen.getByTestId("reader")).toBeTruthy());
   });
 
-  it("clearing the box returns to browsing rather than stranding the reader", async () => {
+  it("an empty result set says what to do next, and clearing returns to the shelf", async () => {
     stubSearch([]);
     render(<Library />);
-    const box = await screen.findByLabelText("Search the vault");
+    const box = await screen.findByLabelText("Search everything");
     fireEvent.change(box, { target: { value: "zzz" } });
     await waitFor(() => expect(screen.getByText(/Nothing matched/)).toBeTruthy());
     fireEvent.change(box, { target: { value: "" } });
-    await waitFor(() => expect(screen.getByText("topics")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("shelf-work")).toBeTruthy());
   });
 });
 
@@ -335,7 +260,7 @@ describe("Library nav registration", () => {
   });
 
   it("jumps to the section on the g-l chord", async () => {
-    stubApi({ "/api/state": STATE_STUB, "/api/attention": [], "/api/library/wiki": WIKI });
+    stubApi({ "/api/state": STATE_STUB, "/api/attention": [], "/api/library/shelf": SHELF });
     render(<App />);
     await screen.findByText("Library");
     fireEvent.keyDown(window, { key: "g" });
@@ -348,7 +273,7 @@ describe("Library nav registration", () => {
     stubApi({
       "/api/state": STATE_STUB, "/api/budget": { date: "2026-08-01", spentCents: 0, capCents: 1000 },
       "/api/attention": [], "/api/mail/unread": { total: 0, byAgent: {}, pendingUser: 0, userInbox: 0 },
-      "/api/library/wiki": WIKI,
+      "/api/library/shelf": SHELF,
     });
     render(<App />);
     const heading = await screen.findByText("Library"); // the h1, not the lowercase tab label

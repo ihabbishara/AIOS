@@ -21,6 +21,7 @@ import { buildOrgView, buildAgentProfile, costsByAgentCanonical } from "./org-vi
 import { buildGoalsView, buildGoalDetail, buildBudgetView, buildMailView, buildMailUnread, buildMailThread, buildUserThreads } from "./goals-view.js";
 import { buildAttentionView } from "./attention-view.js";
 import { libraryTree, libraryRead } from "./library-view.js";
+import { buildLibraryShelf } from "./library-shelf.js";
 import { buildWikiView, searchLibrary, SEARCH_LIMIT } from "./wiki-view.js";
 import { buildScheduleView, validateRoutineBody, isValidHHMM, anchorOverrideKey, ANCHOR_NAMES } from "./schedule-view.js";
 import {
@@ -989,6 +990,11 @@ export function startWebServer(
         }
 
         // ---- library: read-only workspace browser (spec §4) ----
+        // The front door: finished work and standalone docs, newest first (spec §4-shelf).
+        if (path === "/api/library/shelf" && req.method === "GET") {
+          return json(res, 200, buildLibraryShelf(store, vault.root));
+        }
+
         if (path === "/api/library/tree" && req.method === "GET") {
           // No depth parameter on purpose: the walk is the caller's to amplify otherwise, and a
           // single symlink loop inside the vault inflates the reply by orders of magnitude.
