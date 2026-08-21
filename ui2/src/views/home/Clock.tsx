@@ -1,7 +1,11 @@
 // ui2/src/views/home/Clock.tsx — the day as an axis (spec 2026-08-02 §6).
-// Only the single nearest upcoming mark pulses; a second pulsing pin would be
-// mood rather than information.
+// The resting screen's signature: what happened today, what comes next, where in the
+// day we are. Labels hang from the axis in collision-free lanes (lib/clock-lanes) —
+// close anchors step down a rung on a longer stem instead of printing over each other.
+// Only the single nearest upcoming mark pulses; a second pulsing pin would be mood
+// rather than information.
 import type { ClockMark } from "../../lib/clock.js";
+import { clockLanes } from "../../lib/clock-lanes.js";
 
 const PIN: Record<ClockMark["kind"], string> = {
   past: "bg-past",
@@ -10,6 +14,9 @@ const PIN: Record<ClockMark["kind"], string> = {
 };
 
 const pct = (minutes: number) => `${(minutes / 1440) * 100}%`;
+const AXIS_TOP = 34;      // px from the band's top to the axis line
+const LANE_H = 20;        // px per label lane below the axis
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
 export function Clock({ marks, nowMinutes, live }: {
   marks: ClockMark[];
@@ -24,33 +31,51 @@ export function Clock({ marks, nowMinutes, live }: {
       </div>
     );
   }
+  const laned = clockLanes(marks);
+  const laneCount = Math.max(...laned.map((m) => m.lane)) + 1;
+  const height = AXIS_TOP + 14 + laneCount * LANE_H;
   return (
-    // The band is most of the screen at low tide. Centring the axis inside it
-    // keeps the clock as a line through the middle rather than a strip stranded
-    // at the top of a tall empty box.
-    <div className="h-full flex items-center px-5">
-    <div className="relative w-full h-16">
-      <div className="absolute left-0 right-0 top-8 h-px bg-line" />
-      <div className="absolute top-4 w-px h-6 bg-next" style={{ left: pct(nowMinutes) }} />
-      {marks.map((m) => (
+    // Centred in the band so the clock reads as a line through the middle of the
+    // resting screen rather than a strip stranded at the top of a tall empty box.
+    <div className="h-full flex items-center px-6">
+      <div className="relative w-full" style={{ height }}>
+        {/* The axis carries the day's progress structurally: elapsed solid, remaining faint. */}
+        <div className="absolute left-0 h-px bg-line" style={{ top: AXIS_TOP, width: pct(nowMinutes) }} />
+        <div className="absolute right-0 h-px bg-line opacity-40" style={{ top: AXIS_TOP, left: pct(nowMinutes) }} />
+        {/* NOW: the only live element at rest — a tick that says what time it is. */}
+        <div className="absolute w-px bg-next" style={{ left: pct(nowMinutes), top: AXIS_TOP - 14, height: 20 }} />
         <div
-          key={m.key}
-          data-mark={m.key}
-          className="absolute top-5 -translate-x-1/2 text-center"
-          style={{ left: pct(m.minutes) }}
+          className="absolute -translate-x-1/2 font-mono text-[10px] text-next whitespace-nowrap"
+          style={{ left: pct(nowMinutes), top: AXIS_TOP - 30 }}
         >
-          <span
-            className={`block size-1.5 rounded-full mx-auto mb-1.5 ${PIN[m.kind]} ${
-              live && m.kind === "next" ? "approach" : ""
-            }`}
-          />
-          <div className="font-mono text-[8.5px] text-dim">{m.hhmm}</div>
-          <div className={`text-[9px] mt-0.5 whitespace-nowrap ${m.kind === "next" ? "text-strong" : "text-dim"}`}>
-            {m.label}
-          </div>
+          now {hhmm(nowMinutes)}
         </div>
-      ))}
-    </div>
+        {laned.map((m) => (
+          <div key={m.key} data-mark={m.key} data-lane={m.lane}>
+            <span
+              className={`absolute size-2 rounded-full -translate-x-1/2 -translate-y-1/2 ${PIN[m.kind]} ${
+                live && m.kind === "next" ? "approach" : ""
+              }`}
+              style={{ left: pct(m.minutes), top: AXIS_TOP }}
+            />
+            {/* Stem from the axis down to the label's rung — lane 0 sits close, deeper
+                lanes hang lower so the eye can trace which time a label belongs to. */}
+            <span
+              className="absolute w-px bg-line"
+              style={{ left: pct(m.minutes), top: AXIS_TOP + 5, height: 6 + m.lane * LANE_H }}
+            />
+            <div
+              className="absolute -translate-x-1/2 whitespace-nowrap text-center"
+              style={{ left: pct(m.minutes), top: AXIS_TOP + 13 + m.lane * LANE_H }}
+            >
+              <span className="font-mono text-[10px] text-dim">{m.hhmm}</span>{" "}
+              <span className={`text-[11.5px] ${m.kind === "next" ? "text-strong" : m.kind === "past" ? "text-dim" : "text-fg"}`}>
+                {m.label}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

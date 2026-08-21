@@ -12,6 +12,9 @@ import { TwoStepButton } from "../components/TwoStepButton.js";
 import { ts, usd } from "../lib/format.js";
 import { GoalMap } from "./goal/GoalMap.js";
 import { Reader } from "../components/Reader.js";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { elapsed } from "../lib/thread.js";
 
 export function Goals({ events, route, onOpenChat, connected }: {
   events: StoredEvent[]; route: Route; onOpenChat: (t: string, s?: string) => void;
@@ -207,31 +210,35 @@ function GoalDetailView({ slug, events, onOpenChat, connected }: {
         </div>
       )}
 
-      <div className="flex gap-6 flex-col lg:flex-row">
-        <div className="min-w-0">
-          <GoalMap
-            nodes={goal.nodes} failedKey={failedKey} selectedKey={nodeKey}
-            onSelect={setNodeKey} live={connected}
-          />
-        </div>
-        {node && (
-          <div className="panel lg:w-96 shrink-0 p-4 h-fit">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-strong">{node.key}</span>
+      {/* One reading column: the map tells the shape, the selected node's story follows
+          BELOW it — the old right-hand inspector walled off 40% of the page with raw
+          brief text and left the map squeezed beside it. */}
+      <div className="min-w-0">
+        <GoalMap
+          nodes={goal.nodes} failedKey={failedKey} selectedKey={nodeKey}
+          onSelect={setNodeKey} live={connected}
+        />
+      </div>
+      {node && (
+          <div className="panel p-5 mt-6 max-w-3xl" data-testid="node-detail">
+            <div className="flex items-center gap-2.5 mb-3 flex-wrap">
+              <span className={`size-2 rounded-full ${CLOCK_TOKEN[statusClock(node.status)]}`} />
+              <span className="text-strong text-[14px]">{node.key}</span>
               <span className={`font-mono text-[10px] uppercase ${CLOCK_TEXT[statusClock(node.status)]}`}>
                 {node.status}
               </span>
-              <span className="text-[11px] text-dim ml-auto">
-                {node.agent} · rounds {node.rounds} · {usd(node.costCents)}
+              <span className="text-[11px] text-dim">
+                {node.agent}{node.critic ? ` · critic ${node.critic}` : ""} · rounds {node.rounds} · {usd(node.costCents)} · {elapsed(node.startedAt, node.finishedAt)}
+              </span>
+              <span className="ml-auto">
+                <Button onClick={() => onOpenChat(node.agent, `About node "${node.key}" of goal "${goal.title}": `)}>Discuss ⌘J</Button>
               </span>
             </div>
-            <div className="text-[12px] text-dim whitespace-pre-wrap mb-3">{node.brief}</div>
-            {node.error && <pre className="text-[11px] text-err whitespace-pre-wrap mb-3">{node.error}</pre>}
-            {node.artifact && <ArtifactCard goalArtifacts={goal.artifacts} file={node.artifact} goalDir={goal.goalDir ?? ""} />}
-            <Button onClick={() => onOpenChat(node.agent, `About node "${node.key}" of goal "${goal.title}": `)}>Discuss ⌘J</Button>
+            <BriefProse text={node.brief} />
+            {node.error && <pre className="text-[11px] text-err whitespace-pre-wrap my-3">{node.error}</pre>}
+            {node.artifact && <div className="mt-3"><ArtifactCard goalArtifacts={goal.artifacts} file={node.artifact} goalDir={goal.goalDir ?? ""} /></div>}
           </div>
-        )}
-      </div>
+      )}
 
       {goal.artifacts.length > 0 && (
         <div className="mt-6 max-w-3xl">
@@ -242,6 +249,32 @@ function GoalDetailView({ slug, events, onOpenChat, connected }: {
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** The node brief, rendered as prose instead of a raw text wall. Long briefs are the norm
+ *  (they are the specialist's full instructions), so they open collapsed with a fade and an
+ *  explicit control — the reader chooses to go deep, the page never forces it. */
+function BriefProse({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 420;
+  return (
+    <div>
+      <div className={`relative ${long && !expanded ? "max-h-32 overflow-hidden" : ""}`} data-testid="brief-prose">
+        <div className="reader-prose text-[12.5px]">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+        </div>
+        {long && !expanded && (
+          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
+        )}
+      </div>
+      {long && (
+        <button onClick={() => setExpanded((v) => !v)}
+          className="label hover:text-fg mt-1.5" data-testid="brief-toggle">
+          {expanded ? "Collapse ▴" : "Read the full brief ▾"}
+        </button>
       )}
     </div>
   );

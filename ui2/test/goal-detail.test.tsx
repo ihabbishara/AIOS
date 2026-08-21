@@ -93,5 +93,21 @@ describe("Goal detail", () => {
     render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
     expect((await screen.findByTestId("goal-dir")).textContent).toContain("/g");
   });
-});
 
+  it("the node detail reads BELOW the map as prose, long briefs collapsed behind a control", async () => {
+    const longBrief = "Read these documents.\n\n1. First source\n2. Second source\n\n" + "Detail sentence. ".repeat(40);
+    const detail = { ...DETAIL, nodes: [{ ...NODE, brief: longBrief }] };
+    stubApi({ "/api/goals/deck": detail });
+    const { container } = render(<Goals events={[]} route={route} onOpenChat={() => {}} />);
+    const panel = await screen.findByTestId("node-detail");
+    // below the map, not beside it: the panel is a sibling AFTER the map container
+    const map = container.querySelector('[data-testid="map-node"]')!;
+    expect(map.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // markdown, not a text wall: the numbered list became a real <ol>
+    expect(panel.querySelector(".reader-prose ol")).toBeTruthy();
+    // collapsed by default, expandable
+    expect(screen.getByTestId("brief-prose").className).toContain("max-h-32");
+    fireEvent.click(screen.getByTestId("brief-toggle"));
+    expect(screen.getByTestId("brief-prose").className).not.toContain("max-h-32");
+  });
+});

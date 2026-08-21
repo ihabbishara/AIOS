@@ -40,13 +40,29 @@ describe("Clock", () => {
   });
 
   it("positions each mark by its minute of the day", () => {
-    const { container } = render(<Clock marks={marks} nowMinutes={600} live={true} />);
-    const first = container.querySelector('[data-mark="anchor:morning"]') as HTMLElement;
-    expect(first.style.left).toBe(`${(480 / 1440) * 100}%`);
+    const { container } = render(<Clock marks={marks} nowMinutes={600} live={false} />);
+    // The pin carries the position (the wrapper just groups pin + stem + label).
+    const pin = container.querySelector('[data-mark="reminder:7"] span') as HTMLElement;
+    expect(pin.style.left).toBe(`${(720 / 1440) * 100}%`);
   });
 
   it("says so plainly when nothing is scheduled, rather than drawing an empty axis", () => {
     render(<Clock marks={[]} nowMinutes={600} live={true} />);
     expect(screen.getByText("Nothing scheduled today")).toBeTruthy();
+  });
+
+  it("colliding labels ladder into different lanes — 07:15 and 07:30 never overprint", () => {
+    const tight: ClockMark[] = [
+      { key: "a", label: "standup", hhmm: "07:15", minutes: 435, kind: "past" },
+      { key: "b", label: "briefing", hhmm: "07:30", minutes: 450, kind: "past" },
+    ];
+    const { container } = render(<Clock marks={tight} nowMinutes={600} live={false} />);
+    const lanes = [...container.querySelectorAll("[data-mark]")].map((el) => el.getAttribute("data-lane"));
+    expect(new Set(lanes).size).toBe(2);
+  });
+
+  it("the NOW tick says what time it is", () => {
+    render(<Clock marks={marks} nowMinutes={600} live={false} />);
+    expect(screen.getByText("now 10:00")).toBeTruthy();
   });
 });
