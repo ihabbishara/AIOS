@@ -141,6 +141,28 @@ describe("resolveAgent", () => {
     }
   });
 
+  it("workspace jail keeps capability-granted web tools while fs/exec stay confined (odin's research node in a workspaced goal)", async () => {
+    const { resolve, store } = setup();
+    const ws = mkdtempSync(join(tmpdir(), "odin-ws-"));
+    const odin = resolve("odin", origin, { workspace: { taskDir: ws, mode: "build" } })!;
+    const can = odin.options.canUseTool!;
+    // The web capability granted these; the jail's deny fallback must not veto them
+    // (observed live 2026-08-21: a research node parked needs-review on WebSearch/WebFetch,
+    // the workspace twin of the workspace-less bug fixed 2026-07-18).
+    expect((await can("WebSearch", { query: "x" }, {} as never)).behavior).toBe("allow");
+    expect((await can("WebFetch", { url: "https://example.com" }, {} as never)).behavior).toBe("allow");
+    // The jail still holds: raw Bash denied, reads confined to the workspace.
+    expect((await can("Bash", { command: "ls" }, {} as never)).behavior).toBe("deny");
+    expect((await can("Read", { file_path: "/etc/passwd" }, {} as never)).behavior).toBe("deny");
+    expect((await can("Read", { file_path: join(ws, "a.ts") }, {} as never)).behavior).toBe("allow");
+    // A tool outside the capability union stays fallback-denied — fail-closed.
+    expect((await can("TodoWrite", { todos: [] }, {} as never)).behavior).toBe("deny");
+    // And the pass-through is DB-effective: a revoked tool falls back to deny, not to "granted".
+    store.setRolePermission("odin", "WebSearch", 0, "test");
+    const revoked = resolve("odin", origin, { workspace: { taskDir: ws, mode: "build" } })!;
+    expect((await revoked.options.canUseTool!("WebSearch", { query: "x" }, {} as never)).behavior).toBe("deny");
+  });
+
   it("SECURITY: atlas keeps its atlas-mutating fence on mcp__code__sh inside a sandbox workspace", async () => {
     const { resolve } = setup();
     // atlas: engineering dept (code-sandbox) + ops-guardrail capability → atlas-mutating guard.

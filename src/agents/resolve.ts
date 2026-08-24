@@ -15,7 +15,7 @@ import type { AgentDef, AgentKind, LoadedRegistry, LoadedDepartment } from "./re
 import { isGuarded } from "./registry/loader.js";
 import { AIOS_PACK_BARE, fqPackTool, type CapabilityDef } from "./registry/capabilities.js";
 import { roleQueryOptions } from "./runner.js";
-import { withEffectiveTools } from "./permissions.js";
+import { effectiveAllowedTools, withEffectiveTools } from "./permissions.js";
 import { guardOptions, NAMED_GUARDS, type GuardConfig, type NamedGuard, type ToolCheck } from "./guards/index.js";
 import { codeGuard, advisoryGuard } from "../code/guard.js";
 import { memoContextForDomain } from "../memory/memos.js";
@@ -244,7 +244,21 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
       delete (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
       if (ctx.workspace) {
         options.mcpServers = { ...(options.mcpServers ?? {}), code: buildCodeServer(ctx.workspace) as never };
-        guards.push({ checks: codeGuard(ctx.workspace.taskDir, ctx.workspace.mode), fallback: "deny" });
+        // The deny fallback keeps the jail fail-closed for anything unknown, but it must not
+        // veto tools the capability union granted: without the pass-throughs it denied odin's
+        // WebSearch/WebFetch and parked his research node (observed live 2026-08-21 — the
+        // workspace twin of the workspace-less fix below). Pass-throughs come from the
+        // DB-EFFECTIVE allowlist so a revoked tool still falls to the fallback, and they only
+        // fill tools the jail leaves unchecked — combineGuards ANDs, so a capability guard on
+        // the same tool (e.g. web-fetch-public on WebFetch) keeps its verdict.
+        const jail = codeGuard(ctx.workspace.taskDir, ctx.workspace.mode);
+        const pass: ToolCheck = () => ({ ok: true });
+        const granted = Object.fromEntries(
+          effectiveAllowedTools(canonical, allowedTools, deps.store)
+            .filter((t) => !(t in jail) && !t.startsWith("mcp__"))
+            .map((t) => [t, pass]),
+        );
+        guards.push({ checks: { ...granted, ...jail }, fallback: "deny" });
       } else {
         // Advisory fallback "allow" (strip fs/exec only); a deny fallback vetoed tools the
         // capability union granted (odin's WebSearch/WebFetch died in workspace-less goals —
