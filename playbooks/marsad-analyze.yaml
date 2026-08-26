@@ -1,0 +1,20 @@
+name: marsad-analyze
+description: >-
+  Read-only investigation of the marsad media-monitoring platform. Allocates an
+  analyze workspace over the MediaMonitoring checkout so iris has her sandboxed
+  shell; she answers from the repo and its governing docs, citing sections.
+needsProjectDir: true
+stages:
+  - type: single
+    id: answer
+    role: iris
+    brief: >-
+      Answer the request about the marsad platform using the read-only checkout
+      in your workspace. Locate the governing doc section before reasoning about
+      code (docs/fableTheGreat/ARCHITECTURE.md is the as-built map,
+      VERIFICATION.md the live-proof ledger) and cite section numbers. All code
+      lives under platform/ — cd there before running anything. Use your
+      sandboxed shell for read-only commands only. If the request carries no
+      specific question (e.g. launched from the Packs view), produce a short
+      orientation report that PROVES repo access: current git HEAD, top-level
+      layout, and the doc index — every claim backed by command output.

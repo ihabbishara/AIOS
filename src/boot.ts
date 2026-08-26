@@ -385,6 +385,23 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
     // Single-node mail-goals never get a sandbox; graph mail-goals are gated upstream by the
     // engine's mailWorkspaceEligible check (user-sent + engineering only, spec 2026-07-07).
     if (goal.plan_summary.startsWith(MAIL_PREFIX)) return undefined;
+    if (goal.department === "clients") {
+      // Clients goals: read-only analyze workspace when the goal names a project_dir.
+      // Client agents (iris) hold code-sandbox, and a sandbox agent without a workspace
+      // is dead — the advisory guard strips all fs/exec tools (resolve.ts sandbox branch).
+      // Analyze matches their read-only charter: taskDir IS the source repo, codeGuard
+      // blocks writes. No project_dir → no workspace (vault/recall work needs none).
+      if (!goal.project_dir) return undefined;
+      const { taskDir } = allocateWorkspace(
+        { mode: "analyze", source: goal.project_dir, slug: goal.slug },
+        {
+          workspaceRoot: config.workspaceRoot, readRoots: config.codeReadRoots,
+          now: localParts(new Date()).date, id: randomUUID().slice(0, 8),
+          selfRoot: resolveReal(process.cwd()),
+        },
+      );
+      return { taskDir, mode: "analyze" as const };
+    }
     if (goal.department !== "engineering") return undefined;
     const pbName = goal.plan_summary.startsWith("playbook:") ? goal.plan_summary.slice("playbook:".length) : undefined;
     if (pbName === "code-inplace") return undefined; // inplace edits the real checkout — no sandbox
