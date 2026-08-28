@@ -508,9 +508,17 @@ export class GoalEngine {
   /** Apply a human verdict to a needs-review node (verification-hardening §4).
    *  accept → completes with a waiver in the artifact frontmatter; retry → one
    *  human-granted attempt with guidance as producer feedback; abandon → node fails
-   *  into the normal onNodeFailure path. */
+   *  into the normal onNodeFailure path.
+   *
+   *  `accept` is a turnstile, not a rubber stamp. Two machine-checkable signals mean the
+   *  deliverable is known-absent rather than merely imperfect, and both were observed
+   *  shipping empty goals as "done" (2026-08): a runner report of `passed: false` whose
+   *  summary literally read "the central deliverable is absent", and an unreadable
+   *  lastArtifactRef, which used to complete the node with the string "(missing artifact
+   *  x.md)" AS the deliverable. Either refuses unless the caller passes `force`, which is
+   *  then recorded in the artifact's frontmatter — an override stays queryable, never silent. */
   resolveReview(idOrSlug: string, nodeKey: string, verdict: "accept" | "retry" | "abandon",
-    opts: { by: string; guidance?: string }): string {
+    opts: { by: string; guidance?: string; force?: boolean }): string {
     const g = this.findGoal(idOrSlug);
     if (!g) return `No goal "${idOrSlug}".`;
     if (g.legacy) return `Goal ${g.slug} is a frozen legacy goal — read-only.`;
@@ -519,11 +527,25 @@ export class GoalEngine {
     if (!n || n.status !== "needs-review") return `Node ${nodeKey} of ${g.slug} is not awaiting review.`;
     const resolved: EventInput = { type: "review.resolved", payload: {
       node: nodeKey, verdict, by: opts.by, ...(opts.guidance ? { guidance: opts.guidance } : {}),
+      ...(opts.force ? { forced: true } : {}),
     } };
     if (verdict === "accept") {
       // Waiver is recorded in the FINAL artifact's frontmatter — "done with waiver"
       // is queryable, never silent (spec §4).
       const src = n.lastArtifactRef ? this.deps.vault.readGoalArtifact(g.goal_dir!, n.lastArtifactRef) : undefined;
+      const failing = n.lastReport && !n.lastReport.passed ? n.lastReport : undefined;
+      if (!opts.force) {
+        if (failing) {
+          return `Refused: ${nodeKey} of ${g.slug} last reported FAILING verification — accepting it would mark a known-broken deliverable done.\n`
+            + `  ${failing.summary}\n`
+            + failing.failures.slice(0, 5).map((f) => `  - ${f}`).join("\n")
+            + `\nRetry with guidance, abandon the node, or re-send accept with force to waive verification explicitly.`;
+        }
+        if (src === undefined) {
+          return `Refused: ${nodeKey} of ${g.slug} has no readable artifact (${n.lastArtifactRef ?? "none recorded"}) — there is nothing to accept.\n`
+            + `Retry the node, or re-send accept with force to complete it with a placeholder body.`;
+        }
+      }
       const body = src ? src.replace(/^---\n[\s\S]*?\n---\n\n?/, "") : `(missing artifact ${n.lastArtifactRef ?? "?"})`;
       const file = `${nodeKey}.md`;
       this.deps.vault.writeGoalArtifact(g.goal_dir!, file, body, {
@@ -531,6 +553,8 @@ export class GoalEngine {
         "approved-with-waiver": true,
         objections: (n.reviewObjections ?? []).join("; "),
         "waived-by": opts.by,
+        ...(failing ? { "waived-failing-verification": true, "verification-summary": failing.summary } : {}),
+        ...(src === undefined ? { "waived-missing-artifact": n.lastArtifactRef ?? "none recorded" } : {}),
       });
       this.journal(g.id, [resolved,
         { type: "node.completed", payload: { node: nodeKey, artifactRef: file, roundsUsed: n.currentRound } }]);

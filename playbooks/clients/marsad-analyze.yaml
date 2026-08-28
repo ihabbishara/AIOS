@@ -4,10 +4,15 @@ description: >-
   analyze workspace over the MediaMonitoring checkout so iris has her sandboxed
   shell; she answers from the repo and its governing docs, citing sections.
 needsProjectDir: true
+# The stage names a ROLE, not an agent: a playbook shipped in this repo must still bind on an
+# install that has never heard of iris (playbook-bind: a stock playbook that cannot bind is
+# silently dropped at load). `prefer` keeps THIS install on iris exactly.
+bind:
+  investigator: { prefer: iris, kind: [worker], capabilities: [code-sandbox] }
 stages:
   - type: single
     id: answer
-    role: iris
+    role: investigator
     brief: >-
       Answer the request about the marsad platform using the read-only checkout
       in your workspace. Locate the governing doc section before reasoning about
