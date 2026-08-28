@@ -27,6 +27,8 @@ import { buildMediaServer, type MediaServerDeps } from "../media/server.js";
 import { buildLifeopsServer } from "../lifeops/server.js";
 import { buildLedgerServer } from "../finance/server.js";
 import { buildCloudflareServer } from "../senses/cloudflare/server.js";
+import { buildMarsadServer, MARSAD_REPO } from "../clients/marsad.js";
+import { existsSync } from "node:fs";
 import { clientDir } from "./registry/extras.js";
 import type { MoneyServerDeps } from "../money/server.js";
 
@@ -126,6 +128,16 @@ const SERVER_BUILDERS: Record<string, (c: ServerCtx) => Record<string, unknown>>
     ),
   }),
   cloudflare: () => ({ cloudflare_analytics: buildCloudflareServer() }),
+  // iris's marsad senses: read-only ssh onto the box + the same jailed analyze shell goals
+  // get, pinned to the MediaMonitoring checkout so the repo is reachable from chat too.
+  // The repo entry is skipped (not thrown) when the checkout is missing — a moved repo must
+  // degrade to a missing tool iris can report, never to an unresolvable agent.
+  marsad: () => ({
+    marsad: buildMarsadServer(),
+    ...(existsSync(MARSAD_REPO)
+      ? { "marsad-code": buildCodeServer({ taskDir: MARSAD_REPO, mode: "analyze" }) }
+      : {}),
+  }),
 };
 
 /** AND-compose named guards: for a tool with several checks, the first deny wins;
