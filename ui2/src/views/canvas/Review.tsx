@@ -12,15 +12,21 @@ export function ReviewCanvas({ item, events, onDone }: {
   const { data: goal } = useLiveQuery(() => api.goal(item.ref.goalId), events, T.goals, [item.ref.goalId]);
   const [guidance, setGuidance] = useState("");
   const [error, setError] = useState("");
+  // Set when the server refuses an accept (failing verification / missing artifact). The
+  // override is deliberately not offered up-front: it appears only once you have been shown
+  // WHY the deliverable is known-absent, so waiving it is a second, informed click.
+  const [blocked, setBlocked] = useState("");
   const node = goal?.nodes.find((n) => n.key === item.ref.node);
   const artifact = goal?.artifacts.find((a) => a.file === node?.artifact);
-  const resolve = async (verdict: "accept" | "retry" | "abandon") => {
-    setError("");
+  const resolve = async (verdict: "accept" | "retry" | "abandon", force?: boolean) => {
+    setError(""); setBlocked("");
     try {
-      await api.resolveReview(item.ref.goalId, item.ref.node, verdict, verdict === "retry" ? guidance : undefined);
+      await api.resolveReview(item.ref.goalId, item.ref.node, verdict, verdict === "retry" ? guidance : undefined, force);
       onDone();
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message;
+      if (verdict === "accept" && !force && msg.includes("Refused:")) setBlocked(msg);
+      else setError(msg);
     }
   };
   // Policy-wall park (triage-inbox spec §B3): the folded grants approve first, then the node
@@ -69,6 +75,13 @@ export function ReviewCanvas({ item, events, onDone }: {
         <Button variant="ghost" onClick={() => void resolve("retry")}>Retry</Button>
         <TwoStepButton label="Abandon node" onConfirm={() => void resolve("abandon")} />
       </div>
+      {blocked && (
+        <div className="mt-3 border border-err rounded p-3">
+          <div className="text-[12px] text-err whitespace-pre-wrap mb-2">{blocked}</div>
+          <TwoStepButton label="Waive verification anyway"
+            onConfirm={() => void resolve("accept", true)} />
+        </div>
+      )}
       {error && <div className="text-[12px] text-err mt-2">{error}</div>}
     </div>
   );

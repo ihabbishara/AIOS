@@ -654,12 +654,15 @@ export function startWebServer(
 
         const reviewCtl = /^\/api\/goals\/([\w-]+)\/review\/([\w-]+)$/.exec(path);
         if (reviewCtl && req.method === "POST") {
-          const body = JSON.parse(await readBody(req)) as { verdict?: string; guidance?: string };
+          const body = JSON.parse(await readBody(req)) as { verdict?: string; guidance?: string; force?: boolean };
           if (body.verdict !== "accept" && body.verdict !== "retry" && body.verdict !== "abandon") {
             return json(res, 400, { error: "verdict must be accept, retry, or abandon" });
           }
           const message = goals.resolveReview(reviewCtl[1], reviewCtl[2], body.verdict,
-            { by: "ui", guidance: body.guidance?.trim() || undefined });
+            { by: "ui", guidance: body.guidance?.trim() || undefined, force: body.force === true });
+          // A refused accept must not read as success: the UI resolves on 2xx and closes the
+          // card, which would hide the very gate this refusal exists to enforce.
+          if (message.startsWith("Refused:")) return json(res, 409, { error: message });
           return json(res, 200, { message });
         }
 

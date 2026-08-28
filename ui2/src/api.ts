@@ -244,10 +244,12 @@ export const api = {
   goalAction: (idOrSlug: string, verb: "pause" | "resume" | "abandon" | "reopen", body?: { guidance?: string }) =>
     request<{ message: string }>(`/api/goals/${encodeURIComponent(idOrSlug)}/${verb}`,
       { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) }),
-  resolveReview: (goalId: string, node: string, verdict: "accept" | "retry" | "abandon", guidance?: string) =>
+  /** `force` waives the accept-turnstile (failing verification / missing artifact). Older
+   *  servers ignore the flag, so a new bundle against one still behaves exactly as before. */
+  resolveReview: (goalId: string, node: string, verdict: "accept" | "retry" | "abandon", guidance?: string, force?: boolean) =>
     request<{ message: string }>(
       `/api/goals/${encodeURIComponent(goalId)}/review/${encodeURIComponent(node)}`,
-      { method: "POST", body: JSON.stringify({ verdict, ...(guidance?.trim() ? { guidance } : {}) }) },
+      { method: "POST", body: JSON.stringify({ verdict, ...(guidance?.trim() ? { guidance } : {}), ...(force ? { force: true } : {}) }) },
     ),
   /** `since` (ISO) makes the server bound by time instead of row count — a row limit over the
    *  whole corpus silently drops the oldest days out of a window. */
