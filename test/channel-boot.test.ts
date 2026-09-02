@@ -1,5 +1,5 @@
 // test/channel-boot.test.ts
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { startChannels } from "../src/channels/boot.js";
 import type { ChannelAdapter, MessageHandler } from "../src/channels/types.js";
 
@@ -30,7 +30,7 @@ describe("startChannels", () => {
     expect(channels.has("good")).toBe(true);
     expect(started).toEqual(["good"]);
     expect(lines.some((l) => l.includes("channel up: good"))).toBe(true);
-    expect(lines.some((l) => l.includes("channel FAILED: bad") && l.includes("disabled; daemon continues"))).toBe(true);
+    expect(lines.some((l) => l.includes("channel FAILED: bad") && l.includes("daemon continues"))).toBe(true);
   });
   it("all succeed → empty failure list", async () => {
     const started: string[] = [];
@@ -49,17 +49,26 @@ describe("startChannels", () => {
   });
 });
 
-/** An adapter whose start() never settles, plus a record of whether it was asked to stop. */
-function hung(name: string): ChannelAdapter & { stopped: boolean } {
+/** An adapter whose start() settles only when the test says so, plus whether it was stopped. */
+function deferred(name: string) {
+  let resolve: () => void = () => {};
+  let reject: (e: Error) => void = () => {};
   const ch = {
     name,
-    start: () => new Promise<void>(() => {}), // never settles — the whole point
+    starts: 0,
+    stopped: false,
+    start: () => {
+      ch.starts++;
+      return new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+    },
     stop: async () => { ch.stopped = true; },
     send: async () => {},
-    stopped: false,
+    connect: () => resolve(),
+    fail: (e: Error) => reject(e),
   };
-  return ch as unknown as ChannelAdapter & { stopped: boolean };
+  return ch;
 }
+const adapter = (d: ReturnType<typeof deferred>) => d as unknown as ChannelAdapter;
 
 describe("a channel that hangs instead of failing", () => {
   // The parked bug: start() was awaited with no bound, and bootNormal does not start the web
@@ -67,10 +76,10 @@ describe("a channel that hangs instead of failing", () => {
   // it, permanently, with nothing in the log to say why.
   it("is bounded, reported, and never holds the daemon", async () => {
     const lines: string[] = [];
-    const stuck = hung("slack");
+    const stuck = deferred("slack");
     const started: string[] = [];
     const channels = new Map<string, ChannelAdapter>([
-      ["slack", stuck],
+      ["slack", adapter(stuck)],
       ["telegram", fake(started, "telegram")],
     ]);
 
@@ -84,11 +93,62 @@ describe("a channel that hangs instead of failing", () => {
     expect(lines.some((l) => l.includes("channel FAILED: slack") && l.includes("daemon continues"))).toBe(true);
   });
 
-  it("asks the timed-out adapter to stop, so it cannot connect behind the daemon's back", async () => {
-    const stuck = hung("slack");
-    const channels = new Map<string, ChannelAdapter>([["slack", stuck]]);
+  it("never stops a timed-out adapter — stopping Slack mid-reconnect is what crashed the daemon", async () => {
+    const stuck = deferred("slack");
+    const channels = new Map<string, ChannelAdapter>([["slack", adapter(stuck)]]);
     await startChannels(channels, noop, () => {}, { timeoutMs: 20 });
-    expect(stuck.stopped).toBe(true);
+    expect(stuck.stopped).toBe(false);
+  });
+
+  it("a timed-out start that connects later rejoins the map and clears its failure entry", async () => {
+    const lines: string[] = [];
+    const slow = deferred("slack");
+    const channels = new Map<string, ChannelAdapter>([["slack", adapter(slow)]]);
+    const failures = await startChannels(channels, noop, (l) => lines.push(l), { timeoutMs: 20 });
+    expect(failures).toHaveLength(1);
+    expect(channels.has("slack")).toBe(false);
+
+    slow.connect();
+    await vi.waitFor(() => expect(channels.has("slack")).toBe(true));
+    // The SAME array the caller holds — bootNormal's degraded() closure reads it on every brief.
+    expect(failures).toEqual([]);
+    // Awaited, not restarted: a second start() would open a second socket.
+    expect(slow.starts).toBe(1);
+    expect(lines.some((l) => l.includes("channel up (late): slack"))).toBe(true);
+  });
+
+  it("a timed-out start that later fails is retried, and rejoins when a retry connects", async () => {
+    const flaky = deferred("slack");
+    const channels = new Map<string, ChannelAdapter>([["slack", adapter(flaky)]]);
+    const failures = await startChannels(channels, noop, () => {}, { timeoutMs: 20, retryBaseMs: 5 });
+    flaky.fail(new Error("socket closed"));
+    await vi.waitFor(() => expect(flaky.starts).toBe(2));
+    expect(failures[0]!.reason).toBe("socket closed");
+    flaky.connect();
+    await vi.waitFor(() => expect(channels.has("slack")).toBe(true));
+    expect(failures).toEqual([]);
+  });
+
+  it("a start that threw is retried in the background with backoff, and rejoins when it succeeds", async () => {
+    // The 2026-08-30 shape: a boot with no network. getMe throws, and the old code disabled the
+    // channel for the whole session — three days, until a human restarted the daemon.
+    const lines: string[] = [];
+    let calls = 0;
+    const ch = {
+      name: "telegram",
+      start: async () => { calls++; if (calls < 3) throw new Error(`getMe failed (${calls})`); },
+      stop: async () => {},
+      send: async () => {},
+    } as unknown as ChannelAdapter;
+    const channels = new Map<string, ChannelAdapter>([["telegram", ch]]);
+    const failures = await startChannels(channels, noop, (l) => lines.push(l), { retryBaseMs: 5, retryMaxMs: 20 });
+    expect(failures).toEqual([{ name: "telegram", reason: "getMe failed (1)" }]);
+    expect(channels.has("telegram")).toBe(false);
+
+    await vi.waitFor(() => expect(channels.has("telegram")).toBe(true), { timeout: 2000 });
+    expect(calls).toBe(3);
+    expect(failures).toEqual([]);
+    expect(lines.some((l) => l.includes("channel up (late): telegram after 2 retries"))).toBe(true);
   });
 
   it("does not stop an adapter whose start threw — it never got going", async () => {
@@ -121,7 +181,7 @@ describe("a channel that hangs instead of failing", () => {
     const prev = process.env.AIOS_CHANNEL_START_TIMEOUT_MS;
     process.env.AIOS_CHANNEL_START_TIMEOUT_MS = "25";
     try {
-      const channels = new Map<string, ChannelAdapter>([["slack", hung("slack")]]);
+      const channels = new Map<string, ChannelAdapter>([["slack", adapter(deferred("slack"))]]);
       const failures = await startChannels(channels, noop, () => {});
       expect(failures[0]!.reason).toBe("did not start within 25ms");
     } finally {

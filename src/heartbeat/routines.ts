@@ -111,7 +111,29 @@ export function nextFire(now: Date, r: RoutineLike): string | null {
 export interface RoutineFireDeps {
   onMessage: (msg: InboundMessage) => Promise<void>;
   primaryChat?: { channel: string; chatId: string };
+  /** Can a reply actually be PUSHED to this channel? Defaults to yes for every channel.
+   *  Wired to the live channel map, so it also answers "is that channel connected right now". */
+  canDeliver?: (channel: string) => boolean;
   log: (line: string) => void;
+}
+
+/** Where a fired routine/reminder should run so its answer reaches the user.
+ *
+ *  The origin chat, unless nothing can be pushed to it — a routine created in Mission Control
+ *  carries origin `web:ui`, and `web` is a pull surface with no adapter, so `channels.get("web")`
+ *  was undefined and every reply was dropped on the floor by an optional-chained send. The OCA
+ *  sweep fired on time for four days and the user saw none of it. An origin that cannot receive
+ *  the answer is not an origin worth honouring; the primary chat gets it instead. */
+export function deliveryChat(
+  ev: { channel: string; chatId: string }, deps: RoutineFireDeps,
+): { channel: string; chatId: string; redirected: boolean } | null {
+  const deliverable = (c: string): boolean => Boolean(c) && (deps.canDeliver?.(c) ?? true);
+  if (deliverable(ev.channel) && ev.chatId) {
+    return { channel: ev.channel, chatId: ev.chatId, redirected: false };
+  }
+  const p = deps.primaryChat;
+  if (!p || !deliverable(p.channel) || !p.chatId) return null;
+  return { channel: p.channel, chatId: p.chatId, redirected: Boolean(ev.channel) };
 }
 
 /**
@@ -123,11 +145,14 @@ export interface RoutineFireDeps {
  */
 export function makeRoutineFire(deps: RoutineFireDeps) {
   return (ev: { id: number; name: string; prompt: string; channel: string; chatId: string }): void => {
-    const channel = ev.channel || deps.primaryChat?.channel || "";
-    const chatId = ev.chatId || deps.primaryChat?.chatId || "";
-    if (!channel || !chatId) {
-      deps.log(`routine ${ev.id} (${ev.name}) skipped: no origin chat and no primary chat`);
+    const to = deliveryChat(ev, deps);
+    if (!to) {
+      deps.log(`routine ${ev.id} (${ev.name}) skipped: no deliverable origin chat and no primary chat`);
       return;
+    }
+    const { channel, chatId, redirected } = to;
+    if (redirected) {
+      deps.log(`routine ${ev.id} (${ev.name}) redirected: ${ev.channel} cannot receive a reply → ${channel}:${chatId}`);
     }
     void deps.onMessage({ channel, chatId, text: ev.prompt })
       .catch((err) => deps.log(`routine ${ev.id} (${ev.name}) failed: ${(err as Error).message}`));
@@ -151,11 +176,14 @@ export function reminderPrompt(text: string): string {
  */
 export function makeReminderFire(deps: RoutineFireDeps) {
   return (ev: { id: number; text: string; channel: string; chatId: string }): void => {
-    const channel = ev.channel || deps.primaryChat?.channel || "";
-    const chatId = ev.chatId || deps.primaryChat?.chatId || "";
-    if (!channel || !chatId) {
-      deps.log(`reminder ${ev.id} skipped: no origin chat and no primary chat`);
+    const to = deliveryChat(ev, deps);
+    if (!to) {
+      deps.log(`reminder ${ev.id} skipped: no deliverable origin chat and no primary chat`);
       return;
+    }
+    const { channel, chatId, redirected } = to;
+    if (redirected) {
+      deps.log(`reminder ${ev.id} redirected: ${ev.channel} cannot receive a reply → ${channel}:${chatId}`);
     }
     void deps.onMessage({ channel, chatId, text: reminderPrompt(ev.text) })
       .catch((err) => deps.log(`reminder ${ev.id} failed: ${(err as Error).message}`));
