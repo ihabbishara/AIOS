@@ -6,6 +6,7 @@ export class SlackChannel implements ChannelAdapter {
   readonly name = "slack";
   private app: bolt.App;
   private nameCache = new Map<string, string>();
+  private wired = false;
 
   constructor(botToken: string, appToken: string) {
     this.app = new bolt.App({
@@ -16,6 +17,10 @@ export class SlackChannel implements ChannelAdapter {
   }
 
   async start(onMessage: MessageHandler): Promise<void> {
+    // Registered once. channels/boot.ts retries a failed start() in the background; a second
+    // registration would hand every message to the moderator twice.
+    if (!this.wired) {
+    this.wired = true;
     this.app.message(async ({ message }) => {
       // Only plain user messages (not bot echoes, edits, etc.)
       if (message.subtype !== undefined) return;
@@ -32,6 +37,7 @@ export class SlackChannel implements ChannelAdapter {
         sender: { name: m.user ? await this.displayName(m.user) : undefined, username: m.user },
       });
     });
+    }
     await this.app.start();
   }
 

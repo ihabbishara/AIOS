@@ -8,6 +8,16 @@ import { startSetupServer } from "./onboarding/server.js";
 import { bootNormal, log } from "./boot.js";
 
 async function main(): Promise<void> {
+  // The one process-level net. Node exits on an unhandled rejection, and a library's
+  // fire-and-forget promise can reject for reasons nothing in this codebase can catch:
+  // @slack/socket-mode's reconnect attempts did exactly that (reason `undefined`) and took
+  // the daemon down three times. An always-on daemon that logs a bug beats one that restarts
+  // and hides it — and launchd's restart disabled the very channel that was reconnecting.
+  process.on("unhandledRejection", (reason) => {
+    const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+    log(`UNHANDLED REJECTION (daemon continues): ${detail}`);
+  });
+
   const config = loadConfig();
 
   // Setup mode (onboarding spec §1): no auth or no org → wizard only.
