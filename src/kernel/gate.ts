@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import type { Store } from "../store/db.js";
 import type { EventBus } from "../events.js";
-import type { ActionInput, ActionRow, ExecutorRegistry } from "./actions.js";
+import { canonicalJson, type ActionInput, type ActionRow, type ExecutorRegistry } from "./actions.js";
 import {
   decide, demote, newRecord, recordApproval, recordRejection, recordShadowMatch, type TrustPolicy,
 } from "./trust.js";
@@ -37,7 +37,18 @@ export class ActionGate {
     if (!executor) throw new Error(`no executor registered for action type "${input.type}"`);
     if (input.idempotencyKey) {
       const dup = store.actionByIdempotencyKey(input.idempotencyKey);
-      if (dup) return dup; // retried attempt re-proposing the same effect — dedupe (spec §7)
+      if (dup) {
+        // Dedupe is for the SAME effect proposed again (spec §7). A key that already names a
+        // different type or payload is a caller bug, and returning the old row would report
+        // the old effect as this one's result — the failure that hid a lost goal artifact
+        // behind "Executed: Saved: <other file>". Refuse loudly instead.
+        if (dup.type !== input.type || canonicalJson(JSON.parse(dup.payload)) !== canonicalJson(input.payload)) {
+          throw new Error(
+            `idempotency key "${input.idempotencyKey}" already belongs to a different effect (action ${dup.id} [${dup.type}]) — refusing to report it as this one`,
+          );
+        }
+        return dup;
+      }
     }
     executor.schema.parse(input.payload);
 

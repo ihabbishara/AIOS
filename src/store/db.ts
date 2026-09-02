@@ -412,10 +412,12 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
     `);
-    // Migration (journaled engine): idempotent gate proposals. A retried goal attempt
-    // carries idempotencyKey = goalId:node:attempt# — the unique index makes a duplicate
-    // proposal return the original row instead of double-executing an effect. SQLite
-    // unique indexes treat NULLs as distinct, so keyless actions are unaffected.
+    // Migration (journaled engine): idempotent gate proposals. A goal-attempt proposal
+    // carries idempotencyKey = goalId:node:attempt#:<type>:<payload hash> (packs/server.ts
+    // effectKey) — the unique index makes a re-proposal of the SAME effect return the
+    // original row instead of double-executing it. The suffix matters: with the bare attempt
+    // as the key, an attempt could land exactly one effect and every later one vanished.
+    // SQLite unique indexes treat NULLs as distinct, so keyless actions are unaffected.
     try { this.db.exec("ALTER TABLE actions ADD COLUMN idempotency_key TEXT"); } catch { /* exists */ }
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_actions_idem ON actions(idempotency_key)");
     // Migration (verification-hardening §6): shadow-mode graduation. shadow_decision is
