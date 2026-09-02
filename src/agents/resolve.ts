@@ -195,6 +195,23 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
     const ceiling = [...new Set(caps.flatMap((c) => c.actions))];
     const labels = [...new Set(caps.flatMap((c) => c.labels))];
     const sandbox = caps.some((c) => c.sandbox);
+    // Raw shell is confinement's trigger, not just the `sandbox` capability flag.
+    //
+    // The branch below is the ONLY thing that keeps Bash/Write/Edit inside a workspace jail
+    // (or, with no workspace, off entirely). Keying it on the capability meant an agent could
+    // be granted raw Bash and skip it altogether: grove, minted through Mission Control's
+    // hiring flow on 2026-08-25 with [files-ro, editing, shell, web-fetch, memory] and
+    // permissionMode `dontAsk`, held unconfined Bash + Edit + Write over the whole disk with
+    // no prompt — while every other Bash holder in the org (argus, loom, themis, vulcan,
+    // weave) pairs `shell` with `code-sandbox` and is jailed. The org's real invariant was
+    // never "sandbox agents are confined", it was "raw exec is confined"; the two only looked
+    // the same because every hand-written manifest happened to pair them.
+    //
+    // Bash specifically: it is the tool that escapes every other boundary (it can write,
+    // delete, curl and push regardless of what the file tools allow). Write/Edit without it
+    // stay as they are — halalo's `drafting` Write is a deliberate, long-standing grant, and
+    // sweeping it in here would disable a working agent to fix a different agent's hole.
+    const confine = sandbox || allowedTools.includes("Bash");
 
     // Dept context block — mission + label-gated memo. The policy table is the wall
     // (wall-deletion spec; replaced the privateMemo × visibility gate): an agent not cleared
@@ -250,12 +267,15 @@ export function makeResolveAgent(deps: ResolveAgentDeps): ResolveAgentFn {
       guards.push(...capGuards);
     }
 
-    // Sandbox confinement — byte-identical to the pack resolver's branch.
-    if (sandbox) {
+    // Confinement — byte-identical to the pack resolver's branch, plus raw-Bash holders.
+    if (confine) {
       options.permissionMode = "default";
       delete (options as { allowDangerouslySkipPermissions?: boolean }).allowDangerouslySkipPermissions;
       if (ctx.workspace) {
-        options.mcpServers = { ...(options.mcpServers ?? {}), code: buildCodeServer(ctx.workspace) as never };
+        // Server mounting stays keyed on the CAPABILITY: an agent confined only because it
+        // holds raw Bash has no mcp__code__sh in its allowlist, so the server would be dead
+        // weight — the jail below is what it actually needs.
+        if (sandbox) options.mcpServers = { ...(options.mcpServers ?? {}), code: buildCodeServer(ctx.workspace) as never };
         // The deny fallback keeps the jail fail-closed for anything unknown, but it must not
         // veto tools the capability union granted: without the pass-throughs it denied odin's
         // WebSearch/WebFetch and parked his research node (observed live 2026-08-21 — the
