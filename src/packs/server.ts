@@ -1,5 +1,7 @@
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { createHash } from "node:crypto";
+import { canonicalJson } from "../kernel/actions.js";
 import type { Store } from "../store/db.js";
 import type { VaultWriter } from "../vault/writer.js";
 import type { ActionGate } from "../kernel/gate.js";
@@ -26,8 +28,10 @@ export interface PackServerDeps {
   memoDomain: string;
   /** Gate attribution. */
   origin: { channel: string; chatId: string };
-  /** Goal-attempt dedupe key (goalId:node:attempt#) — set when this pack is resolved for
-   *  a goal node; retried attempts cannot double-propose the same effect. */
+  /** Goal-attempt namespace (goalId:node:attempt#) — set when this pack is resolved for a
+   *  goal node. It is NOT the gate key by itself: every proposal appends the effect's own
+   *  identity (see effectKey), so one attempt may write many files and still dedupe an
+   *  in-place re-proposal of the same one. */
   idempotencyKey?: string;
   /** The resolved agent's confidentiality clearance (ResolvedAgent.labels). Recall filters
    *  results against this — the requested `domain` arg no longer widens confidentiality (spec §7.8). */
@@ -36,6 +40,20 @@ export interface PackServerDeps {
   policy: Policy;
   /** memory-v2 retrieval knobs — embedder is undefined when AIOS_EMBEDDINGS=0 or latched. */
   memory: { embedder?: Embedder; halfLifeDays: number; stalePenalty: number };
+}
+
+/** The gate key for one effect inside one goal attempt: `<attempt>:<type>:<payload hash>`.
+ *
+ *  The attempt alone was the key until 2026-09-02, and the gate's unique index made it
+ *  ONE effect per attempt: the first vault_write of an attempt inserted a row, every later
+ *  one hit the dedupe and came back as "Executed: Saved: <the first file>". A report node
+ *  writing knowledge/x.md and then goals/…/report.md lost the second file silently — the
+ *  ledger held 135 attempt keys and never two writes under one. Hashing the payload keeps
+ *  the protection the key exists for (an in-place API-retry re-proposing the identical
+ *  effect) and drops the one it never should have had. */
+export function effectKey(attemptKey: string, type: string, payload: Record<string, unknown>): string {
+  const hash = createHash("sha256").update(canonicalJson(payload)).digest("hex").slice(0, 16);
+  return `${attemptKey}:${type}:${hash}`;
 }
 
 /** Ceiling-checked gate proposal shared by vault_write + propose_action.
@@ -48,8 +66,9 @@ export async function proposeThroughCeiling(
     return `Refused: action type "${a.type}" is outside this pack's allowed actions [${deps.actions.join(", ")}].`;
   }
   try {
+    const idempotencyKey = deps.idempotencyKey ? effectKey(deps.idempotencyKey, a.type, a.payload) : undefined;
     const row = await deps.gate.propose(
-      { type: a.type, payload: a.payload, preview: a.preview, idempotencyKey: deps.idempotencyKey },
+      { type: a.type, payload: a.payload, preview: a.preview, idempotencyKey },
       deps.origin,
     );
     if (row.status === "executed") return `Executed: ${row.result}`;

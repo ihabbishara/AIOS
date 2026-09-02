@@ -38,6 +38,27 @@ describe("gate idempotency", () => {
     expect(store.actionByIdempotencyKey("g1:task:1")!.id).toBe(a.id);
   });
 
+  it("same key, same effect with fields in another order → still one row (canonical compare)", async () => {
+    const { gate, executions } = setup();
+    const a = await gate.propose({ type: "note.add", payload: { text: "x", n: 1 }, preview: "p", idempotencyKey: "g1:task:1" }, ORIGIN);
+    const b = await gate.propose({ type: "note.add", payload: { n: 1, text: "x" }, preview: "p", idempotencyKey: "g1:task:1" }, ORIGIN);
+    expect(b.id).toBe(a.id);
+    expect(executions()).toBe(1);
+  });
+
+  it("same key, DIFFERENT effect → refuses loudly instead of reporting the other row as this one", async () => {
+    // A key that already names another effect is a caller bug; silently returning the old row
+    // is how a lost goal artifact hid behind "Executed: Saved: <other file>" for a month.
+    const { gate, store, executions } = setup();
+    const a = await gate.propose({ type: "note.add", payload: { text: "x" }, preview: "p", idempotencyKey: "g1:task:1" }, ORIGIN);
+    await expect(
+      gate.propose({ type: "note.add", payload: { text: "y" }, preview: "p", idempotencyKey: "g1:task:1" }, ORIGIN),
+    ).rejects.toThrow(/different effect/);
+    expect(executions()).toBe(1);
+    expect(store.actionByIdempotencyKey("g1:task:1")!.id).toBe(a.id);
+    expect(store.listActions("executed", 10)).toHaveLength(1);
+  });
+
   it("different keys and keyless proposals are independent", async () => {
     const { gate } = setup();
     const a = await gate.propose({ type: "note.add", payload: { text: "x" }, preview: "p", idempotencyKey: "g1:task:1" }, ORIGIN);
