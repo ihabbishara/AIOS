@@ -10,6 +10,7 @@ import { withEffectiveTools, withDenialObserver } from "./permissions.js";
 import { buildMailServer, MAIL_TOOL, ASK_TOOL } from "../mail/server.js";
 import type { Mailbox, MailSendCtx } from "../mail/mailbox.js";
 import { isProviderError } from "./provider-error.js";
+import { isUnfinishedAnswer } from "./unfinished-answer.js";
 
 const SKILLS_PLUGIN_PATH =
   process.env.AIOS_SKILLS_PLUGIN ?? join(process.cwd(), "skills-plugin");
@@ -202,6 +203,16 @@ export function makeRunSpecialist(deps: {
             if (isProviderError(msg.result)) {
               throw new SpecialistError(
                 `Specialist ${roleName} got a provider error instead of output: ${msg.result.trim().slice(0, 200)}`,
+                denials,
+              );
+            }
+            // A one-shot run has no "later": a reply that is only a promise to keep working
+            // is the work NOT being done, and passing it through delivers a progress report
+            // where a deliverable was asked for (the OCA sweep, four days running).
+            if (isUnfinishedAnswer(msg.result)) {
+              throw new SpecialistError(
+                `Specialist ${roleName} returned a status update instead of the deliverable ` +
+                  `(a run is one turn — there is no later): ${msg.result.trim().slice(0, 200)}`,
                 denials,
               );
             }

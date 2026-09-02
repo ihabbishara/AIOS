@@ -525,14 +525,21 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
   };
 
   // Routines inject their prompt as a synthetic inbound message — full kernel path (spec 2026-07-15).
-  const routineFire = makeRoutineFire({ onMessage, primaryChat: config.primaryChat, log });
+  const routineFire = makeRoutineFire({
+    onMessage, primaryChat: config.primaryChat, log,
+    // The live map: a routine whose origin chat has no adapter (Mission Control's `web`) or
+    // whose channel is mid-outage runs in the primary chat, where the answer can land.
+    canDeliver: (c) => channels.has(c),
+  });
   bus.on((e) => {
     if (e.event.type === "routine.due") routineFire(e.event);
   });
 
   // Reminders inject a framed prompt too — the coordinator executes a task reminder
   // or relays a plain nudge (spec 2026-07-25).
-  const reminderFire = makeReminderFire({ onMessage, primaryChat: config.primaryChat, log });
+  const reminderFire = makeReminderFire({
+    onMessage, primaryChat: config.primaryChat, log, canDeliver: (c) => channels.has(c),
+  });
   bus.on((e) => {
     if (e.event.type === "reminder.due") reminderFire(e.event);
   });
