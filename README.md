@@ -110,7 +110,7 @@ Install from source. It is a daemon with its own database, vault and org, so giv
 of its own rather than adding it to an existing project. Node 22.5 or newer.
 
 ```bash
-git clone git@github.com:ihabbishara/AIOS.git && cd AIOS
+git clone https://github.com/ihabbishara/AIOS.git && cd AIOS
 npm install
 cd ui2 && npm install && npm run build && cd ..   # the browser UI, wizard included
 cp .env.example .env
