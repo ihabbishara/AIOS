@@ -70,38 +70,66 @@ describe("clockMarks", () => {
 });
 
 describe("Clock rendering", () => {
-  const marks = [
-    { key: "reminder:1", label: shortLabel(HUGE), full: HUGE, hhmm: "10:00", minutes: 600, kind: "future" as const },
+  const mark = (key: string, hhmm: string, minutes: number, label: string, kind: "past" | "next" | "future", full?: string) =>
+    ({ key, label, hhmm, minutes, kind, ...(full ? { full } : {}) });
+
+  // The live 2026-09-04 day: six marks inside three morning hours, then a gap to the evening.
+  const DAY = [
+    mark("a:dream", "02:00", 120, "dream", "past"),
+    mark("a:speculate", "03:00", 180, "speculate", "past"),
+    mark("a:standup", "07:15", 435, "standup", "past"),
+    mark("a:morning", "07:30", 450, "morning", "past"),
+    mark("r:1", "07:30", 450, "daily brief", "past"),
+    mark("rem:8", "09:00", 540, shortLabel(HUGE), "past", HUGE),
+    mark("rem:9", "09:00", 540, "OCA demos its sovereign cloud marketplace…", "past", HUGE),
+    mark("r:5", "10:00", 600, "OCA & sovereign cloud NL watch", "past"),
+    mark("a:evening", "21:00", 1260, "evening", "next"),
   ];
 
-  it("prints the short label, never the paragraph", () => {
-    render(<Clock marks={marks} nowMinutes={540} live={false} />);
-    expect(screen.getByText(marks[0].label)).toBeTruthy();
-    expect(screen.queryByText(HUGE)).toBeNull();
+  it("puts every mark on the axis as a pin, and names it on hover", () => {
+    const { container } = render(<Clock marks={DAY} nowMinutes={960} live={false} />);
+    expect(container.querySelectorAll("[data-mark]")).toHaveLength(DAY.length);
+    expect(container.querySelector("[data-mark='rem:8']")!.getAttribute("title")).toBe(`09:00 ${HUGE}`);
   });
 
-  it("clamps the label box, so an unshortened label still cannot widen the page", () => {
-    const { container } = render(<Clock marks={marks} nowMinutes={540} live={false} />);
-    const box = container.querySelector("[data-mark='reminder:1'] > div:last-child") as HTMLElement;
-    // 52ch, not 30: clockLanes already reserves room for the full label, so a tighter clamp
-    // truncated text the layout had budgeted for. The CSS is the backstop, shortLabel is the rule.
-    expect(box.className).toContain("max-w-[52ch]");
-    expect(box.className).toContain("overflow-hidden");
-    expect(box.getAttribute("title")).toBe(HUGE);
+  it("carries no label text on the axis — that is what made it stack", () => {
+    const { container } = render(<Clock marks={DAY} nowMinutes={960} live={false} />);
+    for (const pin of container.querySelectorAll("[data-mark]")) {
+      expect(pin.textContent).toBe("");
+    }
   });
 
-  it("anchors labels near the day's edges inward instead of centring them off-page", () => {
-    const at = (minutes: number) => {
-      const { container } = render(
-        <Clock marks={[{ key: "k", label: "x", hhmm: "00:00", minutes, kind: "future" as const }]} nowMinutes={1} live={false} />,
-      );
-      const box = container.querySelector("[data-mark='k'] > div:last-child") as HTMLElement;
-      const t = box.style.transform;
-      cleanup();
-      return t;
-    };
-    expect(at(10)).toBe("translateX(0)");       // 00:10 — hangs right off its pin
-    expect(at(720)).toBe("translateX(-50%)");   // midday — centred, as before
-    expect(at(1430)).toBe("translateX(-100%)"); // 23:50 — hangs left
+  it("lists the names in one wrapping agenda, in time order", () => {
+    const { container } = render(<Clock marks={DAY} nowMinutes={960} live={false} />);
+    const agenda = container.querySelector("[data-agenda]") as HTMLElement;
+    expect(agenda.className).toContain("flex-wrap");
+    const chips = [...container.querySelectorAll("[data-chip]")];
+    expect(chips).toHaveLength(DAY.length);
+    expect(chips[0].textContent).toContain("dream");
+    expect(chips.at(-1)!.textContent).toContain("evening");
+  });
+
+  it("marks where now falls, between what is done and what is coming", () => {
+    const { container } = render(<Clock marks={DAY} nowMinutes={960} live={false} />); // 16:00
+    const kids = [...(container.querySelector("[data-agenda]") as HTMLElement).children];
+    const divider = kids.findIndex((k) => k.querySelector("[data-now-divider]"));
+    // Everything before the divider is in the past, everything after is ahead.
+    expect(divider).toBe(8); // the eight morning marks, then now, then the evening
+  });
+
+  it("keeps the agenda to a bounded number of chips and links the rest to Schedule", () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      mark(`m${i}`, "08:00", 480 + i, `thing number ${i}`, "future"));
+    const { container } = render(<Clock marks={many} nowMinutes={100} live={false} />);
+    expect(container.querySelectorAll("[data-chip]")).toHaveLength(12);
+    const more = container.querySelector("a[href*='schedule']") as HTMLAnchorElement;
+    expect(more.textContent).toBe("+8 more");
+    // The SHAPE is never what gets truncated — every mark is still a pin.
+    expect(container.querySelectorAll("[data-mark]")).toHaveLength(20);
+  });
+
+  it("says so when the day is empty", () => {
+    render(<Clock marks={[]} nowMinutes={600} live={false} />);
+    expect(screen.getByText("Nothing scheduled today")).toBeTruthy();
   });
 });
