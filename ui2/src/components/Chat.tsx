@@ -162,7 +162,16 @@ export function Chat({ open, state, events, target, setTarget, seed }: {
     return () => clearInterval(t);
   }, [recording]);
 
-  const targets = ["neo", ...(state?.agents.filter((a) => a.kind !== "moderator").map((a) => a.name) ?? [])];
+  // The server names the moderator row after the org's OWN coordinator. Prepending a literal
+  // "neo" listed an agent that does not exist in most orgs, and left the real coordinator
+  // showing again as a specialist beside it (observed 2026-09-04 on an org led by `nova`).
+  const coordinator = state?.coordinator
+    ?? state?.agents.find((a) => a.kind === "moderator")?.name
+    ?? "";
+  const targets = [
+    ...(coordinator ? [coordinator] : []),
+    ...(state?.agents.filter((a) => a.kind !== "moderator" && a.name !== coordinator).map((a) => a.name) ?? []),
+  ];
 
   // Live picker state: violet dot = agent working right now, count = unread mail from it.
   const { data: org } = useLiveQuery(() => api.org(), events, T.agentsActions);
@@ -291,7 +300,7 @@ export function Chat({ open, state, events, target, setTarget, seed }: {
         {log.length === 0 && (
           <div className="text-dim text-[12px] m-auto text-center flex flex-col gap-1.5 items-center">
             <Avatar name={target} tone="agent" />
-            <div>Channel open to <span className="text-strong">{target}</span>{target === "neo" ? " — describe what you need; neo routes it." : "."}</div>
+            <div>Channel open to <span className="text-strong">{target}</span>{target === coordinator ? ` — describe what you need; ${coordinator} routes it.` : "."}</div>
             <div className="text-[10.5px]">Enter sends · Shift+Enter for a new line{state?.voice ? " · or hold a thought and press the mic" : ""}</div>
           </div>
         )}

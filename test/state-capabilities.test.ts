@@ -57,12 +57,18 @@ afterEach(async () => {
   else process.env.AIOS_UI_TOKEN = prevToken;
 });
 
-const state = async (): Promise<{ capabilities: string[] }> => {
+interface State {
+  capabilities: string[];
+  coordinator?: string;
+  agents: Array<{ name: string; kind: string }>;
+}
+
+const state = async (): Promise<State> => {
   const res = await fetch(`http://127.0.0.1:${port}/api/state`, {
     headers: { Authorization: `Bearer ${TOKEN}` },
   });
   expect(res.status).toBe(200);
-  return res.json() as Promise<{ capabilities: string[] }>;
+  return res.json() as Promise<State>;
 };
 
 describe("GET /api/state capabilities", () => {
@@ -73,5 +79,31 @@ describe("GET /api/state capabilities", () => {
   // Guards the filter against being over-broad: dropping everything would pass the test above.
   it("still offers product capabilities", async () => {
     expect((await state()).capabilities).toContain("vault-read");
+  });
+});
+
+// The fixture org above coordinates through `nova`, which is the point: "neo" is only what this
+// repo's author named theirs, and the endpoint used to hardcode it. A new user's picker showed
+// `neo` beside their real `nova` — one agent that does not exist, and one listed twice
+// (reported 2026-09-04).
+describe("GET /api/state coordinator", () => {
+  it("names the coordinator the org actually has", async () => {
+    expect((await state()).coordinator).toBe("nova");
+  });
+
+  it("names the synthesised moderator row after that coordinator, not a literal", async () => {
+    const moderators = (await state()).agents.filter((a) => a.kind === "moderator");
+    expect(moderators.map((a) => a.name)).toEqual(["nova"]);
+  });
+
+  it("never invents an agent the org does not have", async () => {
+    expect((await state()).agents.map((a) => a.name)).not.toContain("neo");
+  });
+
+  it("lists the coordinator exactly once", async () => {
+    // The old filter excluded the literal "neo", so a coordinator named anything else survived
+    // it and came back a second time as a specialist.
+    const names = (await state()).agents.map((a) => a.name);
+    expect(names.filter((n) => n === "nova")).toHaveLength(1);
   });
 });

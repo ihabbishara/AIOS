@@ -78,7 +78,7 @@ function stubResting(routes: Record<string, unknown> = {}) {
 describe("Home — Organism", () => {
   it("states how many are working and how many need you", async () => {
     stubAll();
-    render(<Home events={[]} attention={[approval]} connected={true} onOpenChat={() => {}} />);
+    render(<Home events={[]} attention={[approval]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     expect(await screen.findByText(/One is working/)).toBeTruthy();
     expect(screen.getByText(/One thing needs you/)).toBeTruthy();
   });
@@ -91,14 +91,14 @@ describe("Home — Organism", () => {
       "/api/health": HEALTH,
       "/api/mail/mine": { threads: [] },
     });
-    render(<Home events={[]} attention={[]} connected={true} onOpenChat={() => {}} />);
+    render(<Home events={[]} attention={[]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     expect(await screen.findByText("Resting.")).toBeTruthy();
     expect(screen.getByText("Nothing needs you.")).toBeTruthy();
   });
 
   it("opens the queue sheet on q and closes it on escape", async () => {
     stubAll();
-    render(<Home events={[]} attention={[approval]} connected={true} onOpenChat={() => {}} />);
+    render(<Home events={[]} attention={[approval]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText(/One is working/);
     // The dock chip carries the same title, so presence of the text proves
     // nothing. The row's action buttons only exist inside the sheet.
@@ -112,7 +112,7 @@ describe("Home — Organism", () => {
   it("goes completely still when the stream is down", async () => {
     const MOTION = ".breath, .approach, .travel, .rest-pulse";
     stubAll();
-    const busy = render(<Home events={[]} attention={[]} connected={false} onOpenChat={() => {}} />);
+    const busy = render(<Home events={[]} attention={[]} connected={false} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText(/One is working/);
     expect(busy.container.querySelectorAll(MOTION)).toHaveLength(0);
     cleanup();
@@ -120,7 +120,7 @@ describe("Home — Organism", () => {
     // The resting org is where the selector has teeth: rest-pulse exists only at the
     // low tide, so the busy render above could never have matched it either way.
     stubResting();
-    const alive = render(<Home events={[]} attention={[]} connected={true} onOpenChat={() => {}} />);
+    const alive = render(<Home events={[]} attention={[]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText("Resting.");
     // Named, not just counted: .approach can fire off the schedule at some hours, so
     // a bare MOTION count would pass even if rest-pulse never rendered at all.
@@ -128,7 +128,7 @@ describe("Home — Organism", () => {
     cleanup();
 
     stubResting();
-    const dead = render(<Home events={[]} attention={[]} connected={false} onOpenChat={() => {}} />);
+    const dead = render(<Home events={[]} attention={[]} connected={false} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText("Resting.");
     expect(dead.container.querySelectorAll(MOTION)).toHaveLength(0);
   });
@@ -136,7 +136,7 @@ describe("Home — Organism", () => {
   it("surfaces what an idle agent could do, and takes you there", async () => {
     window.location.hash = "";
     stubResting({ "/api/goals": [FAILED_GOAL] });
-    render(<Home events={[]} attention={[]} connected={true} onOpenChat={() => {}} />);
+    render(<Home events={[]} attention={[]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     expect(await screen.findByText("Resting.")).toBeTruthy();
     const chip = await screen.findByRole("button", { name: /I could pick "Ship the audit" back up/ });
     fireEvent.click(chip);
@@ -155,21 +155,21 @@ describe("Home — Organism", () => {
       "/api/goals": [FAILED_GOAL],
       "/api/mail/unread": NO_UNREAD,
     });
-    render(<Home events={[]} attention={[]} connected={true} onOpenChat={() => {}} />);
+    render(<Home events={[]} attention={[]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText(/One is working/);
     expect(screen.queryByText(/I could pick/)).toBeNull();
   });
 
   it("starts at the mid tide with one agent working and does not jump on mount", async () => {
     stubAll();
-    const { container } = render(<Home events={[]} attention={[]} connected={true} onOpenChat={() => {}} />);
+    const { container } = render(<Home events={[]} attention={[]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText(/One is working/);
     expect(container.querySelector("[data-tide]")?.getAttribute("data-tide")).toBe("mid");
   });
 
   it("shows the dock chip without opening the sheet", async () => {
     stubAll();
-    render(<Home events={[]} attention={[approval]} connected={true} onOpenChat={() => {}} />);
+    render(<Home events={[]} attention={[approval]} connected={true} coordinator="nova" onOpenChat={() => {}} />);
     await screen.findByText(/One is working/);
     expect(screen.getByRole("button", { name: "Send weekly report" })).toBeTruthy();
   });

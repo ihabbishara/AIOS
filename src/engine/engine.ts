@@ -379,7 +379,7 @@ export class GoalEngine {
     const dept = reg.ownerOfPlaybook.get(params.playbook)
       ?? reg.agents.get(reg.coordinator)?.department
       ?? "operations";
-    const lead = reg.departments.get(dept)?.lead ?? reg.coordinator ?? "neo";
+    const lead = reg.departments.get(dept)?.lead ?? reg.coordinator;
     return this.createGoal({
       title: params.title, request: params.request, department: dept, lead,
       origin: { channel: params.channel, chatId: params.chatId },
@@ -670,7 +670,7 @@ export class GoalEngine {
   }
 
   private spawnFromMail(m: MailRow, canonical: string, department: string): void {
-    const lead = this.deps.registry.departments.get(department)?.lead ?? "neo";
+    const lead = this.deps.registry.departments.get(department)?.lead ?? this.deps.registry.coordinator;
     const title = (m.body.split("\n")[0] ?? "").slice(0, 80) || `mail from ${m.from_agent}`;
     const goal = this.createGoal({
       title, request: m.body, department, lead,

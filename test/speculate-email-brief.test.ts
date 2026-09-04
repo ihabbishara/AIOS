@@ -63,7 +63,7 @@ describe("brief private detail send (Vector C)", () => {
     s.insertAction(proposed("e1", "email.draft", 'Draft to secret@example.com: "SecretSubject"'));
 
     const sent: Array<{ chatId: string; text: string }> = [];
-    await runBrief({
+    await runBrief({ coordinator: "neo",
       store: s,
       bus: { emit: () => {} } as never,
       vault,
@@ -91,7 +91,7 @@ describe("brief private detail send (Vector C)", () => {
     const vault = new VaultWriter(root, "AIOS");
     vault.init();
     const sent: string[] = [];
-    await runBrief({
+    await runBrief({ coordinator: "neo",
       store: s, bus: { emit: () => {} } as never, vault,
       narrate: async () => "n", send: async (_c, _id, t) => { sent.push(t); },
       primary: { channel: "telegram", chatId: "123" }, nowFn: () => new Date(NOW),

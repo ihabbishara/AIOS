@@ -10,6 +10,10 @@ export type RouterResult = { text: string; attachments: Attachment[] };
 
 export interface RouterDeps {
   moderator: Moderator;
+  /** The org's coordinator, by name — what the route trail and billing attribute a default
+   *  turn to. The moderator answers through a session rather than a registry lookup, so this
+   *  was a literal "neo" and showed that name under every reply in orgs that have no neo. */
+  coordinator: string;
   directChats: DirectChats;
   chatBindings: Map<string, ChatBinding>;
   bus?: EventBus;
@@ -72,7 +76,7 @@ export class MessageRouter {
       }
       // Only emit route.decision if reset actually happened (valid role or moderator)
       if (resetOccurred) {
-        const resetTarget = roleName ? (directChats.canonical(roleName) ?? roleName) : "neo";
+        const resetTarget = roleName ? (directChats.canonical(roleName) ?? roleName) : this.deps.coordinator;
         routed(resetTarget, "reset", "session reset");
       }
       bus?.emit({ type: "chat.out", channel: msg.channel, chatId: msg.chatId, text: replyText.slice(0, 300) });
@@ -176,8 +180,8 @@ export class MessageRouter {
           directChats.handle(direct.role, msg.channel, msg.chatId, direct.text, msg.sender, msg.attachments));
         reply = { text: `[${direct.role}]\n${result.text}`, attachments: result.attachments };
       } else {
-        routed("neo", "default", "no mention — chief of staff");
-        const result = await agentTurn("neo", () =>
+        routed(this.deps.coordinator, "default", "no mention — chief of staff");
+        const result = await agentTurn(this.deps.coordinator, () =>
           moderator.handle(msg.channel, msg.chatId, msg.text, msg.attachments));
         reply = { text: result.text, attachments: result.attachments };
       }

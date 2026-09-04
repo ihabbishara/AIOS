@@ -34,6 +34,11 @@ export interface StateInfo {
   /** AIOS_FULL_AUTONOMY=1 — unguarded, non-sandbox agents run bypassPermissions. Absent on
    *  older servers and in setup mode; the UI treats undefined as off. */
   fullAutonomy?: boolean;
+  /** The org's coordinator, by name. Every org has exactly one and it is NOT always "neo" —
+   *  that is simply what this repo's author called theirs. The cockpit reads it from here
+   *  rather than assuming, because an org that named its coordinator `nova` was shown a
+   *  phantom `neo` tab beside the real one (observed 2026-09-04). Absent on older servers. */
+  coordinator?: string;
   agents: AgentInfo[];
   playbooks: Array<{ name: string; description: string }>;
   bindings: Array<{ chatKey: string; agents: string[]; mentionOnly: boolean }>;

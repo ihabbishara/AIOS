@@ -18,7 +18,7 @@ function setup(
   const store = new Store(":memory:");
   const bus = new EventBus(store);
   attachBudgetLedger(bus, store, () => "2026-08-04");
-  const router = new MessageRouter({
+  const router = new MessageRouter({ coordinator: "neo",
     moderator: { handle: async () => reply } as never,
     directChats: {
       handle: async () => reply, names: () => names, canonical: (n: string) => n,
@@ -74,7 +74,7 @@ describe("chat turns are billed", () => {
     const store = new Store(":memory:");
     const bus = new EventBus(store);
     attachBudgetLedger(bus, store, () => "2026-08-04");
-    const router = new MessageRouter({
+    const router = new MessageRouter({ coordinator: "neo",
       moderator: { handle: async () => { throw new Error("boom"); } } as never,
       directChats: { handle: async () => ({ text: "", attachments: [] }), names: () => [] } as never,
       chatBindings: new Map(),

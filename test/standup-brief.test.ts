@@ -8,9 +8,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Deliberately NOT "neo". The brief reads the coordinator's inbox, and the coordinator's name
+// is whatever the org called it — this repo's author happens to have called theirs neo, which is
+// why the literal string survived in the source until an org named `nova` briefed nothing.
+const COORDINATOR = "nova";
+
 function coordinatorMail(store: Store, over: Record<string, unknown> = {}) {
   store.insertMail({
-    id: (over.id as string) ?? "s1", from_agent: (over.from as string) ?? "athena", to_agent: "neo",
+    id: (over.id as string) ?? "s1", from_agent: (over.from as string) ?? "athena", to_agent: COORDINATOR,
     kind: (over.kind as never) ?? "standup", body: (over.body as string) ?? "done: X / today: Y / blockers: none",
     goal_id: null, origin_channel: "system", origin_chat_id: "standup",
     chain_depth: 1, status: "unread", error: null,
@@ -18,11 +23,11 @@ function coordinatorMail(store: Store, over: Record<string, unknown> = {}) {
 }
 
 describe("brief standups + mailroom", () => {
-  it("morning brief carries standups and neo mail lines; counts as non-empty", () => {
+  it("morning brief carries standups and coordinator mail lines; counts as non-empty", () => {
     const store = new Store(":memory:");
     coordinatorMail(store);
     coordinatorMail(store, { id: "r1", from: "vulcan", kind: "report", body: "Done: mail goal X\nArtifacts: ..." });
-    const d = assembleBrief(store, "morning", new Date().toISOString(), null);
+    const d = assembleBrief(store, "morning", new Date().toISOString(), null, new Set(), COORDINATOR);
     expect(d.standups).toEqual([{ lead: "athena", text: "done: X / today: Y / blockers: none" }]);
     expect(d.coordinatorMail).toEqual([{ from: "vulcan", kind: "report", line: "Done: mail goal X" }]);
     expect(isEmptyBrief(d)).toBe(false);
@@ -37,14 +42,14 @@ describe("brief standups + mailroom", () => {
     coordinatorMail(store, { id: "pub", from: "athena", kind: "report", body: "Done: public thing" });
     coordinatorMail(store, { id: "priv", from: "midas", kind: "note", body: "balance 12345; paid X" });
     const priv = new Set(["midas"]);
-    const d = assembleBrief(store, "morning", new Date().toISOString(), null, priv);
+    const d = assembleBrief(store, "morning", new Date().toISOString(), null, priv, COORDINATOR);
     expect(d.coordinatorMail).toEqual([{ from: "athena", kind: "report", line: "Done: public thing" }]);
     expect(renderBriefNote(d, "n")).not.toContain("12345");
 
     // runBrief marks briefed (public) mail read but leaves the private note unread (not consumed).
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-vault-")), "AIOS");
     vault.init();
-    await runBrief({
+    await runBrief({ coordinator: COORDINATOR,
       store, bus: new EventBus(store), vault, narrate: async () => "n", send: async () => {},
       primary: { channel: "cli", chatId: "local" },
       labelOf: (a) => (a === "midas" ? "personal.finance" : "org.internal"),
@@ -59,7 +64,7 @@ describe("brief standups + mailroom", () => {
     coordinatorMail(store, { id: "early", from: "athena", kind: "report", body: "Done: early thing" });
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-race-")), "AIOS");
     vault.init();
-    await runBrief({
+    await runBrief({ coordinator: COORDINATOR,
       store, bus: new EventBus(store), vault,
       narrate: async () => {
         // Simulates a report landing mid-narration (the race window).
@@ -83,7 +88,7 @@ describe("brief standups + mailroom", () => {
     bus.on((e) => { if (e.event.type === "mail.read") mailRead.push(e.event.ids); });
     const vault = new VaultWriter(mkdtempSync(join(tmpdir(), "sb-mailread-")), "AIOS");
     vault.init();
-    await runBrief({
+    await runBrief({ coordinator: COORDINATOR,
       store, bus, vault, narrate: async () => "n", send: async () => {},
       primary: { channel: "cli", chatId: "local" },
       labelOf: (a) => (a === "midas" ? "personal.finance" : "org.internal"),
@@ -96,7 +101,7 @@ describe("brief standups + mailroom", () => {
     const bus2 = new EventBus(store2);
     const mailRead2: string[][] = [];
     bus2.on((e) => { if (e.event.type === "mail.read") mailRead2.push(e.event.ids); });
-    await runBrief({
+    await runBrief({ coordinator: COORDINATOR,
       store: store2, bus: bus2, vault, narrate: async () => "n", send: async () => {},
       primary: { channel: "cli", chatId: "local" }, nowFn: () => new Date(),
     }, "morning");

@@ -494,6 +494,7 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
 
   const router = new MessageRouter({
     moderator,
+    coordinator: registry.coordinator,
     directChats,
     chatBindings: config.chatBindings,
     bus,
@@ -793,6 +794,7 @@ export async function bootNormal(opts: { startWeb?: boolean } = {}): Promise<Boo
       await runBrief(
         {
           store, bus, vault, narrate, send: sendVia, primary: config.primaryChat,
+          coordinator: registry.coordinator,
           degraded: () => [...google.degraded(), ...bunq.degraded(),
             ...channelFailures.map((f) => ({ name: `channel:${f.name}`, reason: f.reason }))],
           policy: infoPolicy,

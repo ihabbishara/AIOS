@@ -20,7 +20,7 @@ function fakeGoals() {
 function makeRouter(goals: GoalEngine) {
   const store = new Store(":memory:");
   const bus = new EventBus(store);
-  return new MessageRouter({
+  return new MessageRouter({ coordinator: "neo",
     moderator: {
       handle: async () => { throw new Error("moderator must not run"); },
       resetSession: () => {},

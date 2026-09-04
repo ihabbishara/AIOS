@@ -76,7 +76,8 @@ export function ApprovalCanvas({ item, events, onAct, onOpenChat }: {
           className="bg-bg border border-line rounded-md px-2 py-1.5 text-[12px] outline-none focus:border-dim w-48"
           onKeyDown={(e) => { if (e.key === "Enter") void rejectWithReason(); }}
         />
-        <Button onClick={() => onOpenChat("neo", `About approval "${item.title}" (${action.type}): `)}>Discuss ⌘J</Button>
+        {/* "" = the org's coordinator, resolved in App — this button must not know its name. */}
+        <Button onClick={() => onOpenChat("", `About approval "${item.title}" (${action.type}): `)}>Discuss ⌘J</Button>
       </div>
     </div>
   );

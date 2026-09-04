@@ -29,14 +29,17 @@ export function App() {
   const { data: attention } = useLiveQuery(() => api.attention(), events, T.attention);
   const { data: unread } = useLiveQuery(() => api.mailUnread(), events, T.agentMail);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatTarget, setChatTarget] = useState("neo");
+  const [chatTarget, setChatTarget] = useState("");
   const [chatSeed, setChatSeed] = useState<string | undefined>();
   const [paletteSignal, setPaletteSignal] = useState(0);
   const [setupStep, setSetupStep] = useState<string>();
   const pendingG = useRef(false);
 
+  // The coordinator's name is the org's, not a constant — until /api/state lands there is no
+  // honest default, so the picker opens on whoever it says leads this org.
+  const coordinator = state?.coordinator ?? "";
   const openChat = (target: string, seed?: string) => {
-    setChatTarget(target);
+    setChatTarget(target || coordinator);
     setChatSeed(seed);
     setChatOpen(true);
   };
@@ -83,7 +86,7 @@ export function App() {
         needsYou={attention?.length ?? 0} mailForYou={unread?.userInbox ?? 0} fullAutonomy={state?.fullAutonomy === true}
         onPalette={() => setPaletteSignal((n) => n + 1)} onChat={() => setChatOpen((v) => !v)}
       />
-      <div className={show("home")}><Home events={events} attention={attention} connected={connected} onOpenChat={openChat} /></div>
+      <div className={show("home")}><Home events={events} attention={attention} connected={connected} coordinator={coordinator} onOpenChat={openChat} /></div>
       <div className={show("goals")}><Goals events={events} route={route} onOpenChat={openChat} connected={connected /* WS4 */} /></div>
       <div className={show("staff")}><Staff events={events} route={route} onOpenChat={openChat} /></div>
       <div className={show("mail")}><Mail events={events} route={route} /></div>

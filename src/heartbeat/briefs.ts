@@ -52,6 +52,10 @@ export function assembleBrief(
   /** Agents in privateMemo departments (finance) — their mail never enters the vaulted, recall-
    *  indexed brief (mirrors the standup source carve-out; closes the money-wall leak via Mailroom). */
   privateAgents: Set<string> = new Set(),
+  /** Whose inbox the brief reads. Defaults to "neo" only so existing direct callers keep
+   *  working — runBrief always passes the org's real coordinator. An org that named its
+   *  coordinator otherwise was reading an empty inbox and briefing no standups at all. */
+  coordinator = "neo",
 ): BriefData {
   const nowMs = Date.parse(nowIso);
 
@@ -176,7 +180,7 @@ export function assembleBrief(
   let briefedMailIds: BriefData["briefedMailIds"];
   if (anchor === "morning") {
     // Drop private-dept senders before anything reaches the vaulted/indexed brief.
-    const unread = store.unreadMailFor("neo").filter((m) => !privateAgents.has(m.from_agent));
+    const unread = store.unreadMailFor(coordinator).filter((m) => !privateAgents.has(m.from_agent));
     const su = unread.filter((m) => m.kind === "standup")
       .map((m) => ({ lead: m.from_agent, text: m.body.replace(/\n+/g, " / ").slice(0, 400) }));
     if (su.length) standups = su;
@@ -282,6 +286,8 @@ export function renderBriefNote(d: BriefData, narration: string): string {
 }
 
 export interface BriefRunnerDeps {
+  /** The org's coordinator — whose mailbox the brief reads. Not always "neo". */
+  coordinator: string;
   store: Store;
   bus: EventBus;
   vault: VaultWriter;
@@ -308,14 +314,14 @@ export async function runBrief(deps: BriefRunnerDeps, anchor: "morning" | "eveni
   // the brief sink is excluded from the brief AND left unread (never vaulted/indexed; not
   // silently consumed by the mark-read sweep). personal.finance denies brief — money-wall parity.
   const privateAgents = new Set<string>();
-  for (const m of deps.store.unreadMailFor("neo")) {
+  for (const m of deps.store.unreadMailFor(deps.coordinator)) {
     if (privateAgents.has(m.from_agent)) continue;
     const label = deps.labelOf?.(m.from_agent) ?? "org.internal";
     if (wallVerdict(deps.policy, { labels: [label], sink: "brief" }, "brief:private-mail", m.body) === "deny") {
       privateAgents.add(m.from_agent);
     }
   }
-  const data = assembleBrief(deps.store, anchor, now.toISOString(), since, privateAgents);
+  const data = assembleBrief(deps.store, anchor, now.toISOString(), since, privateAgents, deps.coordinator);
   data.sensesNeedingReauth = deps.degraded?.() ?? [];
   deps.store.kvSet("brief:last-ts", now.toISOString()); // window always advances — no overlaps, no gaps
 

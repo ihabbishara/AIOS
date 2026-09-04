@@ -34,7 +34,7 @@ function setup() {
     resetSession: () => {},
   };
 
-  const router = new MessageRouter({
+  const router = new MessageRouter({ coordinator: "neo",
     moderator: moderator as never,
     directChats: directChats as never,
     chatBindings: new Map(),
@@ -45,7 +45,7 @@ function setup() {
   const chatBindings = new Map([
     ["tg:g", { agents: ["maya"], mentionOnly: true }],
   ]);
-  const routerWithMentionOnlyBinding = new MessageRouter({
+  const routerWithMentionOnlyBinding = new MessageRouter({ coordinator: "neo",
     moderator: moderator as never,
     directChats: directChats as never,
     chatBindings,
@@ -127,7 +127,7 @@ describe("route.decision", () => {
     const chatBindings = new Map([
       ["tg:g", { agents: ["vulcan", "neo"], mentionOnly: false }],
     ]);
-    const router = new MessageRouter({
+    const router = new MessageRouter({ coordinator: "neo",
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
       chatBindings,
@@ -156,7 +156,7 @@ describe("route.decision", () => {
     const chatBindings = new Map([
       ["tg:g", { agents: ["vulcan"], mentionOnly: false }],
     ]);
-    const router = new MessageRouter({
+    const router = new MessageRouter({ coordinator: "neo",
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
       chatBindings,
@@ -220,7 +220,7 @@ describe("route.decision", () => {
       ["tg:group-42", { agents: ["finance"], mentionOnly: false }],
     ]);
 
-    const router = new MessageRouter({
+    const router = new MessageRouter({ coordinator: "neo",
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
       chatBindings,
@@ -267,7 +267,7 @@ describe("router attachment forwarding", () => {
       resetSession: () => {},
     };
 
-    const router = new MessageRouter({
+    const router = new MessageRouter({ coordinator: "neo",
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
       chatBindings: new Map(),
@@ -308,7 +308,7 @@ describe("router attachment forwarding", () => {
     };
 
     const chatBindings = new Map([["tg:g", { agents: ["vulcan"], mentionOnly: false }]]);
-    const router = new MessageRouter({
+    const router = new MessageRouter({ coordinator: "neo",
       moderator: { handle: async () => "mod", resetSession: () => {} } as never,
       directChats: directChats as never,
       chatBindings,

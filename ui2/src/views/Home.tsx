@@ -27,9 +27,11 @@ const SPLIT = { high: [68, 12], mid: [50, 30], low: [32, 48] } as const;
 const COUNT = ["Nothing", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 const spell = (n: number) => COUNT[n] ?? String(n);
 
-export function Home({ events, attention, connected, onOpenChat }: {
+export function Home({ events, attention, connected, coordinator, onOpenChat }: {
   events: StoredEvent[];
   attention: AttentionItem[] | undefined;
+  /** The org's coordinator, by name — the brief's author. Not always "neo". */
+  coordinator: string;
   /** SSE health. False freezes all motion — a moving screen on stale data lies (spec §9). */
   connected: boolean;
   onOpenChat: (target: string, seed?: string) => void;
@@ -59,8 +61,8 @@ export function Home({ events, attention, connected, onOpenChat }: {
   // Uptime only ever grows, so no event invalidates it — it rides the 30s tick.
   const { data: health } = useFetch(() => api.health(), [Math.floor(now.getTime() / 30_000)]);
 
-  // neo is the coordinator; "hermes" matches pre-rename brief threads still in the store.
-  const brief = mine?.threads.find((t) => t.lastFrom === "neo" || t.lastFrom === "hermes");
+  // The brief comes from the coordinator; "hermes" matches pre-rename threads still in the store.
+  const brief = mine?.threads.find((t) => t.lastFrom === coordinator || t.lastFrom === "hermes");
 
   const visible = useMemo(
     () => (attention ?? []).filter((i) => !handled.has(i.id)),
@@ -151,7 +153,7 @@ export function Home({ events, attention, connected, onOpenChat }: {
       if (!selected) return;
       if (e.key === "a" && selected.actions.includes("approve")) void act(selected, "approve");
       if (e.key === "r" && selected.actions.includes("reject")) void act(selected, "reject");
-      if (e.key === "d") onOpenChat("neo", `About "${selected.title}" (${selected.kind} ${selected.id}): `);
+      if (e.key === "d") onOpenChat("", `About "${selected.title}" (${selected.kind} ${selected.id}): `);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
