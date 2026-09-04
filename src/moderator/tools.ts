@@ -93,6 +93,8 @@ export interface ModeratorToolsDeps {
   handOff: (agent: string, task: string, origin: { channel: string; chatId: string }) => Promise<{ text: string }>;
   /** Agent names from the registry — used to build the hand_off tool's enum. */
   agentNames: string[];
+  /** The coordinator's own name — mail it sends is from this agent. Not always "neo". */
+  coordinator: string;
   gate: ActionGate;
   /** Registered executor types, for the tool description. */
   actionTypes: string[];
@@ -243,7 +245,7 @@ export function buildModeratorServer(deps: ModeratorToolsDeps) {
     { to: z.enum(deps.agentNames as [string, ...string[]]), kind: z.enum(["request", "note"]), body: z.string() },
     async (a) =>
       text(deps.mailbox
-        ? deps.mailbox.send({ from: "neo", origin: deps.origin, goalDepth: 0 }, a)
+        ? deps.mailbox.send({ from: deps.coordinator, origin: deps.origin, goalDepth: 0 }, a)
         : "Refused: the mailbox is disabled."),
   );
 

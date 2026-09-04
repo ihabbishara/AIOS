@@ -103,11 +103,11 @@ export async function runStandups(deps: StandupDeps): Promise<number> {
     try {
       const id = randomUUID();
       deps.store.insertMail({
-        id, from_agent: lead, to_agent: "neo", kind: "standup", body: res.text.slice(0, 1200),
+        id, from_agent: lead, to_agent: deps.registry.coordinator, kind: "standup", body: res.text.slice(0, 1200),
         goal_id: null, origin_channel: "system", origin_chat_id: "standup",
         chain_depth: 1, status: "unread", error: null,
       });
-      deps.onEvent?.({ type: "mail.sent", id, from: lead, to: "neo", kind: "standup" });
+      deps.onEvent?.({ type: "mail.sent", id, from: lead, to: deps.registry.coordinator, kind: "standup" });
       written++;
     } catch (err) {
       // Contained per dept, as the run failure is: one bad mail write must not cost the

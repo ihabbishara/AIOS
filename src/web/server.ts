@@ -284,14 +284,20 @@ export function startWebServer(
             uptimeMs: Date.now() - startedAt,
             voice: deps.voice.available(),
             fullAutonomy: config.fullAutonomy,
+            coordinator: registry.coordinator,
+            // The moderator row is synthesised because the coordinator answers through a
+            // persistent session rather than the one-shot specialist path — but it must carry
+            // the org's OWN coordinator name. Hardcoding "neo" listed a phantom agent for every
+            // org that named theirs anything else, and left the real one showing as a
+            // specialist beside it (observed 2026-09-04 on an org whose coordinator is `nova`).
             agents: [
               {
-                name: "neo", kind: "moderator",
+                name: registry.coordinator, kind: "moderator",
                 description: "Chief of Staff — discusses, routes, runs playbooks, hands off, reports.",
                 tools: ["run_playbook", "hand_off", "job_status", "vault"], guarded: false,
               },
               ...[...registry.agents.values()]
-                .filter((a) => a.manifest.name !== "neo")
+                .filter((a) => a.manifest.name !== registry.coordinator)
                 .map((a) => ({
                   name: a.manifest.name, kind: "specialist",
                   title: a.manifest.title, description: a.role.description,

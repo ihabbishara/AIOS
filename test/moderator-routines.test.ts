@@ -18,7 +18,7 @@ const callText = async (h: { handler: ToolHandler }, a: unknown) => (await h.han
 function build(store: Store) {
   const deps: ModeratorToolsDeps = {
     goals: null as unknown as GoalEngine,
-    departments: [],
+    departments: [], coordinator: "neo",
     store,
     vault: null as unknown as VaultWriter,
     projectsRoot: "/tmp",

@@ -114,6 +114,7 @@ describe("runBrief", () => {
       narrate: async (_anchor, _dataJson) => "Narrated brief.",
       send: async (channel, chatId, text) => { sent.push({ channel, chatId, text }); },
       primary: { channel: "cli", chatId: "local" },
+      coordinator: "neo",
       nowFn: () => new Date(2026, 5, 12, 7, 30),
       ...over,
     };

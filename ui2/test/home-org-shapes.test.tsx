@@ -45,7 +45,7 @@ describe("Home against a realistic org", () => {
       "/api/health": { uptimeMs: 22_320_000, voice: false, senses: [], sseClients: 1, dbBytes: 0, policyMode: "audit", policyViolations: 0 },
       "/api/mail/mine": { threads: [{ threadId: "t1", lastFrom: "neo", subject: "Daily brief", ts: "2026-08-02T08:00:00.000Z", unread: 0 }] },
     });
-    const { container } = render(<Home events={[]} attention={[]} connected={true} onOpenChat={() => {}} />);
+    const { container } = render(<Home events={[]} attention={[]} connected={true} coordinator="neo" onOpenChat={() => {}} />);
     expect(await screen.findByText(/Two are working/)).toBeTruthy();
     expect(container.querySelectorAll("[data-dot]")).toHaveLength(8);
     expect(container.querySelectorAll("[data-mark]")).toHaveLength(4);

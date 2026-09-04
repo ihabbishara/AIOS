@@ -147,6 +147,7 @@ export class Moderator {
       origin: this.origin,
       handOff: this.deps.handOff,
       agentNames,
+      coordinator: registry.coordinator,
       media: this.deps.media,
       gate: this.deps.gate,
       actionTypes: this.deps.actionTypes,
