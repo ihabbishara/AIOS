@@ -179,11 +179,20 @@ export function Home({ events, attention, connected, onOpenChat }: {
               ? "Resting."
               : `${spell(working)} ${working === 1 ? "is" : "are"} working.`}
           <br />
-          <span className={needs > 0 ? "text-accent" : "text-dim"}>
-            {needs === 0
-              ? "Nothing needs you."
-              : `${spell(needs)} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you.`}
-          </span>
+          {/* The count was the largest thing on the screen and the only way to act on it was a
+              strip at the very bottom of the page. When something is waiting the headline IS
+              the way in — you read it first, so it should be what you can click. */}
+          {needs === 0 ? (
+            <span className="text-dim">Nothing needs you.</span>
+          ) : (
+            <button
+              onClick={() => setSheet(true)}
+              className="text-accent text-left hover:opacity-80 transition-opacity"
+              title="Open the queue"
+            >
+              {`${spell(needs)} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you.`}
+            </button>
+          )}
         </div>
         <div className="font-mono text-[11px] text-dim mt-2 flex items-center gap-2 flex-wrap">
           <span>{date}</span>

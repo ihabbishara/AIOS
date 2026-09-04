@@ -14,6 +14,16 @@ const PIN: Record<ClockMark["kind"], string> = {
 };
 
 const pct = (minutes: number) => `${(minutes / 1440) * 100}%`;
+
+/** A label centred on its pin hangs half its width to each side, so one near midnight or
+ *  midnight-again runs off the page. Inside the first/last tenth of the day it anchors to that
+ *  edge instead. Belt to shortLabel's braces: the model bounds the TEXT, this bounds the BOX. */
+function anchorX(minutes: number): { transform: string; textAlign: "left" | "center" | "right" } {
+  const p = minutes / 1440;
+  if (p < 0.1) return { transform: "translateX(0)", textAlign: "left" };
+  if (p > 0.9) return { transform: "translateX(-100%)", textAlign: "right" };
+  return { transform: "translateX(-50%)", textAlign: "center" };
+}
 const AXIS_TOP = 34;      // px from the band's top to the axis line
 const LANE_H = 20;        // px per label lane below the axis
 const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
@@ -65,8 +75,13 @@ export function Clock({ marks, nowMinutes, live }: {
               style={{ left: pct(m.minutes), top: AXIS_TOP + 5, height: 6 + m.lane * LANE_H }}
             />
             <div
-              className="absolute -translate-x-1/2 whitespace-nowrap text-center"
-              style={{ left: pct(m.minutes), top: AXIS_TOP + 13 + m.lane * LANE_H }}
+              className="absolute whitespace-nowrap max-w-[52ch] overflow-hidden text-ellipsis"
+              title={m.full ?? undefined}
+              style={{
+                left: pct(m.minutes),
+                top: AXIS_TOP + 13 + m.lane * LANE_H,
+                ...anchorX(m.minutes),
+              }}
             >
               <span className="font-mono text-[10px] text-dim">{m.hhmm}</span>{" "}
               <span className={`text-[11.5px] ${m.kind === "next" ? "text-strong" : m.kind === "past" ? "text-dim" : "text-fg"}`}>
