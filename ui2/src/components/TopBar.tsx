@@ -37,9 +37,11 @@ export function TopBar({ section, budget, connected, needsYou, mailForYou = 0, f
       </nav>
       <div className="ml-auto flex items-center gap-4">
         {/* The owner must SEE the mode: unguarded agents are running without allowlist
-            enforcement (AIOS_FULL_AUTONOMY=1). Small, persistent, honest. */}
+            enforcement. Small, persistent, honest — and since autonomy became the DEFAULT this
+            badge is the only thing on screen that says so, which is why it names the way OUT
+            rather than the way in. */}
         {fullAutonomy && (
-          <span title="Unguarded agents run with full tool access — AIOS_FULL_AUTONOMY=1 (System → Config)"
+          <span title="Unguarded agents run with full tool access. Set AIOS_FULL_AUTONOMY=0 to restrict them (System → Config → Security, then restart)"
             className="text-[10px] tracking-wide text-accent border border-accent/40 rounded px-1.5 py-0.5 select-none">
             FULL AUTONOMY
           </span>

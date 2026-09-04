@@ -314,16 +314,21 @@ ask for it once per browser.
 
 ## Full autonomy mode
 
-By default agents run **granular**: each agent can use only the tools its capabilities grant,
-and a request for anything else is denied, parked for review, and turned into a
-`permission.grant` you approve by hand. That is the safe default — and it is also why a job
-can stall for hours on a missing tool.
+**Agents are autonomous by default.** Every **unguarded, non-sandboxed** agent runs with the
+SDK's full built-in surface — shell, file access, network — with no allowlist enforcement, so
+a job never stalls waiting for you to approve a tool. A persistent **FULL AUTONOMY** badge sits
+in the top bar so the mode is always visible.
 
-`AIOS_FULL_AUTONOMY=1` (System → Config → Security, then restart) flips the trade. While it
-is on, every **unguarded, non-sandboxed** agent runs with the SDK's full built-in surface —
-shell, file access, network — with no allowlist enforcement, so the deny → review → grant →
-retry loop never happens for them. A persistent **FULL AUTONOMY** badge shows in the top bar
-while the mode is active.
+The alternative is **granular** mode: each agent may use only the tools its capabilities grant,
+and a request for anything else is denied, parked for review, and turned into a
+`permission.grant` you approve by hand. It is the more restrictive setting, and it is also why
+a job can stall for hours on a missing tool. Set `AIOS_FULL_AUTONOMY=0` (System → Config →
+Security, then restart) to switch to it. `false`, `no` and `off` work too — turning autonomy
+**off** is deliberately forgiving, so a value meant to restrict your agents never does the
+opposite. Any other value, including unset, leaves autonomy on.
+
+Reach for granular mode when you want the guard rails everywhere rather than on the agents you
+chose. The per-agent levers below work in either mode.
 
 What it does **not** change:
 

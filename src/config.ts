@@ -19,10 +19,10 @@ export interface Config {
   workspaceRoot: string;
   codeReadRoots: string[];
   codeDisabled: boolean;
-  /** Full-autonomy mode (AIOS_FULL_AUTONOMY=1): unguarded, non-sandbox agents run
-   *  bypassPermissions — the SDK auto-approves built-in tools and the denial observer
+  /** Full autonomy — ON unless AIOS_FULL_AUTONOMY opts out. Unguarded, non-sandbox agents run
+   *  bypassPermissions: the SDK auto-approves built-in tools and the denial observer
    *  self-disables. Guards and sandbox confinement still apply; allowedTools stays the
-   *  truthful granted surface. */
+   *  truthful granted surface. See parseAutonomy for the opt-out spellings. */
   fullAutonomy: boolean;
   telegramToken?: string;
   slackBotToken?: string;
@@ -234,6 +234,23 @@ function packageAsset(root: string, ...segments: string[]): string {
   return existsSync(shipped) ? shipped : local;
 }
 
+/**
+ * Autonomy is the default (2026-09-04): an agent the operator has not deliberately fenced runs
+ * unblocked, and confinement is opt-in through guard capabilities and the code sandbox. Before
+ * this, a fresh install ran granular and every new user met the deny → review → grant → retry
+ * stall on their first job, which reads as the product being broken rather than careful.
+ *
+ * Opting OUT is deliberately forgiving where opting in never had to be. The old parser was
+ * `=== "1"`, so `AIOS_FULL_AUTONOMY=true` silently meant OFF — harmless when the fallback was
+ * restriction, and a trap now that the fallback is autonomy: someone writing `false` to lock
+ * their agents down must not get the opposite. So every ordinary spelling of "no" turns it off,
+ * and anything else — including unset, empty, or a typo — leaves it on, which is the state the
+ * top bar badge is there to keep visible.
+ */
+export function parseAutonomy(raw: string | undefined): boolean {
+  return !["0", "false", "no", "off"].includes((raw ?? "").trim().toLowerCase());
+}
+
 export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process.cwd()): Config {
   const home = homedir();
   const dataDir = process.env.AIOS_DATA_DIR ?? join(root, "data");
@@ -251,7 +268,7 @@ export function buildConfig(env: NodeJS.ProcessEnv = process.env, root = process
     codeReadRoots: (env.AIOS_CODE_READ_ROOTS ?? projectsRoot)
       .split(",").map((s) => s.trim()).filter(Boolean),
     codeDisabled: env.AIOS_CODE_DISABLED === "1",
-    fullAutonomy: env.AIOS_FULL_AUTONOMY === "1",
+    fullAutonomy: parseAutonomy(env.AIOS_FULL_AUTONOMY),
     telegramToken: process.env.TELEGRAM_BOT_TOKEN,
     slackBotToken: process.env.SLACK_BOT_TOKEN,
     slackAppToken: process.env.SLACK_APP_TOKEN,

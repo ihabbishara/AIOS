@@ -10,7 +10,7 @@ import { Store } from "../src/store/db.js";
 import { VaultWriter } from "../src/vault/writer.js";
 import { loadRegistry, isGuarded } from "../src/agents/registry/loader.js";
 import { buildExtras } from "../src/agents/registry/extras.js";
-import { buildConfig, loadConfig } from "../src/config.js";
+import { buildConfig, loadConfig, parseAutonomy } from "../src/config.js";
 import { makeResolveAgent } from "../src/agents/resolve.js";
 import { withDenialObserver } from "../src/agents/permissions.js";
 import { withMailOptions } from "../src/agents/runner.js";
@@ -35,11 +35,26 @@ const origin = { channel: "web", chatId: "ui" };
 const UNGUARDED = "janus";
 
 describe("AIOS_FULL_AUTONOMY", () => {
-  it("default off: buildConfig parses AIOS_FULL_AUTONOMY — unset/0/anything → false, exactly '1' → true", () => {
-    expect(buildConfig({} as NodeJS.ProcessEnv, "/tmp/x").fullAutonomy).toBe(false);
-    expect(buildConfig({ AIOS_FULL_AUTONOMY: "0" } as never, "/tmp/x").fullAutonomy).toBe(false);
-    expect(buildConfig({ AIOS_FULL_AUTONOMY: "true" } as never, "/tmp/x").fullAutonomy).toBe(false);
+  it("default ON: an unset, empty or unrecognised value leaves autonomy on", () => {
+    expect(buildConfig({} as NodeJS.ProcessEnv, "/tmp/x").fullAutonomy).toBe(true);
+    expect(buildConfig({ AIOS_FULL_AUTONOMY: "" } as never, "/tmp/x").fullAutonomy).toBe(true);
     expect(buildConfig({ AIOS_FULL_AUTONOMY: "1" } as never, "/tmp/x").fullAutonomy).toBe(true);
+    expect(buildConfig({ AIOS_FULL_AUTONOMY: "yes" } as never, "/tmp/x").fullAutonomy).toBe(true);
+  });
+
+  it("opts out on every ordinary spelling of no — the direction that must never be missed", () => {
+    // The old parser was `=== "1"`, so `true` meant OFF. Harmless when the fallback was
+    // restriction; a trap now that it is autonomy. Someone writing `false` to lock their agents
+    // down must not get the opposite of what they asked for.
+    for (const raw of ["0", "false", "no", "off", "FALSE", " Off ", "No"]) {
+      expect(buildConfig({ AIOS_FULL_AUTONOMY: raw } as never, "/tmp/x").fullAutonomy, raw).toBe(false);
+    }
+  });
+
+  it("parseAutonomy is the one place the spellings live", () => {
+    expect(parseAutonomy(undefined)).toBe(true);
+    expect(parseAutonomy("0")).toBe(false);
+    expect(parseAutonomy("true")).toBe(true);
   });
 
   it("flag on: unguarded non-sandbox agent flips to bypassPermissions with allowDangerouslySkipPermissions", () => {
