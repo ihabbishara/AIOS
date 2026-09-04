@@ -35,26 +35,38 @@ export function Setup({ step, onStepChange }: { step: string; onStepChange: (s: 
   };
 
   return (
-    <div className="h-full overflow-y-auto flex flex-col items-center justify-center gap-6 p-6">
-      <Rail step={step} />
-      {step === "welcome" && <Welcome onNext={onStepChange} />}
-      {step === "auth" && <Auth onNext={onStepChange} />}
-      {step === "workspace" && <Workspace onNext={onStepChange} />}
-      {step === "connect" && <Connect onNext={onStepChange} />}
-      {step === "interview" && <Interview onNext={onStepChange} />}
-      {step === "review" && <Review onNext={onStepChange} />}
-      {step === "first-job" && <FirstJob onDone={finish} />}
-      {step === "done" && <Done summary={summary} booted={booted} />}
-      {/* Provision is not a screen the user is meant to sit on: /api/onboarding/provision moves
-          through it and lands on first-job in one call. It is reachable only by reloading into a
-          wizard that crashed between those two writes, which the server then finishes on the next
-          POST — so this says what is happening rather than offering a button that would re-run it. */}
-      {step === "provision" && (
-        <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
-          <div className="text-strong text-[15px]">{LABELS.provision}</div>
-          <p className="leading-relaxed">Creating your org…</p>
-        </div>
-      )}
+    // Two elements, deliberately. Centering and scrolling cannot live on the SAME box: with
+    // `justify-center` on the scroller, content taller than the viewport is centered, which
+    // pushes its top above scrollTop 0 — a position no scroll can reach. Measured on the connect
+    // step at 687px: scrollHeight 1213, and the step rail sitting at -501px with the scrollbar
+    // already at the top. The card began mid-sentence and its heading was simply gone.
+    //
+    // So the scroller stays a plain block, and centering happens on an inner box that is at
+    // LEAST full height. Short steps (welcome, auth) still sit centered because min-h-full
+    // leaves free space for justify-center to distribute; tall ones (connect, review) grow past
+    // it, leaving none, so content starts at the top and every pixel is reachable.
+    <div className="h-full overflow-y-auto">
+      <div className="min-h-full flex flex-col items-center justify-center gap-6 p-6">
+        <Rail step={step} />
+        {step === "welcome" && <Welcome onNext={onStepChange} />}
+        {step === "auth" && <Auth onNext={onStepChange} />}
+        {step === "workspace" && <Workspace onNext={onStepChange} />}
+        {step === "connect" && <Connect onNext={onStepChange} />}
+        {step === "interview" && <Interview onNext={onStepChange} />}
+        {step === "review" && <Review onNext={onStepChange} />}
+        {step === "first-job" && <FirstJob onDone={finish} />}
+        {step === "done" && <Done summary={summary} booted={booted} />}
+        {/* Provision is not a screen the user is meant to sit on: /api/onboarding/provision moves
+            through it and lands on first-job in one call. It is reachable only by reloading into a
+            wizard that crashed between those two writes, which the server then finishes on the next
+            POST — so this says what is happening rather than offering a button that would re-run it. */}
+        {step === "provision" && (
+          <div className="panel w-full max-w-md p-6 flex flex-col gap-3 text-center">
+            <div className="text-strong text-[15px]">{LABELS.provision}</div>
+            <p className="leading-relaxed">Creating your org…</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
