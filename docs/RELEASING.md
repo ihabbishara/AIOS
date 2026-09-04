@@ -1,5 +1,12 @@
 # Releasing AIOS to npm
 
+> **Not currently published.** The package was removed from the registry on 2026-09-04; AIOS is
+> distributed by cloning this repo (see the README's Install section). Everything below still
+> applies the day it goes back — every section is something that actually went wrong once — and
+> the packaging itself is still exercised on every run by `test/publish-allowlist.test.ts`, which
+> checks what `npm pack` really produces. Note that `0.1.0` and `0.1.1` are permanently claimed
+> even though they are gone: unpublishing frees the bytes, never the version number.
+
 Published as **[`@ihabbishara/aios`](https://www.npmjs.com/package/@ihabbishara/aios)** — a scoped
 package, because both `aios` and `create-aios` were already taken on the public registry.
 

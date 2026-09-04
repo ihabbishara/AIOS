@@ -106,30 +106,28 @@ Polling: `AIOS_GMAIL_POLL_SECONDS` (120), `AIOS_CALENDAR_POLL_SECONDS` (300),
 
 ## Install
 
-Published as [`@ihabbishara/aios`](https://www.npmjs.com/package/@ihabbishara/aios). It is a
-daemon with its own database, vault and org, so give it a directory of its own rather than adding
-it to an existing project:
+Install from source. It is a daemon with its own database, vault and org, so give it a directory
+of its own rather than adding it to an existing project. Node 22.5 or newer.
 
 ```bash
-mkdir my-aios && cd my-aios
-npm init -y && npm install @ihabbishara/aios
-cp node_modules/@ihabbishara/aios/.env.example .env
-npx aios
-```
-
-### Or from source
-
-```bash
-git clone <this repo> && cd AIOS
+git clone git@github.com:ihabbishara/AIOS.git && cd AIOS
 npm install
 cd ui2 && npm install && npm run build && cd ..   # the browser UI, wizard included
 cp .env.example .env
 npm run dev
 ```
 
-Either way, a fresh install boots into a browser setup wizard at `http://localhost:4280` — token
-first, then the Org Architect interviews you and provisions your own staff. You do not inherit
-anyone else's: `agents/` is your data, created on first run, and is not part of the package.
+The `ui2` build is not optional — it is both the cockpit and the setup wizard, so without it the
+very first screen of onboarding has nothing to serve.
+
+A fresh clone boots into a browser setup wizard at `http://localhost:4280` — token first, then
+the Org Architect interviews you and provisions your own staff. You do not inherit anyone else's:
+`agents/` is untracked, so a clone arrives empty and the wizard creates your org on first run.
+That empty `agents/` is also what puts the daemon into setup mode, so nothing else has to be
+configured to reach the wizard.
+
+There is no npm package. One was published as `@ihabbishara/aios` and has been removed, so
+`npm install @ihabbishara/aios` will 404 — clone instead.
 
 Releasing a new version is documented in [docs/RELEASING.md](docs/RELEASING.md).
 
