@@ -1,6 +1,6 @@
 {
   "name": "@ihabbishara/aios",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local multi-agent AI-OS daemon",
   "main": "dist/src/index.js",
   "bin": { "aios": "dist/src/index.js" },
